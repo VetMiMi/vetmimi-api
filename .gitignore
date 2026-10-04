@@ -1,0 +1,12 @@
+.env
+.env.*
+!.env.example
+bin/
+.worktrees/
+*.test
+coverage.out
+.DS_Store
+deploy/terraform/.terraform/
+deploy/terraform/*.tfstate*
+deploy/terraform/*.tfvars
+!deploy/terraform/*.auto.tfvars.example

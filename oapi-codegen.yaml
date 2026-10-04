@@ -1,0 +1,10 @@
+# oapi-codegen configuration; run through `make generate`.
+package: gen
+output: internal/httpapi/gen/api.gen.go
+generate:
+  models: true
+  chi-server: true
+  strict-server: true
+  embedded-spec: true
+output-options:
+  skip-prune: false

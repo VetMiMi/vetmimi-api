@@ -1,0 +1,61 @@
+openapi: 3.1.0
+info:
+  title: VetMiMi API
+  version: 0.1.0
+  description: >-
+    The API behind VetMiMi, Daw Mi's art therapy practice. All timestamps are
+    UTC in RFC 3339; responses that describe appointments or availability also
+    carry the practice timezone.
+servers:
+  - url: http://localhost:8080
+tags:
+  - name: health
+paths:
+  /healthz:
+    get:
+      tags: [health]
+      operationId: getHealthz
+      summary: Liveness check
+      responses:
+        "200":
+          description: The process is up.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Health"
+components:
+  schemas:
+    Health:
+      type: object
+      required: [status]
+      properties:
+        status:
+          type: string
+          enum: [ok]
+    Problem:
+      type: object
+      description: RFC 9457 problem details, returned by every error response.
+      required: [type, title, status, code]
+      properties:
+        type:
+          type: string
+          format: uri
+        title:
+          type: string
+        status:
+          type: integer
+        detail:
+          type: string
+        code:
+          type: string
+          description: Stable machine-readable code, e.g. slot_unavailable.
+        errors:
+          type: array
+          items:
+            type: object
+            required: [field, message]
+            properties:
+              field:
+                type: string
+              message:
+                type: string

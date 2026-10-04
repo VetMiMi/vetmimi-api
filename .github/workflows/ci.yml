@@ -1,0 +1,88 @@
+name: Continuous integration
+
+on:
+  pull_request:
+  push:
+    branches: [main]
+
+jobs:
+  api:
+    name: API checks
+    runs-on: ubuntu-latest
+    services:
+      postgres:
+        image: postgres:17
+        env:
+          POSTGRES_USER: vetmimi
+          POSTGRES_PASSWORD: vetmimi
+          POSTGRES_DB: vetmimi_test
+        ports: ["5432:5432"]
+        options: >-
+          --health-cmd "pg_isready -U vetmimi"
+          --health-interval 5s --health-timeout 5s --health-retries 10
+      redis:
+        image: redis:7
+        ports: ["6379:6379"]
+        options: >-
+          --health-cmd "redis-cli ping"
+          --health-interval 5s --health-timeout 5s --health-retries 10
+    env:
+      DATABASE_URL_TEST: postgres://vetmimi:vetmimi@localhost:5432/vetmimi_test?sslmode=disable
+      REDIS_URL_TEST: redis://localhost:6379/1
+    steps:
+      - uses: actions/checkout@v5
+      - uses: actions/setup-go@v6
+        with:
+          go-version-file: go.mod
+          cache: true
+      - run: make tools
+      - run: make lint
+      - run: make generate-check
+      - run: go build ./...
+      - run: go test -p 2 -count=1 -race ./...
+
+  deploy-config:
+    name: Deployment checks
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+      - uses: hashicorp/setup-terraform@v3
+      - run: docker compose -f deploy/compose/docker-compose.yml config -q
+        if: hashFiles('deploy/compose/docker-compose.yml') != ''
+      - run: terraform -chdir=deploy/terraform fmt -check -recursive
+        if: hashFiles('deploy/terraform/*.tf') != ''
+      - run: terraform -chdir=deploy/terraform init -backend=false && terraform -chdir=deploy/terraform validate
+        if: hashFiles('deploy/terraform/*.tf') != ''
+
+  commits:
+    name: Commit checks
+    runs-on: ubuntu-latest
+    if: github.event_name == 'pull_request'
+    steps:
+      - uses: actions/checkout@v5
+        with:
+          fetch-depth: 0
+      - name: Check commit messages and the pull request title follow Conventional Commits
+        env:
+          BASE_REF: ${{ github.base_ref }}
+          PR_TITLE: ${{ github.event.pull_request.title }}
+        run: |
+          git fetch --quiet origin "$BASE_REF"
+          pattern='^(feat|fix|perf|refactor|style|docs|chore|test|build|ci|revert)(\([a-z0-9-]+\))?!?: .+'
+          result=0
+          if ! printf '%s' "$PR_TITLE" | grep -Eq "$pattern"; then
+            echo "::error::Pull request title \"$PR_TITLE\" should look like \"feat(booking): add slot generation\"; it becomes the squash commit."
+            result=1
+          fi
+          for sha in $(git rev-list --no-merges "origin/$BASE_REF..HEAD"); do
+            subject=$(git log -1 --format=%s "$sha")
+            if ! printf '%s' "$subject" | grep -Eq "$pattern"; then
+              echo "::error::$(git log -1 --format=%h "$sha"): \"$subject\" should look like \"feat(booking): add slot generation\"."
+              result=1
+            fi
+            if git log -1 --format=%b "$sha" | grep -Eiq '^(co-authored-by|generated with)'; then
+              echo "::error::$(git log -1 --format=%h "$sha") carries a tool attribution trailer; remove it."
+              result=1
+            fi
+          done
+          exit $result
