@@ -1,4 +1,8 @@
 # oapi-codegen configuration; run through `make generate`.
+#
+# The whole contract lives in openapi.yaml, but the strict server is generated
+# only for the tags whose handlers exist. Each issue that implements a domain
+# adds its tag here, so the build never carries 100 unimplemented stubs.
 package: gen
 output: internal/httpapi/gen/api.gen.go
 generate:
@@ -7,4 +11,8 @@ generate:
   strict-server: true
   embedded-spec: true
 output-options:
-  skip-prune: false
+  include-tags:
+    - health
+  # The WebSocket upgrade is a plain net/http handler, not a strict operation.
+  exclude-operation-ids:
+    - connectVideoRoom

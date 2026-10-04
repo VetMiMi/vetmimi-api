@@ -21,13 +21,67 @@ import (
 
 // Defines values for HealthStatus.
 const (
-	Ok HealthStatus = "ok"
+	HealthStatusOk HealthStatus = "ok"
 )
 
 // Valid indicates whether the value is a known member of the HealthStatus enum.
 func (e HealthStatus) Valid() bool {
 	switch e {
-	case Ok:
+	case HealthStatusOk:
+		return true
+	default:
+		return false
+	}
+}
+
+// Defines values for ReadinessChecksPostgres.
+const (
+	ReadinessChecksPostgresFail ReadinessChecksPostgres = "fail"
+	ReadinessChecksPostgresOk   ReadinessChecksPostgres = "ok"
+)
+
+// Valid indicates whether the value is a known member of the ReadinessChecksPostgres enum.
+func (e ReadinessChecksPostgres) Valid() bool {
+	switch e {
+	case ReadinessChecksPostgresFail:
+		return true
+	case ReadinessChecksPostgresOk:
+		return true
+	default:
+		return false
+	}
+}
+
+// Defines values for ReadinessChecksRedis.
+const (
+	ReadinessChecksRedisFail ReadinessChecksRedis = "fail"
+	ReadinessChecksRedisOk   ReadinessChecksRedis = "ok"
+)
+
+// Valid indicates whether the value is a known member of the ReadinessChecksRedis enum.
+func (e ReadinessChecksRedis) Valid() bool {
+	switch e {
+	case ReadinessChecksRedisFail:
+		return true
+	case ReadinessChecksRedisOk:
+		return true
+	default:
+		return false
+	}
+}
+
+// Defines values for ReadinessStatus.
+const (
+	ReadinessStatusOk          ReadinessStatus = "ok"
+	ReadinessStatusUnavailable ReadinessStatus = "unavailable"
+)
+
+// Valid indicates whether the value is a known member of the ReadinessStatus enum.
+func (e ReadinessStatus) Valid() bool {
+	switch e {
+	case ReadinessStatusOk:
+		return true
+	case ReadinessStatusUnavailable:
 		return true
 	default:
 		return false
@@ -42,11 +96,60 @@ type Health struct {
 // HealthStatus defines model for Health.Status.
 type HealthStatus string
 
+// Problem RFC 9457 problem details, returned by every 4xx and 5xx response.
+type Problem struct {
+	// Code Stable machine-readable code, e.g. `slot_unavailable`.
+	Code string `json:"code"`
+
+	// Detail Explanation for an administrator or developer; never shown raw to visitors.
+	Detail *string `json:"detail,omitempty"`
+
+	// Errors Field-level problems.
+	Errors *[]struct {
+		// Field JSON pointer or parameter name.
+		Field   string `json:"field"`
+		Message string `json:"message"`
+	} `json:"errors,omitempty"`
+
+	// Status HTTP status code.
+	Status int `json:"status"`
+
+	// Title Short summary of the problem type.
+	Title string `json:"title"`
+
+	// Type URI identifying the problem type: `urn:vetmimi:problem:<code>`.
+	Type string `json:"type"`
+}
+
+// Readiness defines model for Readiness.
+type Readiness struct {
+	Checks struct {
+		Postgres ReadinessChecksPostgres `json:"postgres"`
+		Redis    ReadinessChecksRedis    `json:"redis"`
+	} `json:"checks"`
+	Status ReadinessStatus `json:"status"`
+}
+
+// ReadinessChecksPostgres defines model for Readiness.Checks.Postgres.
+type ReadinessChecksPostgres string
+
+// ReadinessChecksRedis defines model for Readiness.Checks.Redis.
+type ReadinessChecksRedis string
+
+// ReadinessStatus defines model for Readiness.Status.
+type ReadinessStatus string
+
+// InternalError RFC 9457 problem details, returned by every 4xx and 5xx response.
+type InternalError = Problem
+
 // ServerInterface represents all server handlers.
 type ServerInterface interface {
 	// GetHealthz Liveness check
 	// (GET /healthz)
 	GetHealthz(w http.ResponseWriter, r *http.Request)
+	// GetReadyz Readiness check
+	// (GET /readyz)
+	GetReadyz(w http.ResponseWriter, r *http.Request)
 }
 
 // Unimplemented server implementation that returns http.StatusNotImplemented for each endpoint.
@@ -56,6 +159,12 @@ type Unimplemented struct{}
 // GetHealthz Liveness check
 // (GET /healthz)
 func (_ Unimplemented) GetHealthz(w http.ResponseWriter, r *http.Request) {
+	w.WriteHeader(http.StatusNotImplemented)
+}
+
+// GetReadyz Readiness check
+// (GET /readyz)
+func (_ Unimplemented) GetReadyz(w http.ResponseWriter, r *http.Request) {
 	w.WriteHeader(http.StatusNotImplemented)
 }
 
@@ -73,6 +182,20 @@ func (siw *ServerInterfaceWrapper) GetHealthz(w http.ResponseWriter, r *http.Req
 
 	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		siw.Handler.GetHealthz(w, r)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
+// GetReadyz operation middleware
+func (siw *ServerInterfaceWrapper) GetReadyz(w http.ResponseWriter, r *http.Request) {
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.GetReadyz(w, r)
 	}))
 
 	for _, middleware := range siw.HandlerMiddlewares {
@@ -198,9 +321,14 @@ func HandlerWithOptions(si ServerInterface, options ChiServerOptions) http.Handl
 	r.Group(func(r chi.Router) {
 		r.Get(options.BaseURL+"/healthz", wrapper.GetHealthz)
 	})
+	r.Group(func(r chi.Router) {
+		r.Get(options.BaseURL+"/readyz", wrapper.GetReadyz)
+	})
 
 	return r
 }
+
+type InternalErrorApplicationProblemPlusJSONResponse Problem
 
 type GetHealthzRequestObject struct {
 }
@@ -223,11 +351,81 @@ func (response GetHealthz200JSONResponse) VisitGetHealthzResponse(w http.Respons
 	return err
 }
 
+type GetHealthz500ApplicationProblemPlusJSONResponse struct {
+	InternalErrorApplicationProblemPlusJSONResponse
+}
+
+func (response GetHealthz500ApplicationProblemPlusJSONResponse) VisitGetHealthzResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/problem+json")
+	w.WriteHeader(500)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type GetReadyzRequestObject struct {
+}
+
+type GetReadyzResponseObject interface {
+	VisitGetReadyzResponse(w http.ResponseWriter) error
+}
+
+type GetReadyz200JSONResponse Readiness
+
+func (response GetReadyz200JSONResponse) VisitGetReadyzResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(200)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type GetReadyz500ApplicationProblemPlusJSONResponse struct {
+	InternalErrorApplicationProblemPlusJSONResponse
+}
+
+func (response GetReadyz500ApplicationProblemPlusJSONResponse) VisitGetReadyzResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/problem+json")
+	w.WriteHeader(500)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type GetReadyz503JSONResponse Readiness
+
+func (response GetReadyz503JSONResponse) VisitGetReadyzResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(503)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
 // StrictServerInterface represents all server handlers.
 type StrictServerInterface interface {
 	// GetHealthz Liveness check
 	// (GET /healthz)
 	GetHealthz(ctx context.Context, request GetHealthzRequestObject) (GetHealthzResponseObject, error)
+	// GetReadyz Readiness check
+	// (GET /readyz)
+	GetReadyz(ctx context.Context, request GetReadyzRequestObject) (GetReadyzResponseObject, error)
 }
 
 type StrictHandlerFunc func(ctx context.Context, w http.ResponseWriter, r *http.Request, request any) (any, error)
@@ -293,19 +491,81 @@ func (sh *strictHandler) GetHealthz(w http.ResponseWriter, r *http.Request) {
 	}
 }
 
+// GetReadyz operation middleware
+func (sh *strictHandler) GetReadyz(w http.ResponseWriter, r *http.Request) {
+	var request GetReadyzRequestObject
+
+	handler := func(ctx context.Context, w http.ResponseWriter, r *http.Request, request interface{}) (interface{}, error) {
+		return sh.ssi.GetReadyz(ctx, request.(GetReadyzRequestObject))
+	}
+	for _, middleware := range sh.middlewares {
+		handler = middleware(handler, "GetReadyz")
+	}
+
+	response, err := handler(r.Context(), w, r, request)
+
+	if err != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, err)
+	} else if validResponse, ok := response.(GetReadyzResponseObject); ok {
+		if err := validResponse.VisitGetReadyzResponse(w); err != nil {
+			sh.options.ResponseErrorHandlerFunc(w, r, err)
+		}
+	} else if response != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, fmt.Errorf("unexpected response type: %T", response))
+	}
+}
+
 // Base64 encoded, compressed with deflate, json marshaled OpenAPI spec.
 // Stored as a slice of fixed-width chunks rather than one concatenated
 // const string: with thousands of chunks the chained `+` fold is several
 // times slower for the Go compiler than parsing a slice literal.
 var swaggerSpec = []string{
-	"ZFLBbhMxEP2V0YDEZZVdyKWYU1UErUQlhAqXKoeJM42n9drGng3aRvvvyLshOXDyk/1mnue9OaKNfYqB",
-	"gxY0RyzWcU8zvGXy6ipKOSbOKrxQlHSYEYehR/OI8QU3DeqYGA0WzRL2OE0NZv49SOZd5ZyqLry4fWar",
-	"OFWihKdYG+642CxJJQY0+OAYrr/fwZadhB38Yr2Xe2ngM/2Be3lXgLKCOs6URkiZrIrlFVx7Dyo9F6U+",
-	"VRLDz4cbkAA/vtzAer3++AkylxRD4QLqSGHR3TJQSlGC9tUOiBnoQOJpK150BPIlgqWcx6p6VpzFXmPg",
-	"FTaoor5Od/ps/T82eOBclpm61ftVh1ODMXGgJGhwPV81mEjdbGvrZudfK96z1qP6T9WWux0a/Mp6e6I0",
-	"eB6l8j50XT1sDMphrqSUvNi5tn0uMVxCruht5ic0+Ka9bEG7vJZ2kVgC+j+YlKPlUkAKDGk1x12Gvqc8",
-	"osFvcuBQX61j+1JtoX2pW7BMhpu5aeFcjUHzeMQhezToVJNpWx8teReLmqvuqsNpc25wxEA9o/nXaNpM",
-	"fwcA",
+	"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",
+	"tUnoyB+mC+E91hC8H28f/zUA",
 }
 
 // decodeSpec returns the embedded OpenAPI spec as raw JSON bytes,
