@@ -16,7 +16,7 @@ Requirements: Go (current stable), PostgreSQL 17 and Redis from Homebrew, the
 tools from `make tools`. No Docker needed on a laptop.
 
 ```sh
-brew install go postgresql@17 redis sqlc golang-migrate
+brew install go postgresql@17 redis sqlc
 brew services start postgresql@17 && brew services start redis
 createdb vetmimi && createdb vetmimi_test
 make tools
