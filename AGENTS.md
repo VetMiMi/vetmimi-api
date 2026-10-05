@@ -141,6 +141,11 @@ This is what CI runs. Push only when it passes.
   say `Closes #n`.
 - **Squash merge** once CI is green; the PR title becomes the commit subject,
   so it must itself be a valid Conventional Commit.
+- A pull request that changes `openapi.yaml` raises `info.version`: minor for
+  a breaking change while pre-1.0, patch otherwise, and the pull request says
+  which. The `Contract version` check fails a change that does not raise it;
+  each merge to `main` tags `v<info.version>`, the ref `vetmimi-next` pins
+  (ADR-003).
 - Every issue and pull request goes on the project board with milestone,
   `type:`/`area:`/`priority:` labels and the Status/Area/Priority/Size fields.
 
