@@ -53,7 +53,7 @@ func failWith(t *testing.T, err error) (*httptest.ResponseRecorder, map[string]a
 	r := chi.NewRouter()
 	spec, specErr := gen.GetSpec()
 	require.NoError(t, specErr)
-	mountAPI(&failing{err: err}, spec, "", noRedis, log)(r)
+	mountAPI(&failing{err: err}, spec, Deps{RateLimits: noRedis, Log: log})(r)
 	h := requestID(r)
 
 	res := httptest.NewRecorder()

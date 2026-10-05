@@ -1,9 +1,11 @@
-# A small spec for ratelimit_test.go. Sign-in is not generated yet, so the
-# generated /healthz route stands in for createSession: mounted through
-# mountAPI, it shows the order of the real middlewares, and its required query
-# parameter lets a test tell validation's 400 from the limiter's 429. /readyz
-# stands in for a public read limited by visitor IP. The other operations get
-# stub routes behind the same key check and limiter.
+# A small spec for ratelimit_test.go. The generated /healthz route stands in
+# for createSession, so limit tests never spend an argon2 hash: mounted
+# through mountAPI, it shows the order of the real middlewares, and its
+# required query parameter lets a test tell validation's 400 from the
+# limiter's 429. /auth/me is the real generated route behind the real session
+# check, with the same parameter. /readyz stands in for a public read limited
+# by visitor IP. The other operations get stub routes behind the same key
+# check and limiter.
 openapi: "3.1.0"
 info:
   title: Rate limit fixture
@@ -81,6 +83,13 @@ paths:
       operationId: getCurrentUser
       security:
         - sessionToken: []
+      parameters:
+        - name: probe
+          in: query
+          required: true
+          schema:
+            type: string
+            enum: ["yes"]
       responses:
         "200":
           description: The signed-in user.

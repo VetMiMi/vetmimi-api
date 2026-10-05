@@ -7,6 +7,7 @@ import (
 	"log/slog"
 	"time"
 
+	"github.com/VetMiMi/vetmimi-api/internal/auth"
 	"github.com/VetMiMi/vetmimi-api/internal/httpapi/gen"
 )
 
@@ -15,13 +16,16 @@ import (
 // failing, which is the truth. Log receives requests and unexpected
 // failures; nil means slog.Default(). ServiceKey is the key public operations
 // and sign-in require; empty, they refuse every call. RateLimits counts
-// requests; nil behaves as if Redis were unreachable.
+// requests; nil behaves as if Redis were unreachable. Sessions signs
+// administrators in and authenticates them; nil, signed-in operations refuse
+// every call.
 type Deps struct {
 	PingPostgres func(context.Context) error
 	PingRedis    func(context.Context) error
 	Log          *slog.Logger
 	ServiceKey   string
 	RateLimits   *RateLimits
+	Sessions     *auth.Sessions
 }
 
 // server implements gen.StrictServerInterface.

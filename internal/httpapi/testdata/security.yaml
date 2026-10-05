@@ -1,6 +1,6 @@
-# A small spec for servicekey_test.go and operations_test.go. No public or
-# auth tag is generated yet, so each kind of security has an operation here:
-# the tests mount stub routes for them behind the real middleware. getHealthz
+# A small spec for servicekey_test.go and operations_test.go. No public tag is
+# generated yet, so each kind of security has an operation here: the tests
+# mount stub routes for them behind the real key check. getHealthz
 # requires the key and a query parameter, so the generated route, mounted
 # through mountAPI, shows the key is checked before the request is validated.
 openapi: "3.1.0"

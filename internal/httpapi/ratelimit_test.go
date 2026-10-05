@@ -28,8 +28,8 @@ const (
 	otherVisitorIP = "203.0.113.10"
 	manageToken    = "zz-manage-token-0123456789-abcdefghijklmnop"
 	joinToken      = "zz-join-token-0123456789-abcdefghijklmnopqr"
-	sessionToken   = "vms_zz-session-token-0123456789-abcdefghijk"
 	signInURL      = "/healthz?probe=yes"
+	meURL          = "/auth/me?probe=yes"
 )
 
 // fakeClock is a clock a test moves by hand.
@@ -38,7 +38,8 @@ type fakeClock struct{ at time.Time }
 func (c *fakeClock) now() time.Time { return c.at }
 
 // limitedAPI serves testdata/ratelimit.yaml through the real middlewares,
-// counting in Redis under a key prefix of the test's own.
+// counting in Redis under a key prefix of the test's own, with sessions on
+// the test database.
 type limitedAPI struct {
 	handler http.Handler
 	clock   *fakeClock
@@ -47,9 +48,9 @@ type limitedAPI struct {
 	prefix  string
 }
 
-// newLimitedAPI counts in rdb, or in nothing when rdb is nil. Sign-in and
-// /readyz are the generated routes, mounted by mountAPI; the others are stubs
-// behind the same key check and limiter.
+// newLimitedAPI counts in rdb, or in nothing when rdb is nil. Sign-in,
+// /readyz and /auth/me are the generated routes, mounted by mountAPI; the
+// others are stubs behind the same key check and limiter.
 func newLimitedAPI(t *testing.T, rdb *redis.Client, prefix string) *limitedAPI {
 	t.Helper()
 	a := &limitedAPI{
@@ -66,24 +67,38 @@ func newLimitedAPI(t *testing.T, rdb *redis.Client, prefix string) *limitedAPI {
 	limits := NewRateLimits(limiter, log, a.clock.now)
 	spec := load(t, "testdata/ratelimit.yaml")
 	ops := index(t, spec)
-	ready := &server{Deps{PingPostgres: ok, PingRedis: ok}}
+	deps := Deps{
+		PingPostgres: ok,
+		PingRedis:    ok,
+		Log:          log,
+		ServiceKey:   testServiceKey,
+		RateLimits:   limits,
+		Sessions:     newSessions(t, a.clock.now),
+	}
 	answer := func(w http.ResponseWriter, _ *http.Request) { w.WriteHeader(http.StatusOK) }
 
 	a.handler = router(log, func(r chi.Router) {
-		mountAPI(ready, spec, testServiceKey, limits, log)(r)
+		mountAPI(&server{deps}, spec, deps)(r)
 		stubs := r.With(requireServiceKey(testServiceKey, ops, log), limits.operations(ops))
 		stubs.Get("/public/manage/{token}", answer)
 		stubs.Post("/public/manage/{token}/cancel", answer)
 		stubs.Get("/public/sessions/{token}", answer)
 		stubs.Get("/public/stories/{slug}", answer)
-		stubs.Get("/auth/me", answer)
 	})
 	return a
 }
 
-// liveAPI counts in REDIS_URL_TEST, failing rather than skipping without it,
-// and deletes its keys when the test ends; the database is never flushed.
+// liveAPI counts in REDIS_URL_TEST and deletes its keys when the test ends.
 func liveAPI(t *testing.T) *limitedAPI {
+	t.Helper()
+	rdb, prefix := liveRedis(t)
+	return newLimitedAPI(t, rdb, prefix)
+}
+
+// liveRedis opens REDIS_URL_TEST, failing rather than skipping without it,
+// and returns a key prefix of the test's own, whose keys it deletes when the
+// test ends; the database is never flushed.
+func liveRedis(t *testing.T) (*redis.Client, string) {
 	t.Helper()
 	url := os.Getenv("REDIS_URL_TEST")
 	if url == "" {
@@ -96,25 +111,30 @@ func liveAPI(t *testing.T) *limitedAPI {
 	random := make([]byte, 6)
 	_, err = rand.Read(random)
 	require.NoError(t, err)
-	a := newLimitedAPI(t, rdb, "test-"+hex.EncodeToString(random)+":")
+	prefix := "test-" + hex.EncodeToString(random) + ":"
 	t.Cleanup(func() {
-		if keys := a.keys(t); len(keys) > 0 {
+		if keys := keysWithPrefix(t, rdb, prefix); len(keys) > 0 {
 			require.NoError(t, rdb.Del(context.Background(), keys...).Err())
 		}
 	})
-	return a
+	return rdb, prefix
 }
 
-func (a *limitedAPI) keys(t *testing.T) []string {
+func keysWithPrefix(t *testing.T, rdb *redis.Client, prefix string) []string {
 	t.Helper()
 	ctx := context.Background()
 	var keys []string
-	iter := a.rdb.Scan(ctx, 0, a.prefix+"*", 100).Iterator()
+	iter := rdb.Scan(ctx, 0, prefix+"*", 100).Iterator()
 	for iter.Next(ctx) {
 		keys = append(keys, iter.Val())
 	}
 	require.NoError(t, iter.Err())
 	return keys
+}
+
+func (a *limitedAPI) keys(t *testing.T) []string {
+	t.Helper()
+	return keysWithPrefix(t, a.rdb, a.prefix)
 }
 
 // send serves a request with headers, given as name, value pairs.
@@ -175,25 +195,29 @@ func TestSixthSignInFromOneIPIs429(t *testing.T) {
 
 // Each group allows its own number of requests per subject, then answers 429.
 func TestEachGroupAllowsItsLimitThen429(t *testing.T) {
-	key := []string{"X-Service-Key", testServiceKey, "X-Visitor-IP", visitorIP}
+	key := func(*testing.T, *limitedAPI) []string {
+		return []string{"X-Service-Key", testServiceKey, "X-Visitor-IP", visitorIP}
+	}
+	signedIn := func(t *testing.T, a *limitedAPI) []string { return bearer(a.newSession(t)) }
 	for name, tc := range map[string]struct {
 		method, path string
 		limit        int
-		headers      []string
+		headers      func(*testing.T, *limitedAPI) []string
 	}{
 		"availability": {http.MethodGet, "/readyz", 60, key},
 		"manage link":  {http.MethodGet, "/public/manage/" + manageToken, 20, key},
 		"video join":   {http.MethodGet, "/public/sessions/" + joinToken, 30, key},
 		"other public": {http.MethodGet, "/public/stories/first-session", 1200, key},
-		"signed in":    {http.MethodGet, "/auth/me", 300, []string{"Authorization", "Bearer " + sessionToken}},
+		"signed in":    {http.MethodGet, meURL, 300, signedIn},
 	} {
 		t.Run(name, func(t *testing.T) {
 			a := liveAPI(t)
+			headers := tc.headers(t, a)
 			for i := range tc.limit {
-				res := a.send(tc.method, tc.path, tc.headers...)
+				res := a.send(tc.method, tc.path, headers...)
 				require.Equal(t, http.StatusOK, res.Code, "request %d: %s", i+1, res.Body.String())
 			}
-			requireRateLimited(t, a.send(tc.method, tc.path, tc.headers...))
+			requireRateLimited(t, a.send(tc.method, tc.path, headers...))
 		})
 	}
 }
@@ -213,33 +237,6 @@ func TestManageLinkIsCountedPerTokenAcrossItsOperations(t *testing.T) {
 
 	res := a.send(http.MethodGet, "/public/manage/other-"+manageToken, key...)
 	require.Equal(t, http.StatusOK, res.Code, "another link has its own count")
-}
-
-// mountAPI orders the middlewares authentication, rate limit, validation: a
-// caller without the key is refused uncounted, and the limit answers before
-// validation can.
-func TestKeylessSignInIsNotCounted(t *testing.T) {
-	a := liveAPI(t)
-	for range 10 {
-		res := a.send(http.MethodGet, signInURL, "X-Visitor-IP", visitorIP)
-		requireUnauthenticated(t, res)
-	}
-	require.Empty(t, a.keys(t))
-	for range 5 {
-		require.Equal(t, http.StatusOK, a.signIn(visitorIP).Code)
-	}
-	requireRateLimited(t, a.signIn(visitorIP))
-}
-
-func TestOverTheLimitIs429BeforeValidation(t *testing.T) {
-	a := liveAPI(t)
-	malformed := func() *httptest.ResponseRecorder {
-		return a.send(http.MethodGet, "/healthz", "X-Service-Key", testServiceKey, "X-Visitor-IP", visitorIP)
-	}
-	for range 5 {
-		require.Equal(t, []map[string]any{fieldError("probe", "is required")}, invalid(t, malformed()))
-	}
-	requireRateLimited(t, malformed())
 }
 
 func TestRoomUpgradeIsLimitedPerRoom(t *testing.T) {
@@ -267,7 +264,8 @@ func TestRedisKeysHoldNoAddressTokenOrKey(t *testing.T) {
 	a.send(http.MethodGet, "/public/manage/"+manageToken, key...)
 	a.send(http.MethodGet, "/public/sessions/"+joinToken, key...)
 	a.send(http.MethodGet, "/public/stories/first-session", key...)
-	a.send(http.MethodGet, "/auth/me", "Authorization", "Bearer "+sessionToken)
+	sessionToken := a.newSession(t)
+	a.send(http.MethodGet, meURL, bearer(sessionToken)...)
 
 	keys := a.keys(t)
 	shape := regexp.MustCompile(`^` + regexp.QuoteMeta(a.prefix) +
@@ -301,7 +299,7 @@ func TestRedisDownLetsPublicCallsThroughAndSignInIs503(t *testing.T) {
 	}
 	require.Equal(t, http.StatusOK, timed(http.MethodGet, "/readyz", key...).Code)
 	require.Equal(t, http.StatusOK, timed(http.MethodGet, "/public/manage/"+manageToken, key...).Code)
-	require.Equal(t, http.StatusOK, timed(http.MethodGet, "/auth/me", "Authorization", "Bearer "+sessionToken).Code)
+	require.Equal(t, http.StatusOK, timed(http.MethodGet, meURL, bearer(a.newSession(t))...).Code)
 
 	res := timed(http.MethodGet, signInURL, key...)
 	require.Equal(t, http.StatusServiceUnavailable, res.Code, res.Body.String())

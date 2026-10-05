@@ -51,7 +51,9 @@ add a join.
 | last_seen_at | timestamptz | no | now() | idle expiry = `last_seen_at + 12 h` |
 | expires_at | timestamptz | no | — | absolute expiry = sign-in + 7 days |
 
-Indexes: unique `token_hash`; `user_id`; `expires_at`.
+Indexes: unique `token_hash`; `user_id`; `expires_at`. No `updated_at`: a session is never edited, and
+`last_seen_at` (refreshed at most once a minute) is the one column that changes. Re-running create-user deletes the
+user's sessions in the transaction that replaces the password; `platform:cleanup` deletes expired rows hourly.
 
 ## services
 

@@ -88,12 +88,11 @@ func loadUser(t *testing.T, id pgtype.UUID) savedUser {
 
 func TestSaveAccountCreatesThenReplaces(t *testing.T) {
 	pool := pgtest.Pool(t)
-	q := db.New(pool)
 	ctx := context.Background()
 	email := uniqueEmail(t)
 
 	first := account(" " + email[:4] + "MIXED" + email[4:] + " ")
-	id, created, err := auth.SaveAccount(ctx, q, first)
+	id, created, err := auth.SaveAccount(ctx, pool, first)
 	require.NoError(t, err)
 	require.True(t, created)
 	require.Equal(t, email[:4]+"mixed"+email[4:], loadUser(t, id).Email, "stored trimmed and lower-case")
@@ -109,7 +108,7 @@ func TestSaveAccountCreatesThenReplaces(t *testing.T) {
 		SealedTOTPSecret: []byte("resealed"),
 		EnrolmentStep:    7,
 	}
-	again, created, err := auth.SaveAccount(ctx, q, second)
+	again, created, err := auth.SaveAccount(ctx, pool, second)
 	require.NoError(t, err)
 	require.False(t, created)
 	require.Equal(t, id, again)
@@ -124,7 +123,6 @@ func TestSaveAccountCreatesThenReplaces(t *testing.T) {
 
 func TestSecondPractitionerRefused(t *testing.T) {
 	pool := pgtest.Pool(t)
-	q := db.New(pool)
 	ctx := context.Background()
 	// Other tests in this binary may want the one practitioner slot.
 	t.Cleanup(func() {
@@ -134,24 +132,69 @@ func TestSecondPractitionerRefused(t *testing.T) {
 
 	mi := account(uniqueEmail(t))
 	mi.Practitioner = true
-	miID, _, err := auth.SaveAccount(ctx, q, mi)
+	miID, _, err := auth.SaveAccount(ctx, pool, mi)
 	require.NoError(t, err)
 
 	other := account(uniqueEmail(t))
 	other.Practitioner = true
-	_, _, err = auth.SaveAccount(ctx, q, other)
+	_, _, err = auth.SaveAccount(ctx, pool, other)
 	require.ErrorIs(t, err, auth.ErrPractitionerTaken, "a new second practitioner")
 
 	other.Practitioner = false
-	_, _, err = auth.SaveAccount(ctx, q, other)
+	_, _, err = auth.SaveAccount(ctx, pool, other)
 	require.NoError(t, err)
 	other.Practitioner = true
-	_, _, err = auth.SaveAccount(ctx, q, other)
+	_, _, err = auth.SaveAccount(ctx, pool, other)
 	require.ErrorIs(t, err, auth.ErrPractitionerTaken, "an existing user made a second practitioner")
 
 	mi.Practitioner = false
-	_, created, err := auth.SaveAccount(ctx, q, mi)
+	_, created, err := auth.SaveAccount(ctx, pool, mi)
 	require.NoError(t, err)
 	require.False(t, created)
 	require.True(t, loadUser(t, miID).IsPractitioner, "re-enrolling without --practitioner keeps her the practitioner")
+}
+
+// A new password signs the user out everywhere, and no one else.
+func TestSaveAccountSignsTheUserOutEverywhere(t *testing.T) {
+	f := newFixture(t)
+	pool := pgtest.Pool(t)
+	ctx := context.Background()
+	a := account(uniqueEmail(t))
+	id, _, err := auth.SaveAccount(ctx, pool, a)
+	require.NoError(t, err)
+	phone, _ := f.startSession(t, id)
+	laptop, _ := f.startSession(t, id)
+	someoneElse, _ := f.startSession(t, f.newAdmin(t).id)
+
+	a.PasswordHash = "$argon2id$replaced"
+	_, created, err := auth.SaveAccount(ctx, pool, a)
+	require.NoError(t, err)
+	require.False(t, created)
+	require.Zero(t, sessionCount(t, id))
+	for _, token := range []string{phone, laptop} {
+		_, err = f.authenticate(token)
+		requireUnauthenticated(t, err)
+	}
+	_, err = f.authenticate(someoneElse)
+	require.NoError(t, err)
+}
+
+// The credential replace and the sign-out are one transaction: if the
+// sessions cannot be deleted, the old password stays.
+func TestFailedSignOutKeepsTheOldCredentials(t *testing.T) {
+	f := newFixture(t)
+	pool := pgtest.Pool(t)
+	ctx := context.Background()
+	a := account(uniqueEmail(t))
+	id, _, err := auth.SaveAccount(ctx, pool, a)
+	require.NoError(t, err)
+	token, _ := f.startSession(t, id)
+	failSessionWrites(t, "DELETE", id)
+
+	a.PasswordHash = "$argon2id$replaced"
+	_, _, err = auth.SaveAccount(ctx, pool, a)
+	require.ErrorContains(t, err, "refused by test")
+	require.Equal(t, hash, loadUser(t, id).PasswordHash)
+	_, err = f.authenticate(token)
+	require.NoError(t, err)
 }

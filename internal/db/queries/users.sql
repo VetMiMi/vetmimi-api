@@ -20,9 +20,6 @@ SET display_name = @display_name,
 WHERE email = @email
 RETURNING id;
 
--- name: GetUserTOTPSecret :one
-SELECT totp_secret_enc FROM users WHERE id = @id;
-
 -- ClaimTOTPStep is the replay guard: a step is accepted once, and only if it
 -- is later than the last one accepted, so two concurrent sign-ins with one
 -- code cannot both succeed.
@@ -30,3 +27,17 @@ SELECT totp_secret_enc FROM users WHERE id = @id;
 UPDATE users
 SET totp_last_step = @step::bigint
 WHERE id = @id AND (totp_last_step IS NULL OR totp_last_step < @step);
+
+-- name: GetUserForSignIn :one
+SELECT id, email, display_name, password_hash, roles, is_practitioner, totp_secret_enc
+FROM users
+WHERE email = @email;
+
+-- RecordSignIn succeeds only while the user is enabled and still has the
+-- password hash sign-in verified. Its row lock orders it against a
+-- concurrent create-user, whose session delete then sees this sign-in's
+-- session, or whose new hash makes this update miss.
+-- name: RecordSignIn :execrows
+UPDATE users
+SET last_sign_in_at = @now::timestamptz
+WHERE id = @id AND disabled_at IS NULL AND password_hash = @password_hash;
