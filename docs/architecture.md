@@ -71,6 +71,24 @@ chi middleware runs in this order for every HTTP route:
 8. **OpenAPI validation** — `nethttp-middleware` validates path, query, headers and body against the embedded spec. Shape errors become `400 invalid_request` with `errors[]`.
 9. **Handler** — strict-server handler; calls one domain function; maps the result or the `apperr` to a response.
 
+Steps 7 and 8 run per operation, through the generated
+`ChiServerOptions.Middlewares`. The generated wrapper wraps each entry around
+the ones before it, so the last entry runs first: validation is
+`Middlewares[0]` and runs last, just before the handler, and the
+authentication, role and rate-limit middlewares are appended after it. The
+validator checks the `email`, `date` and `date-time` formats by parsing the
+value (`net/mail`, `time.Parse`), not by kin-openapi's loose patterns, and
+`uuid` against the RFC 9562 layout. It hands kin-openapi the
+spec as OpenAPI 3.0: for a 3.1 document kin-openapi's JSON Schema 2020-12
+engine reduces each failure to a sentence quoting the value, losing the rule
+and the JSON pointer, and `openapi.yaml` uses only keywords both engines read
+alike. Every message in `errors[]` is built from the rule, never from an error
+text, so a submitted value is never echoed. Parameters bind in the generated
+wrapper before any of these middlewares run; those that fail to bind, and
+bodies the strict server cannot decode, answer
+`is missing or malformed` for the same reason; the log keeps only the error
+types.
+
 ### Error model
 
 Every 4xx and 5xx body is an RFC 9457 `Problem` (`application/problem+json`):
