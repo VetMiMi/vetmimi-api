@@ -16,6 +16,12 @@ set -eu
 
 LOCK="${VETMIMI_GATE_LOCK:-/tmp/vetmimi-gate.lock}"
 
+# A gate inside a gate (make gate -> make test -> scripts/gate.sh) already
+# holds the lock through its parent; taking it again would wait forever.
+if [ -n "${VETMIMI_GATE_HELD:-}" ]; then
+  exec "$@"
+fi
+
 holder_alive() {
   pid=$(cat "$LOCK/pid" 2>/dev/null || true)
   [ -n "$pid" ] && kill -0 "$pid" 2>/dev/null
@@ -39,6 +45,7 @@ until mkdir "$LOCK" 2>/dev/null; do
   sleep 3
 done
 echo $$ >"$LOCK/pid"
+export VETMIMI_GATE_HELD=1
 trap 'rm -rf "$LOCK"' EXIT
 trap 'exit 130' INT TERM HUP
 
