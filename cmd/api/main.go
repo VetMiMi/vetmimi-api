@@ -72,15 +72,11 @@ func run(ctx context.Context, log *slog.Logger, cfg platform.Config, mode string
 }
 
 func runAPI(ctx context.Context, log *slog.Logger, cfg platform.Config, pool *pgxpool.Pool, rdb *redis.Client) error {
-	srv := &http.Server{
-		Addr: ":" + strconv.Itoa(cfg.Port),
-		Handler: httpapi.NewRouter(httpapi.Deps{
-			PingPostgres: pool.Ping,
-			PingRedis:    func(ctx context.Context) error { return rdb.Ping(ctx).Err() },
-			Log:          log,
-		}),
-		ReadHeaderTimeout: 5 * time.Second,
-	}
+	srv := newServer(cfg.Port, httpapi.NewRouter(httpapi.Deps{
+		PingPostgres: pool.Ping,
+		PingRedis:    func(ctx context.Context) error { return rdb.Ping(ctx).Err() },
+		Log:          log,
+	}))
 
 	errc := make(chan error, 1)
 	go func() {
@@ -98,5 +94,19 @@ func runAPI(ctx context.Context, log *slog.Logger, cfg platform.Config, pool *pg
 		shutdown, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 		defer cancel()
 		return srv.Shutdown(shutdown)
+	}
+}
+
+// newServer bounds how long a client may take to send headers and hold an
+// idle connection. It sets no WriteTimeout: the video WebSocket (ADR-007)
+// stays open for a whole session, and every other route gets its deadline
+// from the router instead.
+func newServer(port int, h http.Handler) *http.Server {
+	return &http.Server{
+		Addr:              ":" + strconv.Itoa(port),
+		Handler:           h,
+		ReadHeaderTimeout: 5 * time.Second,
+		IdleTimeout:       120 * time.Second,
+		MaxHeaderBytes:    16 << 10,
 	}
 }
