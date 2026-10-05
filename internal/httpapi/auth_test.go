@@ -69,14 +69,20 @@ func uniqueEmail(t *testing.T) string {
 	return "admin-" + hex.EncodeToString(b) + "@example.com"
 }
 
+// createAdmin inserts a user holding Daw Mi's roles.
 func createAdmin(t *testing.T, sealedSecret []byte) (pgtype.UUID, string) {
+	t.Helper()
+	return createUser(t, sealedSecret, "booking_admin", "site_admin")
+}
+
+func createUser(t *testing.T, sealedSecret []byte, roles ...string) (pgtype.UUID, string) {
 	t.Helper()
 	email := uniqueEmail(t)
 	id, err := db.New(pgtest.Pool(t)).CreateUser(context.Background(), db.CreateUserParams{
 		Email:         email,
 		DisplayName:   "Daw Mi",
 		PasswordHash:  testPasswordHash,
-		Roles:         []string{"booking_admin", "site_admin"},
+		Roles:         roles,
 		TotpSecretEnc: sealedSecret,
 	})
 	require.NoError(t, err)
@@ -87,14 +93,21 @@ func createAdmin(t *testing.T, sealedSecret []byte) (pgtype.UUID, string) {
 // the API's clock time, without hashing a password, and returns its token.
 func (a *limitedAPI) newSession(t *testing.T) string {
 	t.Helper()
-	userID, _ := createAdmin(t, []byte("sealed"))
+	return insertSession(t, a.clock.at, "booking_admin", "site_admin")
+}
+
+// insertSession inserts a user holding roles and a session for them, signed
+// in at now, and returns its token.
+func insertSession(t *testing.T, now time.Time, roles ...string) string {
+	t.Helper()
+	userID, _ := createUser(t, []byte("sealed"), roles...)
 	token, err := platform.NewSessionToken()
 	require.NoError(t, err)
 	_, err = db.New(pgtest.Pool(t)).CreateSession(context.Background(), db.CreateSessionParams{
 		UserID:    userID,
 		TokenHash: platform.HashToken(token),
-		Now:       a.clock.at,
-		ExpiresAt: a.clock.at.Add(auth.SessionLifetime),
+		Now:       now,
+		ExpiresAt: now.Add(auth.SessionLifetime),
 	})
 	require.NoError(t, err)
 	return token

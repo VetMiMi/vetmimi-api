@@ -12,8 +12,9 @@ import (
 	"github.com/VetMiMi/vetmimi-api/internal/platform/pgtest"
 )
 
-// mountAPI runs the key check, the session check, the rate limit and
-// validation, in that order.
+// mountAPI runs the key check, the session check, the role check, the rate
+// limit and validation, in that order. roles_test.go pins where the role
+// check sits.
 
 // The key check runs before the limiter: a caller without the key is refused
 // uncounted.

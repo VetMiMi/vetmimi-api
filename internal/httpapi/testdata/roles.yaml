@@ -1,0 +1,59 @@
+# A small spec for roles_test.go. The generated routes stand in for
+# operations the role table treats differently. /auth/me is publishStory,
+# which only a site administrator may use, behind the real session check,
+# with a required query parameter so a test can tell validation's 400 from
+# the role check's 403. /auth/sessions/current is an operation the table does
+# not name, which no one may use. /healthz and /readyz are not signed in, and
+# not in the table either, so the role check must leave them alone.
+openapi: "3.1.0"
+info:
+  title: Roles fixture
+  version: "0"
+paths:
+  /auth/me:
+    get:
+      operationId: publishStory
+      security:
+        - sessionToken: []
+      parameters:
+        - name: probe
+          in: query
+          required: true
+          schema:
+            type: string
+            enum: ["yes"]
+      responses:
+        "200":
+          description: Published.
+  /auth/sessions/current:
+    delete:
+      operationId: notInTheRoleTable
+      security:
+        - sessionToken: []
+      responses:
+        "204":
+          description: Done.
+  /healthz:
+    get:
+      operationId: getHealthz
+      security:
+        - serviceKey: []
+      responses:
+        "200":
+          description: Up.
+  /readyz:
+    get:
+      operationId: getReadyz
+      security: []
+      responses:
+        "200":
+          description: Ready.
+components:
+  securitySchemes:
+    serviceKey:
+      type: apiKey
+      in: header
+      name: X-Service-Key
+    sessionToken:
+      type: http
+      scheme: bearer

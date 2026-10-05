@@ -14,6 +14,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/getkin/kin-openapi/openapi3"
 	"github.com/go-chi/chi/v5"
 	"github.com/redis/go-redis/v9"
 	"github.com/stretchr/testify/require"
@@ -37,7 +38,7 @@ type fakeClock struct{ at time.Time }
 
 func (c *fakeClock) now() time.Time { return c.at }
 
-// limitedAPI serves testdata/ratelimit.yaml through the real middlewares,
+// limitedAPI serves a fixture spec through the real middlewares,
 // counting in Redis under a key prefix of the test's own, with sessions on
 // the test database.
 type limitedAPI struct {
@@ -53,6 +54,23 @@ type limitedAPI struct {
 // others are stubs behind the same key check and limiter.
 func newLimitedAPI(t *testing.T, rdb *redis.Client, prefix string) *limitedAPI {
 	t.Helper()
+	spec := load(t, "testdata/ratelimit.yaml")
+	ops := index(t, spec)
+	answer := func(w http.ResponseWriter, _ *http.Request) { w.WriteHeader(http.StatusOK) }
+	return serveSpec(t, rdb, prefix, spec, func(r chi.Router, deps Deps) {
+		stubs := r.With(requireServiceKey(testServiceKey, ops, deps.Log), deps.RateLimits.operations(ops))
+		stubs.Get("/public/manage/{token}", answer)
+		stubs.Post("/public/manage/{token}/cancel", answer)
+		stubs.Get("/public/sessions/{token}", answer)
+		stubs.Get("/public/stories/{slug}", answer)
+	})
+}
+
+// serveSpec serves the generated routes through mountAPI, indexed by spec,
+// counting in rdb as newLimitedAPI does, with whatever stubs mounts beside
+// them.
+func serveSpec(t *testing.T, rdb *redis.Client, prefix string, spec *openapi3.T, stubs func(chi.Router, Deps)) *limitedAPI {
+	t.Helper()
 	a := &limitedAPI{
 		clock:  &fakeClock{at: time.Date(2026, 10, 5, 9, 30, 15, 0, time.UTC)},
 		logs:   &bytes.Buffer{},
@@ -64,26 +82,19 @@ func newLimitedAPI(t *testing.T, rdb *redis.Client, prefix string) *limitedAPI {
 	if rdb != nil {
 		limiter = platform.NewLimiter(rdb, prefix, a.clock.now)
 	}
-	limits := NewRateLimits(limiter, log, a.clock.now)
-	spec := load(t, "testdata/ratelimit.yaml")
-	ops := index(t, spec)
 	deps := Deps{
 		PingPostgres: ok,
 		PingRedis:    ok,
 		Log:          log,
 		ServiceKey:   testServiceKey,
-		RateLimits:   limits,
+		RateLimits:   NewRateLimits(limiter, log, a.clock.now),
 		Sessions:     newSessions(t, a.clock.now),
 	}
-	answer := func(w http.ResponseWriter, _ *http.Request) { w.WriteHeader(http.StatusOK) }
-
 	a.handler = router(log, func(r chi.Router) {
 		mountAPI(&server{deps}, spec, deps)(r)
-		stubs := r.With(requireServiceKey(testServiceKey, ops, log), limits.operations(ops))
-		stubs.Get("/public/manage/{token}", answer)
-		stubs.Post("/public/manage/{token}/cancel", answer)
-		stubs.Get("/public/sessions/{token}", answer)
-		stubs.Get("/public/stories/{slug}", answer)
+		if stubs != nil {
+			stubs(r, deps)
+		}
 	})
 	return a
 }

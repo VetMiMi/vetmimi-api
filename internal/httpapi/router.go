@@ -53,7 +53,8 @@ func router(log *slog.Logger, mount func(chi.Router)) http.Handler {
 }
 
 // mountAPI registers the generated routes, each behind the authentication its
-// operation in spec declares (deps.ServiceKey or deps.Sessions), counted
+// operation in spec declares (deps.ServiceKey or deps.Sessions) and, when
+// signed in, the roles rolesByOperation allows it, counted
 // against its deps.RateLimits limit and validated against spec, and answers
 // their decode, parameter and handler errors as Problems, logging to
 // deps.Log.
@@ -68,6 +69,7 @@ func mountAPI(si gen.StrictServerInterface, spec *openapi3.T, deps Deps) func(ch
 	validate := validateRequests(spec)
 	checkServiceKey := requireServiceKey(deps.ServiceKey, ops, log)
 	checkSession := requireSession(deps.Sessions, ops, log)
+	checkRoles := requireRoles(ops)
 	rateLimit := deps.RateLimits.operations(ops)
 	return func(r chi.Router) {
 		strict := gen.NewStrictHandlerWithOptions(si, nil, gen.StrictHTTPServerOptions{
@@ -78,11 +80,12 @@ func mountAPI(si gen.StrictServerInterface, spec *openapi3.T, deps Deps) func(ch
 			BaseRouter: r,
 			// The generated wrapper wraps each entry around the ones before
 			// it, so the last entry runs first: the key check, then the
-			// session check, then the rate limit, then validation, just
-			// before the handler. A caller without a key or a live session
-			// learns nothing about the contract and is never counted, while a
-			// malformed request still is.
-			Middlewares:      []gen.MiddlewareFunc{validate, rateLimit, checkSession, checkServiceKey},
+			// session check, then the role check, then the rate limit, then
+			// validation, just before the handler. A caller without a key, a
+			// live session or a role the operation allows learns nothing
+			// about the contract and is never counted, while a malformed
+			// request still is.
+			Middlewares:      []gen.MiddlewareFunc{validate, rateLimit, checkRoles, checkSession, checkServiceKey},
 			ErrorHandlerFunc: paramError(log),
 		})
 	}
