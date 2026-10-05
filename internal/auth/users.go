@@ -1,0 +1,75 @@
+package auth
+
+import (
+	"context"
+	"errors"
+	"strings"
+
+	"github.com/jackc/pgx/v5"
+	"github.com/jackc/pgx/v5/pgconn"
+	"github.com/jackc/pgx/v5/pgtype"
+
+	"github.com/VetMiMi/vetmimi-api/internal/db"
+)
+
+// Roles a user may hold (ADR-002). The users_roles_check constraint lists the
+// same three.
+var Roles = []string{"content_editor", "booking_admin", "site_admin"}
+
+// ErrPractitionerTaken means another user is already the practitioner;
+// appointments are booked with exactly one person.
+var ErrPractitionerTaken = errors.New("another user is already the practitioner; there can be only one")
+
+// Account is everything create-user saves for one administrator.
+type Account struct {
+	Email            string
+	DisplayName      string
+	PasswordHash     string
+	Roles            []string
+	Practitioner     bool
+	SealedTOTPSecret []byte
+}
+
+// NormalizeEmail is the form emails are stored and looked up in.
+func NormalizeEmail(email string) string {
+	return strings.ToLower(strings.TrimSpace(email))
+}
+
+// SaveAccount creates the account, or, when its email already exists,
+// replaces that user's password, TOTP secret, display name and roles and
+// clears the last accepted TOTP step, which belonged to the old secret. It
+// reports whether it created the user.
+func SaveAccount(ctx context.Context, q db.Querier, a Account) (id pgtype.UUID, created bool, err error) {
+	email := NormalizeEmail(a.Email)
+	id, err = q.ReplaceUserCredentials(ctx, db.ReplaceUserCredentialsParams{
+		Email:          email,
+		DisplayName:    a.DisplayName,
+		PasswordHash:   a.PasswordHash,
+		Roles:          a.Roles,
+		IsPractitioner: a.Practitioner,
+		TotpSecretEnc:  a.SealedTOTPSecret,
+	})
+	if !errors.Is(err, pgx.ErrNoRows) {
+		return id, false, practitionerTaken(err)
+	}
+	id, err = q.CreateUser(ctx, db.CreateUserParams{
+		Email:          email,
+		DisplayName:    a.DisplayName,
+		PasswordHash:   a.PasswordHash,
+		Roles:          a.Roles,
+		IsPractitioner: a.Practitioner,
+		TotpSecretEnc:  a.SealedTOTPSecret,
+	})
+	return id, err == nil, practitionerTaken(err)
+}
+
+// practitionerTaken turns a violation of the one-practitioner index into
+// ErrPractitionerTaken. The index, not a lookup first, decides, so two
+// concurrent runs cannot both succeed.
+func practitionerTaken(err error) error {
+	var pgErr *pgconn.PgError
+	if errors.As(err, &pgErr) && pgErr.ConstraintName == "users_one_practitioner" {
+		return ErrPractitionerTaken
+	}
+	return err
+}
