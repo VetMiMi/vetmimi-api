@@ -153,7 +153,12 @@ counted, and refreshes `last_seen_at` only when it is over a minute old.
 string). TOTP (30 s, 6 digits, ±1 step) is required for every user and enrolled
 by `api --mode create-user`, so the API has no enrolment routes. Secrets are
 encrypted with `TOTP_ENCRYPTION_KEY` (AES-256-GCM); the last accepted step is
-stored against replay. Ten failures for one email in 15 minutes lock it for 15.
+stored against replay. Ten failures for one email in 15 minutes lock it until
+15 minutes after the tenth, whether or not the email has an account; a
+success leaves the failures to expire, so it reveals no right guess. The
+lockout and the email's hourly limit are checked before any password is
+hashed, and each refusal logs `sign_in_locked` with a 12-character SHA-256
+prefix of the email.
 
 **Roles** (ADR-002). One user may hold several. `site_admin` implies the other two.
 
@@ -416,9 +421,12 @@ per-email sign-in limit is applied by the auth domain, because the email is in
 the body, and the WebSocket handler calls `AllowRoomUpgrade` itself. Windows
 start on a multiple of their length. Keys are
 `rl:<group>:<first 32 hex of SHA-256(subject)>:<window start>`, so no address,
-token or email is stored in Redis. Each check waits at most 250 ms. If Redis
-does not answer, sign-in answers `503 unavailable`, because that is where a
-missing limit helps an attacker most; every other group lets the request
+token or email is stored in Redis; the lockout keeps
+`lockout:failures:<hash>` (a sorted set of failure times) and
+`lockout:until:<hash>`, hashed the same way and expiring on their own. Each check waits at most 250 ms. If Redis
+does not answer, sign-in answers `503 unavailable`, at the visitor-IP limit
+and in the auth domain alike, because that is where a missing limit helps an
+attacker most; every other group lets the request
 through (ADR-006: losing Redis must not stop bookings) and logs
 `rate_limit_unavailable` at most once a minute.
 

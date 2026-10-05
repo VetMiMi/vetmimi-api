@@ -44,22 +44,24 @@ type Session struct {
 
 // Sessions signs administrators in and out and authenticates their requests.
 type Sessions struct {
-	pool  *pgxpool.Pool
-	codes *TOTP
-	now   clock.Now
+	pool    *pgxpool.Pool
+	codes   *TOTP
+	lockout *Lockout
+	now     clock.Now
 	// dummySecret is a sealed TOTP secret no user has. Sign-in checks the code
 	// of an unknown email against it, so every attempt does the same work.
 	dummySecret []byte
 }
 
-// NewSessions returns Sessions backed by pool, checking codes with codes and
-// reading the time from now.
-func NewSessions(pool *pgxpool.Pool, codes *TOTP, now clock.Now) (*Sessions, error) {
+// NewSessions returns Sessions backed by pool, checking codes with codes,
+// limiting sign-in attempts with lockout and reading the time from now. A
+// nil lockout refuses every sign-in, as if Redis were down.
+func NewSessions(pool *pgxpool.Pool, codes *TOTP, lockout *Lockout, now clock.Now) (*Sessions, error) {
 	dummy, err := codes.Seal(make([]byte, totpSecretBytes))
 	if err != nil {
 		return nil, err
 	}
-	return &Sessions{pool: pool, codes: codes, now: now, dummySecret: dummy}, nil
+	return &Sessions{pool: pool, codes: codes, lockout: lockout, now: now, dummySecret: dummy}, nil
 }
 
 // Authenticate returns the live session token names. A token that is

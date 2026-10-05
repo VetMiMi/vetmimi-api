@@ -27,3 +27,9 @@ func AcceptEveryPassword(t testing.TB) {
 
 // DummySecret is the TOTP secret an unknown email's code is checked against.
 func (s *Sessions) DummySecret() ([]byte, error) { return s.codes.Open(s.dummySecret) }
+
+// FailuresKey is the Redis key holding email's recent sign-in failures, for
+// a Lockout whose keys start with prefix.
+func FailuresKey(prefix, email string) string {
+	return (&Lockout{prefix: prefix}).key("failures", email)
+}

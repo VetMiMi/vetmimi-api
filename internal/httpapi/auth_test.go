@@ -50,9 +50,11 @@ func newTOTP(t *testing.T, now clock.Now) *auth.TOTP {
 	return codes
 }
 
+// newSessions authenticates sessions but, having no lockout, refuses every
+// sign-in, as if Redis were down.
 func newSessions(t *testing.T, now clock.Now) *auth.Sessions {
 	t.Helper()
-	sessions, err := auth.NewSessions(pgtest.Pool(t), newTOTP(t, now), now)
+	sessions, err := auth.NewSessions(pgtest.Pool(t), newTOTP(t, now), nil, now)
 	require.NoError(t, err)
 	return sessions
 }
@@ -127,7 +129,7 @@ func newAuthAPI(t *testing.T) *authAPI {
 			return attr
 		},
 	}))
-	sessions, err := auth.NewSessions(pgtest.Pool(t), a.codes, a.clock.now)
+	sessions, err := auth.NewSessions(pgtest.Pool(t), a.codes, auth.NewLockout(rdb, prefix, a.clock.now), a.clock.now)
 	require.NoError(t, err)
 	a.handler = NewRouter(Deps{
 		PingPostgres: ok,

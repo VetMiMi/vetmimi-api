@@ -2,6 +2,7 @@ package httpapi
 
 import (
 	"context"
+	"errors"
 	"log/slog"
 	"net/http"
 	"strings"
@@ -60,14 +61,21 @@ func bearerToken(r *http.Request) string {
 	return token
 }
 
-// CreateSession signs an administrator in. Every refusal is the same
-// 401 invalid_credentials.
+// CreateSession signs an administrator in. Every refusal of the credentials
+// is the same 401 invalid_credentials; an email over its attempt limit or
+// locked out is 429 rate_limited, logged with a hash prefix of the email
+// only.
 func (s *server) CreateSession(ctx context.Context, req gen.CreateSessionRequestObject) (gen.CreateSessionResponseObject, error) {
+	email := string(req.Body.Email)
 	signedIn, err := s.Sessions.SignIn(ctx, auth.Credentials{
-		Email:    string(req.Body.Email),
+		Email:    email,
 		Password: req.Body.Password,
 		Code:     req.Body.TotpCode,
 	})
+	var refused *apperr.Error
+	if errors.As(err, &refused) && refused.Code == apperr.RateLimited {
+		s.Log.WarnContext(ctx, "sign_in_locked", "request_id", RequestID(ctx), "email_hash", auth.EmailHashPrefix(email))
+	}
 	if err != nil {
 		return nil, err
 	}

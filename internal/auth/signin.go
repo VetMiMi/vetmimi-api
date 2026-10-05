@@ -9,6 +9,7 @@ import (
 
 	"github.com/VetMiMi/vetmimi-api/internal/db"
 	"github.com/VetMiMi/vetmimi-api/internal/platform"
+	"github.com/VetMiMi/vetmimi-api/internal/platform/apperr"
 )
 
 // dummyPasswordHash is a random password, long forgotten, hashed with the
@@ -36,12 +37,34 @@ type SignedIn struct {
 	Session   Session
 }
 
-// SignIn checks the credentials and starts a session. Every refusal (an
-// unknown email, a wrong password, a wrong, replayed or concurrently reused
-// code, a disabled user) is the same invalid_credentials error, and each
-// runs the same password hash and code check.
+// SignIn checks the credentials and starts a session.
+//
+// First the lockout counts the attempt against the email's hourly limit and
+// refuses an email that is over it or locked out with rate_limited, whether
+// or not it has an account, before any password is hashed. Every refusal
+// after that (an unknown email, a wrong password, a wrong, replayed or
+// concurrently reused code, a disabled user) is the same invalid_credentials
+// error, runs the same password hash and code check, and counts as a failure
+// towards the lockout. A success leaves the failures to expire on their own,
+// so it does not tell an attacker which guess was right.
 func (s *Sessions) SignIn(ctx context.Context, c Credentials) (SignedIn, error) {
-	u, err := db.New(s.pool).GetUserForSignIn(ctx, NormalizeEmail(c.Email))
+	email := NormalizeEmail(c.Email)
+	if err := s.lockout.admit(ctx, email); err != nil {
+		return SignedIn{}, err
+	}
+	signedIn, err := s.checkAndStart(ctx, email, c)
+	var refused *apperr.Error
+	if errors.As(err, &refused) && refused.Code == apperr.InvalidCredentials {
+		if err := s.lockout.failed(ctx, email); err != nil {
+			return SignedIn{}, err
+		}
+	}
+	return signedIn, err
+}
+
+// checkAndStart checks the credentials for email and starts a session.
+func (s *Sessions) checkAndStart(ctx context.Context, email string, c Credentials) (SignedIn, error) {
+	u, err := db.New(s.pool).GetUserForSignIn(ctx, email)
 	known := err == nil
 	if err != nil && !errors.Is(err, pgx.ErrNoRows) {
 		return SignedIn{}, err
