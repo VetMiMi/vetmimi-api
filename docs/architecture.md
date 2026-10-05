@@ -72,7 +72,12 @@ chi middleware runs in this order for every HTTP route:
 9. **Handler** — strict-server handler; calls one domain function; maps the result or the `apperr` to a response.
 
 Steps 7 and 8 run per operation, through the generated
-`ChiServerOptions.Middlewares`. The generated wrapper wraps each entry around
+`ChiServerOptions.Middlewares`. Step 7 finds the request's operation in an
+index built once from the embedded spec and keyed by method and path
+template, which is exactly the chi route pattern, so a route is guarded by
+the `security` its operation declares, never by its path. Every operation
+declares exactly one of `serviceKey`, `sessionToken` or `security: []`; the
+index refuses anything else at start-up. The generated wrapper wraps each entry around
 the ones before it, so the last entry runs first: validation is
 `Middlewares[0]` and runs last, just before the handler, and the
 authentication, role and rate-limit middlewares are appended after it. The
@@ -127,8 +132,11 @@ never shows `detail` to visitors. Renaming a code is a breaking change.
 ## Authentication and roles
 
 **Service key.** Next sends `SERVICE_KEY` as `X-Service-Key` on public calls
-and sign-in; the API compares it in constant time. The visitor's address
-arrives in `X-Visitor-IP`, trusted only alongside a valid service key.
+and sign-in; the API compares SHA-256 digests in constant time, so neither
+content nor length leaks, and answers a missing or wrong key with
+`401 unauthenticated`. The visitor's address arrives in `X-Visitor-IP`,
+trusted only alongside a valid service key; when it is missing or does not
+parse, the real IP stays and `visitor_ip_missing` is logged with the route.
 
 **Sessions.** `POST /auth/sessions` takes email, password and TOTP code and
 returns an opaque token; only its SHA-256 is stored. Next keeps it in an
