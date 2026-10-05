@@ -83,7 +83,7 @@ func runAPI(ctx context.Context, log *slog.Logger, cfg platform.Config, pool *pg
 	if err != nil {
 		return err
 	}
-	sessions, err := auth.NewSessions(pool, codes, time.Now)
+	sessions, err := auth.NewSessions(pool, codes, auth.NewLockout(rdb, "", time.Now), time.Now)
 	if err != nil {
 		return err
 	}

@@ -24,12 +24,14 @@ type testClock struct{ at time.Time }
 
 func (c *testClock) now() time.Time { return c.at }
 
-// fixture is Sessions on the test database, with codes and expiry read from
-// one clock the test moves.
+// fixture is Sessions on the test database, with sign-in attempts counted in
+// REDIS_URL_TEST under a key prefix of its own, and codes, expiry and
+// lockouts read from one clock the test moves.
 type fixture struct {
 	clock    *testClock
 	codes    *auth.TOTP
 	sessions *auth.Sessions
+	redis    *testRedis
 }
 
 func newFixture(t *testing.T) *fixture {
@@ -37,9 +39,11 @@ func newFixture(t *testing.T) *fixture {
 	clock := &testClock{at: now}
 	codes, err := auth.NewTOTP(testKey, clock.now)
 	require.NoError(t, err)
-	sessions, err := auth.NewSessions(pgtest.Pool(t), codes, clock.now)
+	redis := newTestRedis(t)
+	lockout := auth.NewLockout(redis.client, redis.prefix, clock.now)
+	sessions, err := auth.NewSessions(pgtest.Pool(t), codes, lockout, clock.now)
 	require.NoError(t, err)
-	return &fixture{clock: clock, codes: codes, sessions: sessions}
+	return &fixture{clock: clock, codes: codes, sessions: sessions, redis: redis}
 }
 
 // admin is a user whose password is "correct horse battery" (hash) and whose
@@ -156,7 +160,7 @@ func TestMalformedTokenNeverReachesTheDatabase(t *testing.T) {
 	closed, err := pgxpool.NewWithConfig(context.Background(), pgtest.Pool(t).Config())
 	require.NoError(t, err)
 	closed.Close()
-	sessions, err := auth.NewSessions(closed, f.codes, f.clock.now)
+	sessions, err := auth.NewSessions(closed, f.codes, nil, f.clock.now)
 	require.NoError(t, err)
 
 	for _, sent := range []string{"", "not-a-token", "vms_short"} {
