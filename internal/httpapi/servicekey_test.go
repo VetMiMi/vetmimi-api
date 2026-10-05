@@ -178,7 +178,7 @@ func TestRouteMissingFromTheIndexIs500(t *testing.T) {
 // mountAPI puts the key check in front of validation: a caller without the
 // key is refused before the contract says anything about its request.
 func TestServiceKeyIsCheckedBeforeValidation(t *testing.T) {
-	mount := mountAPI(&server{}, load(t, "testdata/security.yaml"), testServiceKey, quiet)
+	mount := mountAPI(&server{}, load(t, "testdata/security.yaml"), testServiceKey, noRedis, quiet)
 
 	res, _ := through(t, mount, getWith("/healthz"))
 	requireUnauthenticated(t, res)

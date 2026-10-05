@@ -1,0 +1,102 @@
+# A small spec for ratelimit_test.go. Sign-in is not generated yet, so the
+# generated /healthz route stands in for createSession: mounted through
+# mountAPI, it shows the order of the real middlewares, and its required query
+# parameter lets a test tell validation's 400 from the limiter's 429. /readyz
+# stands in for a public read limited by visitor IP. The other operations get
+# stub routes behind the same key check and limiter.
+openapi: "3.1.0"
+info:
+  title: Rate limit fixture
+  version: "0"
+paths:
+  /healthz:
+    get:
+      operationId: createSession
+      security:
+        - serviceKey: []
+      parameters:
+        - name: probe
+          in: query
+          required: true
+          schema:
+            type: string
+            enum: ["yes"]
+      responses:
+        "200":
+          description: Signed in.
+  /readyz:
+    get:
+      operationId: getPublicAvailability
+      security:
+        - serviceKey: []
+      responses:
+        "200":
+          description: Slots.
+  /public/manage/{token}:
+    get:
+      operationId: getManagedAppointment
+      security:
+        - serviceKey: []
+      parameters:
+        - $ref: "#/components/parameters/Token"
+      responses:
+        "200":
+          description: The appointment.
+  /public/manage/{token}/cancel:
+    post:
+      operationId: cancelManagedAppointment
+      security:
+        - serviceKey: []
+      parameters:
+        - $ref: "#/components/parameters/Token"
+      responses:
+        "200":
+          description: Cancelled.
+  /public/sessions/{token}:
+    get:
+      operationId: getPublicSession
+      security:
+        - serviceKey: []
+      parameters:
+        - $ref: "#/components/parameters/Token"
+      responses:
+        "200":
+          description: The session.
+  /public/stories/{slug}:
+    get:
+      operationId: getPublicStory
+      security:
+        - serviceKey: []
+      parameters:
+        - name: slug
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        "200":
+          description: The story.
+  /auth/me:
+    get:
+      operationId: getCurrentUser
+      security:
+        - sessionToken: []
+      responses:
+        "200":
+          description: The signed-in user.
+components:
+  parameters:
+    Token:
+      name: token
+      in: path
+      required: true
+      schema:
+        type: string
+  securitySchemes:
+    serviceKey:
+      type: apiKey
+      in: header
+      name: X-Service-Key
+    sessionToken:
+      type: http
+      scheme: bearer

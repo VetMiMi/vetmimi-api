@@ -123,8 +123,8 @@ func TestIndexRejectsUnclearSecurity(t *testing.T) {
 }
 
 func TestMountRefusesUnclearSecurity(t *testing.T) {
-	require.Panics(t, func() { mountAPI(&server{}, thingSpec(t, ""), testServiceKey, quiet) })
+	require.Panics(t, func() { mountAPI(&server{}, thingSpec(t, ""), testServiceKey, noRedis, quiet) })
 	require.NotPanics(t, func() {
-		mountAPI(&server{}, thingSpec(t, "security: [{serviceKey: []}]"), testServiceKey, quiet)
+		mountAPI(&server{}, thingSpec(t, "security: [{serviceKey: []}]"), testServiceKey, noRedis, quiet)
 	})
 }
