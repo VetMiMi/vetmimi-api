@@ -4,23 +4,48 @@ package httpapi
 
 import (
 	"context"
+	"log/slog"
 	"net/http"
 	"time"
+
+	"github.com/go-chi/chi/v5"
 
 	"github.com/VetMiMi/vetmimi-api/internal/httpapi/gen"
 )
 
 // Server implements gen.StrictServerInterface. The ping functions are set by
 // cmd/api once the database pool and Redis client exist; until then readiness
-// reports both as failing, which is the truth.
+// reports both as failing, which is the truth. Log receives unexpected
+// failures; nil means slog.Default().
 type Server struct {
 	PingPostgres func(context.Context) error
 	PingRedis    func(context.Context) error
+	Log          *slog.Logger
 }
 
-// Handler returns the HTTP handler for every route in openapi.yaml.
+// Handler returns the HTTP handler for every route in openapi.yaml. Every
+// error it answers, including unknown routes, is an application/problem+json
+// body.
 func Handler(s *Server) http.Handler {
-	return gen.Handler(gen.NewStrictHandler(s, nil))
+	log := s.Log
+	if log == nil {
+		log = slog.Default()
+	}
+	return handler(s, log)
+}
+
+func handler(si gen.StrictServerInterface, log *slog.Logger) http.Handler {
+	r := chi.NewRouter()
+	r.NotFound(notFound)
+	r.MethodNotAllowed(notFound)
+	strict := gen.NewStrictHandlerWithOptions(si, nil, gen.StrictHTTPServerOptions{
+		RequestErrorHandlerFunc:  requestError,
+		ResponseErrorHandlerFunc: responseError(log),
+	})
+	return gen.HandlerWithOptions(strict, gen.ChiServerOptions{
+		BaseRouter:       r,
+		ErrorHandlerFunc: paramError,
+	})
 }
 
 // GetHealthz reports that the process is up.
