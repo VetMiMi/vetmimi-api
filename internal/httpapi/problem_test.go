@@ -14,7 +14,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/go-chi/chi/v5/middleware"
+	"github.com/go-chi/chi/v5"
 	"github.com/jackc/pgx/v5/pgconn"
 	"github.com/stretchr/testify/require"
 
@@ -25,7 +25,7 @@ import (
 // failing answers /healthz with err, standing in for any handler whose
 // domain call fails.
 type failing struct {
-	Server
+	server
 	err error
 }
 
@@ -45,12 +45,14 @@ func problemFrom(t *testing.T, res *httptest.ResponseRecorder) map[string]any {
 }
 
 // failWith runs /healthz through a handler that returns err and captures the
-// log, behind the request-id middleware cmd/api installs.
+// handler's own log, behind the request-id middleware.
 func failWith(t *testing.T, err error) (*httptest.ResponseRecorder, map[string]any, string) {
 	t.Helper()
 	var logs bytes.Buffer
 	log := slog.New(slog.NewJSONHandler(&logs, nil))
-	h := middleware.RequestID(handler(&failing{err: err}, log))
+	r := chi.NewRouter()
+	mountAPI(&failing{err: err}, log)(r)
+	h := requestID(r)
 
 	res := httptest.NewRecorder()
 	h.ServeHTTP(res, httptest.NewRequest(http.MethodGet, "/healthz", nil))
@@ -240,7 +242,7 @@ func TestUnknownRouteIsAProblem(t *testing.T) {
 			path = "/healthz" // a known path with the wrong method
 		}
 		res := httptest.NewRecorder()
-		Handler(&Server{}).ServeHTTP(res, httptest.NewRequest(method, path, nil))
+		NewRouter(Deps{Log: quiet}).ServeHTTP(res, httptest.NewRequest(method, path, nil))
 		require.Equal(t, http.StatusNotFound, res.Code, "%s %s", method, path)
 		require.Equal(t, "not_found", problemFrom(t, res)["code"])
 	}

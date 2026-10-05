@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"log/slog"
 	"net/http"
 	"net/http/httptest"
 	"testing"
@@ -29,21 +30,24 @@ func get(t *testing.T, h http.Handler, path string) (*http.Response, map[string]
 
 func ok(context.Context) error { return nil }
 
+// quiet drops the request log for tests that are not about it.
+var quiet = slog.New(slog.DiscardHandler)
+
 func TestHealthz(t *testing.T) {
-	res, body := get(t, Handler(&Server{}), "/healthz")
+	res, body := get(t, NewRouter(Deps{Log: quiet}), "/healthz")
 	require.Equal(t, http.StatusOK, res.StatusCode)
 	require.Equal(t, "ok", body["status"])
 }
 
 func TestReadyzWithBothDependencies(t *testing.T) {
-	res, body := get(t, Handler(&Server{PingPostgres: ok, PingRedis: ok}), "/readyz")
+	res, body := get(t, NewRouter(Deps{PingPostgres: ok, PingRedis: ok, Log: quiet}), "/readyz")
 	require.Equal(t, http.StatusOK, res.StatusCode)
 	require.Equal(t, "ok", body["status"])
 }
 
 func TestReadyzReportsAFailingDependency(t *testing.T) {
 	down := func(context.Context) error { return errors.New("connection refused") }
-	res, body := get(t, Handler(&Server{PingPostgres: ok, PingRedis: down}), "/readyz")
+	res, body := get(t, NewRouter(Deps{PingPostgres: ok, PingRedis: down, Log: quiet}), "/readyz")
 	require.Equal(t, http.StatusServiceUnavailable, res.StatusCode)
 	require.Equal(t, "unavailable", body["status"])
 	checks := body["checks"].(map[string]any)
@@ -52,6 +56,6 @@ func TestReadyzReportsAFailingDependency(t *testing.T) {
 }
 
 func TestReadyzIsUnavailableBeforeWiring(t *testing.T) {
-	res, _ := get(t, Handler(&Server{}), "/readyz")
+	res, _ := get(t, NewRouter(Deps{Log: quiet}), "/readyz")
 	require.Equal(t, http.StatusServiceUnavailable, res.StatusCode)
 }
