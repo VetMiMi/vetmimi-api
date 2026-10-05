@@ -1,6 +1,6 @@
 // Package platform holds the process-wide plumbing every domain shares:
-// configuration, logging, the database pool, the Redis client, and the task
-// queue and worker. The clock is in platform/clock.
+// configuration, logging, the database pool, the Redis client, the rate
+// limiter, and the task queue and worker. The clock is in platform/clock.
 //
 // Domain functions that cause background work return the tasks to enqueue,
 // and the handler passes them to Queue.Enqueue after the transaction commits.
