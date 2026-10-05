@@ -18,6 +18,7 @@ import (
 	"github.com/go-chi/chi/v5"
 	"github.com/go-chi/chi/v5/middleware"
 	"github.com/jackc/pgx/v5/pgxpool"
+	"github.com/redis/go-redis/v9"
 
 	"github.com/VetMiMi/vetmimi-api/internal/httpapi"
 	"github.com/VetMiMi/vetmimi-api/internal/platform"
@@ -60,21 +61,29 @@ func run(ctx context.Context, log *slog.Logger, cfg platform.Config, mode string
 	if err := platform.Migrate(ctx, pool); err != nil {
 		return err
 	}
+	rdb, err := platform.OpenRedis(cfg.RedisURL)
+	if err != nil {
+		return err
+	}
+	defer rdb.Close()
 
 	if mode == "worker" {
-		log.Info("worker mode is not implemented yet")
-		return nil
+		return runWorker(ctx, log, rdb)
 	}
-	return runAPI(ctx, log, cfg, pool)
+	return runAPI(ctx, log, cfg, pool, rdb)
 }
 
-func runAPI(ctx context.Context, log *slog.Logger, cfg platform.Config, pool *pgxpool.Pool) error {
+func runAPI(ctx context.Context, log *slog.Logger, cfg platform.Config, pool *pgxpool.Pool, rdb *redis.Client) error {
 	r := chi.NewRouter()
 	// Client IPs are taken from Caddy's X-Forwarded-For in the platform
 	// middleware later; chi's RealIP trusts every proxy header and is not used.
 	r.Use(middleware.RequestID, middleware.Recoverer)
 	r.Use(middleware.Timeout(30 * time.Second))
-	r.Mount("/", httpapi.Handler(&httpapi.Server{Log: log, PingPostgres: pool.Ping}))
+	r.Mount("/", httpapi.Handler(&httpapi.Server{
+		Log:          log,
+		PingPostgres: pool.Ping,
+		PingRedis:    func(ctx context.Context) error { return rdb.Ping(ctx).Err() },
+	}))
 
 	srv := &http.Server{
 		Addr:              ":" + strconv.Itoa(cfg.Port),
