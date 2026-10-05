@@ -43,7 +43,8 @@ migrate-new: ## make migrate-new NAME=add_appointments
 gate: ## the full local gate; identical to CI
 	$(GATE) sh -c '$(MAKE) lint && $(MAKE) -o gate test build generate-check'
 
-tools: ## install the code generators and linters used by make
-	go install honnef.co/go/tools/cmd/staticcheck@latest
-	go install github.com/oapi-codegen/oapi-codegen/v2/cmd/oapi-codegen@latest
-	go install github.com/pressly/goose/v3/cmd/goose@latest
+tools: ## install the pinned code generators and linters; CI and laptops must match or generate-check drifts
+	go install honnef.co/go/tools/cmd/staticcheck@v0.8.1
+	go install github.com/oapi-codegen/oapi-codegen/v2/cmd/oapi-codegen@v2.8.0
+	go install github.com/sqlc-dev/sqlc/cmd/sqlc@v1.31.1
+	go install github.com/pressly/goose/v3/cmd/goose@v3.28.0
