@@ -107,6 +107,7 @@ func TestSaveAccountCreatesThenReplaces(t *testing.T) {
 		PasswordHash:     "$argon2id$replaced",
 		Roles:            []string{"content_editor", "booking_admin"},
 		SealedTOTPSecret: []byte("resealed"),
+		EnrolmentStep:    7,
 	}
 	again, created, err := auth.SaveAccount(ctx, q, second)
 	require.NoError(t, err)
@@ -118,7 +119,7 @@ func TestSaveAccountCreatesThenReplaces(t *testing.T) {
 	require.Equal(t, "$argon2id$replaced", got.PasswordHash)
 	require.Equal(t, []string{"content_editor", "booking_admin"}, got.Roles)
 	require.Equal(t, []byte("resealed"), got.TotpSecretEnc)
-	require.False(t, got.TotpLastStep.Valid, "the old secret's last step no longer applies")
+	require.Equal(t, pgtype.Int8{Int64: 7, Valid: true}, got.TotpLastStep, "the old secret's last step gives way to the enrolment step")
 }
 
 func TestSecondPractitionerRefused(t *testing.T) {

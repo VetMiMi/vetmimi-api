@@ -113,17 +113,18 @@ type stored struct {
 	roles          []string
 	isPractitioner bool
 	totpSecretEnc  []byte
+	totpLastStep   pgtype.Int8
 }
 
 // lookup returns the user with email, or ok false when there is none.
 func lookup(t *testing.T, email string) (u stored, ok bool) {
 	t.Helper()
 	rows, err := pgtest.Pool(t).Query(context.Background(),
-		`SELECT id, display_name, password_hash, roles, is_practitioner, totp_secret_enc FROM users WHERE email = $1`, email)
+		`SELECT id, display_name, password_hash, roles, is_practitioner, totp_secret_enc, totp_last_step FROM users WHERE email = $1`, email)
 	require.NoError(t, err)
 	defer rows.Close()
 	for rows.Next() {
-		require.NoError(t, rows.Scan(&u.id, &u.displayName, &u.passwordHash, &u.roles, &u.isPractitioner, &u.totpSecretEnc))
+		require.NoError(t, rows.Scan(&u.id, &u.displayName, &u.passwordHash, &u.roles, &u.isPractitioner, &u.totpSecretEnc, &u.totpLastStep))
 		ok = true
 	}
 	require.NoError(t, rows.Err())
@@ -167,6 +168,7 @@ func TestCreateUserSavesAfterAValidCode(t *testing.T) {
 	require.NoError(t, err)
 	secret, err := codes.Open(u.totpSecretEnc)
 	require.NoError(t, err)
+	require.Equal(t, pgtype.Int8{Int64: now.Unix() / 30, Valid: true}, u.totpLastStep, "the enrolment code is used up")
 	require.Equal(t, key.Secret(), base32.StdEncoding.WithPadding(base32.NoPadding).EncodeToString(secret), "the stored secret is the one in the URI")
 }
 

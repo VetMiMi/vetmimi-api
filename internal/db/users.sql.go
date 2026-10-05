@@ -34,8 +34,8 @@ func (q *Queries) ClaimTOTPStep(ctx context.Context, arg ClaimTOTPStepParams) (i
 }
 
 const createUser = `-- name: CreateUser :one
-INSERT INTO users (email, display_name, password_hash, roles, is_practitioner, totp_secret_enc)
-VALUES ($1, $2, $3, $4, $5, $6)
+INSERT INTO users (email, display_name, password_hash, roles, is_practitioner, totp_secret_enc, totp_last_step)
+VALUES ($1, $2, $3, $4, $5, $6, $7::bigint)
 RETURNING id
 `
 
@@ -46,8 +46,11 @@ type CreateUserParams struct {
 	Roles          []string
 	IsPractitioner bool
 	TotpSecretEnc  []byte
+	TotpLastStep   int64
 }
 
+// CreateUser and ReplaceUserCredentials store the step of the code typed at
+// enrolment as already accepted, so that code can never also sign in.
 func (q *Queries) CreateUser(ctx context.Context, arg CreateUserParams) (pgtype.UUID, error) {
 	row := q.db.QueryRow(ctx, createUser,
 		arg.Email,
@@ -56,6 +59,7 @@ func (q *Queries) CreateUser(ctx context.Context, arg CreateUserParams) (pgtype.
 		arg.Roles,
 		arg.IsPractitioner,
 		arg.TotpSecretEnc,
+		arg.TotpLastStep,
 	)
 	var id pgtype.UUID
 	err := row.Scan(&id)
@@ -80,9 +84,9 @@ SET display_name = $1,
     roles = $3,
     is_practitioner = is_practitioner OR $4,
     totp_secret_enc = $5,
-    totp_last_step = NULL,
+    totp_last_step = $6::bigint,
     updated_at = now()
-WHERE email = $6
+WHERE email = $7
 RETURNING id
 `
 
@@ -92,6 +96,7 @@ type ReplaceUserCredentialsParams struct {
 	Roles          []string
 	IsPractitioner bool
 	TotpSecretEnc  []byte
+	TotpLastStep   int64
 	Email          string
 }
 
@@ -105,6 +110,7 @@ func (q *Queries) ReplaceUserCredentials(ctx context.Context, arg ReplaceUserCre
 		arg.Roles,
 		arg.IsPractitioner,
 		arg.TotpSecretEnc,
+		arg.TotpLastStep,
 		arg.Email,
 	)
 	var id pgtype.UUID

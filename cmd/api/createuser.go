@@ -106,7 +106,7 @@ func createUser(ctx context.Context, log *slog.Logger, q db.Querier, codes *auth
 		return err
 	}
 	fmt.Fprintf(t.out, "Add this account to an authenticator app:\n\n%s\n\n", enrolment.URI)
-	if err := confirmCode(codes, enrolment.Secret, t); err != nil {
+	if account.EnrolmentStep, err = confirmCode(codes, enrolment.Secret, t); err != nil {
 		return err
 	}
 
@@ -190,17 +190,18 @@ func promptPassword(t terminal, prompt string) ([]byte, error) {
 	return password, nil
 }
 
-func confirmCode(codes *auth.TOTP, secret []byte, t terminal) error {
+// confirmCode returns the step of the first valid code typed.
+func confirmCode(codes *auth.TOTP, secret []byte, t terminal) (int64, error) {
 	lines := bufio.NewScanner(t.in)
 	for range codeTries {
 		fmt.Fprint(t.out, "Code from the app: ")
 		if !lines.Scan() {
-			return errors.New("create-user: no code entered; nothing was saved")
+			return 0, errors.New("create-user: no code entered; nothing was saved")
 		}
-		if _, ok := codes.Match(secret, strings.TrimSpace(lines.Text())); ok {
-			return nil
+		if step, ok := codes.Match(secret, strings.TrimSpace(lines.Text())); ok {
+			return step, nil
 		}
 		fmt.Fprintln(t.out, "That code is not valid.")
 	}
-	return fmt.Errorf("create-user: %d wrong codes; nothing was saved", codeTries)
+	return 0, fmt.Errorf("create-user: %d wrong codes; nothing was saved", codeTries)
 }

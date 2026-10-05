@@ -15,6 +15,8 @@ type Querier interface {
 	// is later than the last one accepted, so two concurrent sign-ins with one
 	// code cannot both succeed.
 	ClaimTOTPStep(ctx context.Context, arg ClaimTOTPStepParams) (int64, error)
+	// CreateUser and ReplaceUserCredentials store the step of the code typed at
+	// enrolment as already accepted, so that code can never also sign in.
 	CreateUser(ctx context.Context, arg CreateUserParams) (pgtype.UUID, error)
 	GetUserTOTPSecret(ctx context.Context, id pgtype.UUID) ([]byte, error)
 	Ping(ctx context.Context) (int32, error)

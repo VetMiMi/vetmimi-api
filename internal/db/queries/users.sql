@@ -1,6 +1,8 @@
+-- CreateUser and ReplaceUserCredentials store the step of the code typed at
+-- enrolment as already accepted, so that code can never also sign in.
 -- name: CreateUser :one
-INSERT INTO users (email, display_name, password_hash, roles, is_practitioner, totp_secret_enc)
-VALUES (@email, @display_name, @password_hash, @roles, @is_practitioner, @totp_secret_enc)
+INSERT INTO users (email, display_name, password_hash, roles, is_practitioner, totp_secret_enc, totp_last_step)
+VALUES (@email, @display_name, @password_hash, @roles, @is_practitioner, @totp_secret_enc, @totp_last_step::bigint)
 RETURNING id;
 
 -- ReplaceUserCredentials re-enrols an existing user. It never clears
@@ -13,7 +15,7 @@ SET display_name = @display_name,
     roles = @roles,
     is_practitioner = is_practitioner OR @is_practitioner,
     totp_secret_enc = @totp_secret_enc,
-    totp_last_step = NULL,
+    totp_last_step = @totp_last_step::bigint,
     updated_at = now()
 WHERE email = @email
 RETURNING id;

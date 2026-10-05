@@ -191,6 +191,34 @@ func TestTOTPReplayIsRefused(t *testing.T) {
 	require.NoError(t, err, "a later step is still accepted")
 }
 
+// The code typed at enrolment was seen on the administrator's screen; it must
+// not also work as a sign-in code, whether the account is new or re-enrolled.
+func TestEnrolmentCodeCannotSignIn(t *testing.T) {
+	q := db.New(pgtest.Pool(t))
+	codes := newTOTP(t, testKey)
+	ctx := context.Background()
+	a := account(uniqueEmail(t))
+
+	for _, wantCreated := range []bool{true, false} {
+		secret := newSecret(t)
+		code := codeAt(t, secret, now)
+		step, ok := codes.Match(secret, code)
+		require.True(t, ok)
+		sealed, err := codes.Seal(secret)
+		require.NoError(t, err)
+		a.SealedTOTPSecret, a.EnrolmentStep = sealed, step
+
+		id, created, err := auth.SaveAccount(ctx, q, a)
+		require.NoError(t, err)
+		require.Equal(t, wantCreated, created)
+
+		_, err = auth.VerifyTOTP(ctx, q, codes, id, code)
+		requireInvalidCredentials(t, err)
+		_, err = auth.VerifyTOTP(ctx, q, codes, id, codeAt(t, secret, now.Add(30*time.Second)))
+		require.NoError(t, err, "the next code signs in")
+	}
+}
+
 func TestConcurrentTOTPUseHasOneWinner(t *testing.T) {
 	pool := pgtest.Pool(t)
 	q := db.New(pool)

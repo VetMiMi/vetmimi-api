@@ -28,6 +28,9 @@ type Account struct {
 	Roles            []string
 	Practitioner     bool
 	SealedTOTPSecret []byte
+	// EnrolmentStep is the step of the code typed at enrolment. It is saved
+	// as the last accepted step, so that code cannot be replayed to sign in.
+	EnrolmentStep int64
 }
 
 // NormalizeEmail is the form emails are stored and looked up in.
@@ -37,7 +40,7 @@ func NormalizeEmail(email string) string {
 
 // SaveAccount creates the account, or, when its email already exists,
 // replaces that user's password, TOTP secret, display name and roles and
-// clears the last accepted TOTP step, which belonged to the old secret. It
+// replaces the last accepted TOTP step with the enrolment step. It
 // reports whether it created the user.
 func SaveAccount(ctx context.Context, q db.Querier, a Account) (id pgtype.UUID, created bool, err error) {
 	email := NormalizeEmail(a.Email)
@@ -48,6 +51,7 @@ func SaveAccount(ctx context.Context, q db.Querier, a Account) (id pgtype.UUID, 
 		Roles:          a.Roles,
 		IsPractitioner: a.Practitioner,
 		TotpSecretEnc:  a.SealedTOTPSecret,
+		TotpLastStep:   a.EnrolmentStep,
 	})
 	if !errors.Is(err, pgx.ErrNoRows) {
 		return id, false, practitionerTaken(err)
@@ -59,6 +63,7 @@ func SaveAccount(ctx context.Context, q db.Querier, a Account) (id pgtype.UUID, 
 		Roles:          a.Roles,
 		IsPractitioner: a.Practitioner,
 		TotpSecretEnc:  a.SealedTOTPSecret,
+		TotpLastStep:   a.EnrolmentStep,
 	})
 	return id, err == nil, practitionerTaken(err)
 }
