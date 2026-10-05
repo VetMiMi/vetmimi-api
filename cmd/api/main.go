@@ -72,7 +72,7 @@ func run(ctx context.Context, log *slog.Logger, cfg platform.Config, mode string
 	defer rdb.Close()
 
 	if mode == "worker" {
-		return runWorker(ctx, log, rdb)
+		return runWorker(ctx, log, pool, rdb)
 	}
 	return runAPI(ctx, log, cfg, pool, rdb)
 }
