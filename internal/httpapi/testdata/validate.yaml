@@ -1,15 +1,13 @@
 # A small spec for validate_test.go. Only the health tag is generated so far,
 # so the validator is tested against an operation shaped like the real ones:
-# a 3.1 document listing a localhost server, a global service-key requirement,
-# path, query and header parameters, and a body that refers to components.
+# a 3.1 document listing a localhost server, a service-key requirement, path,
+# query and header parameters, and a body that refers to components.
 openapi: "3.1.0"
 info:
   title: Validation fixture
   version: "0"
 servers:
   - url: "http://localhost:8080"
-security:
-  - serviceKey: []
 paths:
   /healthz:
     get:
@@ -28,6 +26,8 @@ paths:
   /bookings/{serviceId}:
     post:
       operationId: createBooking
+      security:
+        - serviceKey: []
       parameters:
         - name: serviceId
           in: path

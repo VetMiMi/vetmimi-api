@@ -13,11 +13,13 @@ import (
 // Deps are what the handlers need, set by cmd/api once the database pool and
 // Redis client exist. A nil ping makes readiness report that dependency as
 // failing, which is the truth. Log receives requests and unexpected
-// failures; nil means slog.Default().
+// failures; nil means slog.Default(). ServiceKey is the key public operations
+// and sign-in require; empty, they refuse every call.
 type Deps struct {
 	PingPostgres func(context.Context) error
 	PingRedis    func(context.Context) error
 	Log          *slog.Logger
+	ServiceKey   string
 }
 
 // server implements gen.StrictServerInterface.

@@ -76,6 +76,7 @@ func runAPI(ctx context.Context, log *slog.Logger, cfg platform.Config, pool *pg
 		PingPostgres: pool.Ping,
 		PingRedis:    func(ctx context.Context) error { return rdb.Ping(ctx).Err() },
 		Log:          log,
+		ServiceKey:   cfg.ServiceKey,
 	}))
 
 	errc := make(chan error, 1)
