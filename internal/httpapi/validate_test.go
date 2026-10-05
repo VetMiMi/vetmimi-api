@@ -233,7 +233,7 @@ func TestValidatorIgnoresServerHost(t *testing.T) {
 }
 
 func TestGeneratedRoutesAreValidated(t *testing.T) {
-	mount := mountAPI(&server{}, fixture(t), "", noRedis, quiet)
+	mount := mountAPI(&server{}, fixture(t), Deps{RateLimits: noRedis, Log: quiet})
 
 	res, _ := through(t, mount, httptest.NewRequest(http.MethodGet, "/healthz", nil))
 	require.Equal(t, []map[string]any{fieldError("probe", "is required")}, invalid(t, res))

@@ -19,6 +19,7 @@ import (
 	"github.com/jackc/pgx/v5/pgxpool"
 	"github.com/redis/go-redis/v9"
 
+	"github.com/VetMiMi/vetmimi-api/internal/auth"
 	"github.com/VetMiMi/vetmimi-api/internal/httpapi"
 	"github.com/VetMiMi/vetmimi-api/internal/platform"
 )
@@ -78,12 +79,21 @@ func run(ctx context.Context, log *slog.Logger, cfg platform.Config, mode string
 }
 
 func runAPI(ctx context.Context, log *slog.Logger, cfg platform.Config, pool *pgxpool.Pool, rdb *redis.Client) error {
+	codes, err := auth.NewTOTP(cfg.TOTPEncryptionKey, time.Now)
+	if err != nil {
+		return err
+	}
+	sessions, err := auth.NewSessions(pool, codes, time.Now)
+	if err != nil {
+		return err
+	}
 	srv := newServer(cfg.Port, httpapi.NewRouter(httpapi.Deps{
 		PingPostgres: pool.Ping,
 		PingRedis:    func(ctx context.Context) error { return rdb.Ping(ctx).Err() },
 		Log:          log,
 		ServiceKey:   cfg.ServiceKey,
 		RateLimits:   httpapi.NewRateLimits(platform.NewLimiter(rdb, "", time.Now), log, time.Now),
+		Sessions:     sessions,
 	}))
 
 	errc := make(chan error, 1)

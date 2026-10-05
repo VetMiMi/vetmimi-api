@@ -5,7 +5,6 @@ import (
 	"errors"
 	"log/slog"
 	"net/http"
-	"strings"
 	"sync"
 	"time"
 
@@ -106,7 +105,7 @@ func NewRateLimits(limiter *platform.Limiter, log *slog.Logger, now clock.Now) *
 
 // operations returns the middleware that counts each request against its
 // operation's limit. It runs after authentication, so a caller without a
-// valid key or session is refused without being counted, and before
+// valid key or live session is refused without being counted, and before
 // validation, so a flood of malformed requests is limited too.
 func (rl *RateLimits) operations(ops operations) gen.MiddlewareFunc {
 	return func(next http.Handler) http.Handler {
@@ -139,8 +138,7 @@ func subject(r *http.Request, key keyBy) string {
 	case byServiceKey:
 		return r.Header.Get("X-Service-Key")
 	case bySessionToken:
-		token, _ := strings.CutPrefix(r.Header.Get("Authorization"), "Bearer ")
-		return token
+		return bearerToken(r)
 	}
 	return ""
 }

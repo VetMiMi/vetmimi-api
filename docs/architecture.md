@@ -142,7 +142,12 @@ parse, the real IP stays and `visitor_ip_missing` is logged with the route.
 returns an opaque token; only its SHA-256 is stored. Next keeps it in an
 `httpOnly`, `Secure`, `SameSite=Lax` cookie and forwards it as a bearer token.
 Sessions expire after 12 hours idle (ADR-002) or 7 days in all. Sign-out
-deletes the row.
+deletes the row. An unknown email is checked against a fixed dummy argon2id
+hash and a dummy TOTP secret, so every refused sign-in does the same work and
+gets the same `401 invalid_credentials` body. The TOTP step claim,
+`last_sign_in_at` and the session insert are one transaction. The bearer check
+runs before the rate limiter, so callers without a live session are never
+counted, and refreshes `last_seen_at` only when it is over a minute old.
 
 **Passwords and TOTP.** argon2id (64 MiB, 3 iterations, parallelism 2, PHC
 string). TOTP (30 s, 6 digits, ±1 step) is required for every user and enrolled

@@ -14,9 +14,11 @@ import (
 	"net/url"
 	"path"
 	"strings"
+	"time"
 
 	"github.com/getkin/kin-openapi/openapi3"
 	"github.com/go-chi/chi/v5"
+	openapi_types "github.com/oapi-codegen/runtime/types"
 )
 
 // Defines values for HealthStatus.
@@ -88,6 +90,36 @@ func (e ReadinessStatus) Valid() bool {
 	}
 }
 
+// Defines values for Role.
+const (
+	BookingAdmin  Role = "booking_admin"
+	ContentEditor Role = "content_editor"
+	SiteAdmin     Role = "site_admin"
+)
+
+// Valid indicates whether the value is a known member of the Role enum.
+func (e Role) Valid() bool {
+	switch e {
+	case BookingAdmin:
+		return true
+	case ContentEditor:
+		return true
+	case SiteAdmin:
+		return true
+	default:
+		return false
+	}
+}
+
+// CurrentUser defines model for CurrentUser.
+type CurrentUser struct {
+	DisplayName    string              `json:"displayName"`
+	Email          openapi_types.Email `json:"email"`
+	Id             openapi_types.UUID  `json:"id"`
+	IsPractitioner bool                `json:"isPractitioner"`
+	Roles          []Role              `json:"roles"`
+}
+
 // Health defines model for Health.
 type Health struct {
 	Status HealthStatus `json:"status"`
@@ -139,11 +171,55 @@ type ReadinessChecksRedis string
 // ReadinessStatus defines model for Readiness.Status.
 type ReadinessStatus string
 
+// Role defines model for Role.
+type Role string
+
+// SessionCreate defines model for SessionCreate.
+type SessionCreate struct {
+	Email    openapi_types.Email `json:"email"`
+	Password string              `json:"password"`
+	TotpCode string              `json:"totpCode"`
+}
+
+// SessionCreated defines model for SessionCreated.
+type SessionCreated struct {
+	// ExpiresAt Absolute expiry; the session also ends after 12 hours idle.
+	ExpiresAt time.Time `json:"expiresAt"`
+
+	// Token Opaque session token (`vms_` + 43 base64url characters). Shown once.
+	Token string      `json:"token"`
+	User  CurrentUser `json:"user"`
+}
+
+// BadRequest RFC 9457 problem details, returned by every 4xx and 5xx response.
+type BadRequest = Problem
+
+// Forbidden RFC 9457 problem details, returned by every 4xx and 5xx response.
+type Forbidden = Problem
+
 // InternalError RFC 9457 problem details, returned by every 4xx and 5xx response.
 type InternalError = Problem
 
+// TooManyRequests RFC 9457 problem details, returned by every 4xx and 5xx response.
+type TooManyRequests = Problem
+
+// Unauthorized RFC 9457 problem details, returned by every 4xx and 5xx response.
+type Unauthorized = Problem
+
+// CreateSessionJSONRequestBody defines body for CreateSession for application/json ContentType.
+type CreateSessionJSONRequestBody = SessionCreate
+
 // ServerInterface represents all server handlers.
 type ServerInterface interface {
+	// GetCurrentUser Get the signed-in user
+	// (GET /auth/me)
+	GetCurrentUser(w http.ResponseWriter, r *http.Request)
+	// CreateSession Sign in with password and TOTP
+	// (POST /auth/sessions)
+	CreateSession(w http.ResponseWriter, r *http.Request)
+	// DeleteCurrentSession Sign out
+	// (DELETE /auth/sessions/current)
+	DeleteCurrentSession(w http.ResponseWriter, r *http.Request)
 	// GetHealthz Liveness check
 	// (GET /healthz)
 	GetHealthz(w http.ResponseWriter, r *http.Request)
@@ -155,6 +231,24 @@ type ServerInterface interface {
 // Unimplemented server implementation that returns http.StatusNotImplemented for each endpoint.
 
 type Unimplemented struct{}
+
+// GetCurrentUser Get the signed-in user
+// (GET /auth/me)
+func (_ Unimplemented) GetCurrentUser(w http.ResponseWriter, r *http.Request) {
+	w.WriteHeader(http.StatusNotImplemented)
+}
+
+// CreateSession Sign in with password and TOTP
+// (POST /auth/sessions)
+func (_ Unimplemented) CreateSession(w http.ResponseWriter, r *http.Request) {
+	w.WriteHeader(http.StatusNotImplemented)
+}
+
+// DeleteCurrentSession Sign out
+// (DELETE /auth/sessions/current)
+func (_ Unimplemented) DeleteCurrentSession(w http.ResponseWriter, r *http.Request) {
+	w.WriteHeader(http.StatusNotImplemented)
+}
 
 // GetHealthz Liveness check
 // (GET /healthz)
@@ -176,6 +270,48 @@ type ServerInterfaceWrapper struct {
 }
 
 type MiddlewareFunc func(http.Handler) http.Handler
+
+// GetCurrentUser operation middleware
+func (siw *ServerInterfaceWrapper) GetCurrentUser(w http.ResponseWriter, r *http.Request) {
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.GetCurrentUser(w, r)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
+// CreateSession operation middleware
+func (siw *ServerInterfaceWrapper) CreateSession(w http.ResponseWriter, r *http.Request) {
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.CreateSession(w, r)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
+// DeleteCurrentSession operation middleware
+func (siw *ServerInterfaceWrapper) DeleteCurrentSession(w http.ResponseWriter, r *http.Request) {
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.DeleteCurrentSession(w, r)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
 
 // GetHealthz operation middleware
 func (siw *ServerInterfaceWrapper) GetHealthz(w http.ResponseWriter, r *http.Request) {
@@ -324,11 +460,294 @@ func HandlerWithOptions(si ServerInterface, options ChiServerOptions) http.Handl
 	r.Group(func(r chi.Router) {
 		r.Get(options.BaseURL+"/readyz", wrapper.GetReadyz)
 	})
+	r.Group(func(r chi.Router) {
+		r.Post(options.BaseURL+"/auth/sessions", wrapper.CreateSession)
+	})
+	r.Group(func(r chi.Router) {
+		r.Delete(options.BaseURL+"/auth/sessions/current", wrapper.DeleteCurrentSession)
+	})
+	r.Group(func(r chi.Router) {
+		r.Get(options.BaseURL+"/auth/me", wrapper.GetCurrentUser)
+	})
 
 	return r
 }
 
+type BadRequestApplicationProblemPlusJSONResponse Problem
+
+type ForbiddenApplicationProblemPlusJSONResponse Problem
+
 type InternalErrorApplicationProblemPlusJSONResponse Problem
+
+type TooManyRequestsResponseHeaders struct {
+	RetryAfter *int
+}
+type TooManyRequestsApplicationProblemPlusJSONResponse struct {
+	Body Problem
+
+	Headers TooManyRequestsResponseHeaders
+}
+
+type UnauthorizedApplicationProblemPlusJSONResponse Problem
+
+type GetCurrentUserRequestObject struct {
+}
+
+type GetCurrentUserResponseObject interface {
+	VisitGetCurrentUserResponse(w http.ResponseWriter) error
+}
+
+type GetCurrentUser200JSONResponse CurrentUser
+
+func (response GetCurrentUser200JSONResponse) VisitGetCurrentUserResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(200)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type GetCurrentUser401ApplicationProblemPlusJSONResponse struct {
+	UnauthorizedApplicationProblemPlusJSONResponse
+}
+
+func (response GetCurrentUser401ApplicationProblemPlusJSONResponse) VisitGetCurrentUserResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/problem+json")
+	w.WriteHeader(401)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type GetCurrentUser403ApplicationProblemPlusJSONResponse struct {
+	ForbiddenApplicationProblemPlusJSONResponse
+}
+
+func (response GetCurrentUser403ApplicationProblemPlusJSONResponse) VisitGetCurrentUserResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/problem+json")
+	w.WriteHeader(403)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type GetCurrentUser429ApplicationProblemPlusJSONResponse struct {
+	TooManyRequestsApplicationProblemPlusJSONResponse
+}
+
+func (response GetCurrentUser429ApplicationProblemPlusJSONResponse) VisitGetCurrentUserResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response.Body); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/problem+json")
+	if response.Headers.RetryAfter != nil {
+		w.Header().Set("Retry-After", fmt.Sprint(*response.Headers.RetryAfter))
+	}
+	w.WriteHeader(429)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type GetCurrentUser500ApplicationProblemPlusJSONResponse struct {
+	InternalErrorApplicationProblemPlusJSONResponse
+}
+
+func (response GetCurrentUser500ApplicationProblemPlusJSONResponse) VisitGetCurrentUserResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/problem+json")
+	w.WriteHeader(500)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type CreateSessionRequestObject struct {
+	Body *CreateSessionJSONRequestBody
+}
+
+type CreateSessionResponseObject interface {
+	VisitCreateSessionResponse(w http.ResponseWriter) error
+}
+
+type CreateSession201JSONResponse SessionCreated
+
+func (response CreateSession201JSONResponse) VisitCreateSessionResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(201)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type CreateSession400ApplicationProblemPlusJSONResponse struct {
+	BadRequestApplicationProblemPlusJSONResponse
+}
+
+func (response CreateSession400ApplicationProblemPlusJSONResponse) VisitCreateSessionResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/problem+json")
+	w.WriteHeader(400)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type CreateSession401ApplicationProblemPlusJSONResponse struct {
+	UnauthorizedApplicationProblemPlusJSONResponse
+}
+
+func (response CreateSession401ApplicationProblemPlusJSONResponse) VisitCreateSessionResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/problem+json")
+	w.WriteHeader(401)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type CreateSession429ApplicationProblemPlusJSONResponse struct {
+	TooManyRequestsApplicationProblemPlusJSONResponse
+}
+
+func (response CreateSession429ApplicationProblemPlusJSONResponse) VisitCreateSessionResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response.Body); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/problem+json")
+	if response.Headers.RetryAfter != nil {
+		w.Header().Set("Retry-After", fmt.Sprint(*response.Headers.RetryAfter))
+	}
+	w.WriteHeader(429)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type CreateSession500ApplicationProblemPlusJSONResponse struct {
+	InternalErrorApplicationProblemPlusJSONResponse
+}
+
+func (response CreateSession500ApplicationProblemPlusJSONResponse) VisitCreateSessionResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/problem+json")
+	w.WriteHeader(500)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type DeleteCurrentSessionRequestObject struct {
+}
+
+type DeleteCurrentSessionResponseObject interface {
+	VisitDeleteCurrentSessionResponse(w http.ResponseWriter) error
+}
+
+type DeleteCurrentSession204Response struct {
+}
+
+func (response DeleteCurrentSession204Response) VisitDeleteCurrentSessionResponse(w http.ResponseWriter) error {
+	w.WriteHeader(204)
+	return nil
+}
+
+type DeleteCurrentSession401ApplicationProblemPlusJSONResponse struct {
+	UnauthorizedApplicationProblemPlusJSONResponse
+}
+
+func (response DeleteCurrentSession401ApplicationProblemPlusJSONResponse) VisitDeleteCurrentSessionResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/problem+json")
+	w.WriteHeader(401)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type DeleteCurrentSession403ApplicationProblemPlusJSONResponse struct {
+	ForbiddenApplicationProblemPlusJSONResponse
+}
+
+func (response DeleteCurrentSession403ApplicationProblemPlusJSONResponse) VisitDeleteCurrentSessionResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/problem+json")
+	w.WriteHeader(403)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type DeleteCurrentSession429ApplicationProblemPlusJSONResponse struct {
+	TooManyRequestsApplicationProblemPlusJSONResponse
+}
+
+func (response DeleteCurrentSession429ApplicationProblemPlusJSONResponse) VisitDeleteCurrentSessionResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response.Body); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/problem+json")
+	if response.Headers.RetryAfter != nil {
+		w.Header().Set("Retry-After", fmt.Sprint(*response.Headers.RetryAfter))
+	}
+	w.WriteHeader(429)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type DeleteCurrentSession500ApplicationProblemPlusJSONResponse struct {
+	InternalErrorApplicationProblemPlusJSONResponse
+}
+
+func (response DeleteCurrentSession500ApplicationProblemPlusJSONResponse) VisitDeleteCurrentSessionResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/problem+json")
+	w.WriteHeader(500)
+	_, err := buf.WriteTo(w)
+	return err
+}
 
 type GetHealthzRequestObject struct {
 }
@@ -420,6 +839,15 @@ func (response GetReadyz503JSONResponse) VisitGetReadyzResponse(w http.ResponseW
 
 // StrictServerInterface represents all server handlers.
 type StrictServerInterface interface {
+	// GetCurrentUser Get the signed-in user
+	// (GET /auth/me)
+	GetCurrentUser(ctx context.Context, request GetCurrentUserRequestObject) (GetCurrentUserResponseObject, error)
+	// CreateSession Sign in with password and TOTP
+	// (POST /auth/sessions)
+	CreateSession(ctx context.Context, request CreateSessionRequestObject) (CreateSessionResponseObject, error)
+	// DeleteCurrentSession Sign out
+	// (DELETE /auth/sessions/current)
+	DeleteCurrentSession(ctx context.Context, request DeleteCurrentSessionRequestObject) (DeleteCurrentSessionResponseObject, error)
 	// GetHealthz Liveness check
 	// (GET /healthz)
 	GetHealthz(ctx context.Context, request GetHealthzRequestObject) (GetHealthzResponseObject, error)
@@ -465,6 +893,85 @@ type strictHandler struct {
 	ssi         StrictServerInterface
 	middlewares []StrictMiddlewareFunc
 	options     StrictHTTPServerOptions
+}
+
+// GetCurrentUser operation middleware
+func (sh *strictHandler) GetCurrentUser(w http.ResponseWriter, r *http.Request) {
+	var request GetCurrentUserRequestObject
+
+	handler := func(ctx context.Context, w http.ResponseWriter, r *http.Request, request interface{}) (interface{}, error) {
+		return sh.ssi.GetCurrentUser(ctx, request.(GetCurrentUserRequestObject))
+	}
+	for _, middleware := range sh.middlewares {
+		handler = middleware(handler, "GetCurrentUser")
+	}
+
+	response, err := handler(r.Context(), w, r, request)
+
+	if err != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, err)
+	} else if validResponse, ok := response.(GetCurrentUserResponseObject); ok {
+		if err := validResponse.VisitGetCurrentUserResponse(w); err != nil {
+			sh.options.ResponseErrorHandlerFunc(w, r, err)
+		}
+	} else if response != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, fmt.Errorf("unexpected response type: %T", response))
+	}
+}
+
+// CreateSession operation middleware
+func (sh *strictHandler) CreateSession(w http.ResponseWriter, r *http.Request) {
+	var request CreateSessionRequestObject
+
+	var body CreateSessionJSONRequestBody
+	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
+		sh.options.RequestErrorHandlerFunc(w, r, fmt.Errorf("can't decode JSON body: %w", err))
+		return
+	}
+	request.Body = &body
+
+	handler := func(ctx context.Context, w http.ResponseWriter, r *http.Request, request interface{}) (interface{}, error) {
+		return sh.ssi.CreateSession(ctx, request.(CreateSessionRequestObject))
+	}
+	for _, middleware := range sh.middlewares {
+		handler = middleware(handler, "CreateSession")
+	}
+
+	response, err := handler(r.Context(), w, r, request)
+
+	if err != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, err)
+	} else if validResponse, ok := response.(CreateSessionResponseObject); ok {
+		if err := validResponse.VisitCreateSessionResponse(w); err != nil {
+			sh.options.ResponseErrorHandlerFunc(w, r, err)
+		}
+	} else if response != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, fmt.Errorf("unexpected response type: %T", response))
+	}
+}
+
+// DeleteCurrentSession operation middleware
+func (sh *strictHandler) DeleteCurrentSession(w http.ResponseWriter, r *http.Request) {
+	var request DeleteCurrentSessionRequestObject
+
+	handler := func(ctx context.Context, w http.ResponseWriter, r *http.Request, request interface{}) (interface{}, error) {
+		return sh.ssi.DeleteCurrentSession(ctx, request.(DeleteCurrentSessionRequestObject))
+	}
+	for _, middleware := range sh.middlewares {
+		handler = middleware(handler, "DeleteCurrentSession")
+	}
+
+	response, err := handler(r.Context(), w, r, request)
+
+	if err != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, err)
+	} else if validResponse, ok := response.(DeleteCurrentSessionResponseObject); ok {
+		if err := validResponse.VisitDeleteCurrentSessionResponse(w); err != nil {
+			sh.options.ResponseErrorHandlerFunc(w, r, err)
+		}
+	} else if response != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, fmt.Errorf("unexpected response type: %T", response))
+	}
 }
 
 // GetHealthz operation middleware
@@ -520,52 +1027,64 @@ func (sh *strictHandler) GetReadyz(w http.ResponseWriter, r *http.Request) {
 // const string: with thousands of chunks the chained `+` fold is several
 // times slower for the Go compiler than parsing a slice literal.
 var swaggerSpec = []string{
-	"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",
-	"0JE/TBfCe6wheD/ePv57AA==",
+	"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",
 }
 
 // decodeSpec returns the embedded OpenAPI spec as raw JSON bytes,

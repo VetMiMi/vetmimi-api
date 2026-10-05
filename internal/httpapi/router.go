@@ -27,11 +27,11 @@ func NewRouter(deps Deps) http.Handler {
 		// step with the code, so failing to decode it is a broken build.
 		panic(fmt.Sprintf("httpapi: decode the embedded OpenAPI spec: %v", err))
 	}
-	limits := deps.RateLimits
-	if limits == nil {
-		limits = NewRateLimits(nil, log, time.Now)
+	deps.Log = log
+	if deps.RateLimits == nil {
+		deps.RateLimits = NewRateLimits(nil, log, time.Now)
 	}
-	return router(log, mountAPI(&server{deps}, spec, deps.ServiceKey, limits, log))
+	return router(log, mountAPI(&server{deps}, spec, deps))
 }
 
 // router builds the chain around the routes mount registers, which tests use
@@ -53,10 +53,12 @@ func router(log *slog.Logger, mount func(chi.Router)) http.Handler {
 }
 
 // mountAPI registers the generated routes, each behind the authentication its
-// operation in spec declares, counted against its rate limit and validated
-// against spec, and answers their decode, parameter and handler errors as
-// Problems.
-func mountAPI(si gen.StrictServerInterface, spec *openapi3.T, serviceKey string, limits *RateLimits, log *slog.Logger) func(chi.Router) {
+// operation in spec declares (deps.ServiceKey or deps.Sessions), counted
+// against its deps.RateLimits limit and validated against spec, and answers
+// their decode, parameter and handler errors as Problems, logging to
+// deps.Log.
+func mountAPI(si gen.StrictServerInterface, spec *openapi3.T, deps Deps) func(chi.Router) {
+	log := deps.Log
 	ops, err := indexOperations(spec)
 	if err != nil {
 		// TestEveryOperationDeclaresSecurity holds openapi.yaml to the rule
@@ -64,8 +66,9 @@ func mountAPI(si gen.StrictServerInterface, spec *openapi3.T, serviceKey string,
 		panic(fmt.Sprintf("httpapi: index the OpenAPI operations: %v", err))
 	}
 	validate := validateRequests(spec)
-	checkServiceKey := requireServiceKey(serviceKey, ops, log)
-	rateLimit := limits.operations(ops)
+	checkServiceKey := requireServiceKey(deps.ServiceKey, ops, log)
+	checkSession := requireSession(deps.Sessions, ops, log)
+	rateLimit := deps.RateLimits.operations(ops)
 	return func(r chi.Router) {
 		strict := gen.NewStrictHandlerWithOptions(si, nil, gen.StrictHTTPServerOptions{
 			RequestErrorHandlerFunc:  requestError(log),
@@ -74,11 +77,12 @@ func mountAPI(si gen.StrictServerInterface, spec *openapi3.T, serviceKey string,
 		gen.HandlerWithOptions(strict, gen.ChiServerOptions{
 			BaseRouter: r,
 			// The generated wrapper wraps each entry around the ones before
-			// it, so the last entry runs first. Validation is first so that it
-			// runs last: authentication, role check and rate limit go after it,
-			// and a caller without the key learns nothing about the contract
-			// and is never counted, while a malformed request still is.
-			Middlewares:      []gen.MiddlewareFunc{validate, rateLimit, checkServiceKey},
+			// it, so the last entry runs first: the key check, then the
+			// session check, then the rate limit, then validation, just
+			// before the handler. A caller without a key or a live session
+			// learns nothing about the contract and is never counted, while a
+			// malformed request still is.
+			Middlewares:      []gen.MiddlewareFunc{validate, rateLimit, checkSession, checkServiceKey},
 			ErrorHandlerFunc: paramError(log),
 		})
 	}
