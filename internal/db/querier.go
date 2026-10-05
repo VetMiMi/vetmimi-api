@@ -6,10 +6,24 @@ package db
 
 import (
 	"context"
+
+	"github.com/jackc/pgx/v5/pgtype"
 )
 
 type Querier interface {
+	// ClaimTOTPStep is the replay guard: a step is accepted once, and only if it
+	// is later than the last one accepted, so two concurrent sign-ins with one
+	// code cannot both succeed.
+	ClaimTOTPStep(ctx context.Context, arg ClaimTOTPStepParams) (int64, error)
+	// CreateUser and ReplaceUserCredentials store the step of the code typed at
+	// enrolment as already accepted, so that code can never also sign in.
+	CreateUser(ctx context.Context, arg CreateUserParams) (pgtype.UUID, error)
+	GetUserTOTPSecret(ctx context.Context, id pgtype.UUID) ([]byte, error)
 	Ping(ctx context.Context) (int32, error)
+	// ReplaceUserCredentials re-enrols an existing user. It never clears
+	// is_practitioner: re-running create-user to reset Daw Mi's password without
+	// --practitioner must not leave the practice without its practitioner.
+	ReplaceUserCredentials(ctx context.Context, arg ReplaceUserCredentialsParams) (pgtype.UUID, error)
 }
 
 var _ Querier = (*Queries)(nil)

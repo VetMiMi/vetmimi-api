@@ -35,12 +35,13 @@ Business rules Daw Mi may change without a deploy, one row per key (see "Setting
 | password_hash | text | no | — | argon2id PHC string |
 | roles | text[] | no | — | subset of `content_editor`, `booking_admin`, `site_admin`; at least one |
 | is_practitioner | boolean | no | false | the person appointments are booked with |
-| totp_secret_enc, totp_last_step | bytea, bigint | no, yes | — | AES-256-GCM ciphertext; last accepted step (replay guard) |
+| totp_secret_enc, totp_last_step | bytea, bigint | no, yes | — | AES-256-GCM ciphertext; last accepted step (replay guard), set to the enrolment code's step by create-user |
 | last_sign_in_at, disabled_at | timestamptz | yes | — | disabled users cannot sign in |
 
-Constraints: `CHECK (roles <@ ARRAY[…] AND cardinality(roles) > 0)`; unique `email`; unique partial index on
-`is_practitioner WHERE is_practitioner`. TOTP is columns, not a `totp_secrets` table: each user has exactly one
-secret and nothing else refers to it, so a table would only add a join.
+Constraints: `CHECK (roles <@ ARRAY[…] AND cardinality(roles) > 0)`; unique `email` and
+`CHECK (email = lower(email))`; unique partial index on `is_practitioner WHERE is_practitioner`. TOTP is columns,
+not a `totp_secrets` table: each user has exactly one secret and nothing else refers to it, so a table would only
+add a join.
 
 **`sessions`** — Admin sign-in sessions (ADR-002).
 

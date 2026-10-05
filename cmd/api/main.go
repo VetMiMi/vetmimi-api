@@ -1,5 +1,6 @@
-// Command api runs the VetMiMi HTTP API (default) or its background worker
-// (--mode worker). Both modes share one binary and one configuration.
+// Command api runs the VetMiMi HTTP API (default), its background worker
+// (--mode worker), or enrols an administrator at a terminal (--mode
+// create-user). Every mode shares one binary and one configuration.
 package main
 
 import (
@@ -23,7 +24,9 @@ import (
 )
 
 func main() {
-	mode := flag.String("mode", "api", "api or worker")
+	mode := flag.String("mode", "api", "api, worker or create-user")
+	var user userFlags
+	user.register(flag.CommandLine)
 	flag.Parse()
 
 	cfg, err := platform.LoadConfig(os.Getenv)
@@ -36,7 +39,7 @@ func main() {
 	slog.SetDefault(log)
 
 	ctx, stop := signal.NotifyContext(context.Background(), syscall.SIGINT, syscall.SIGTERM)
-	err = run(ctx, log, cfg, *mode)
+	err = run(ctx, log, cfg, *mode, user)
 	stop()
 	if err != nil {
 		log.Error("exit", "err", err)
@@ -47,8 +50,8 @@ func main() {
 // run opens and migrates the database for every mode, so a failed migration
 // exits non-zero before the api listens and the deploy health check sees a
 // failed release.
-func run(ctx context.Context, log *slog.Logger, cfg platform.Config, mode string) error {
-	if mode != "api" && mode != "worker" {
+func run(ctx context.Context, log *slog.Logger, cfg platform.Config, mode string, user userFlags) error {
+	if mode != "api" && mode != "worker" && mode != "create-user" {
 		return fmt.Errorf("unknown mode %q", mode)
 	}
 	pool, err := platform.OpenPostgres(ctx, cfg.DatabaseURL)
@@ -58,6 +61,9 @@ func run(ctx context.Context, log *slog.Logger, cfg platform.Config, mode string
 	defer pool.Close()
 	if err := platform.Migrate(ctx, pool); err != nil {
 		return err
+	}
+	if mode == "create-user" {
+		return runCreateUser(ctx, log, cfg, pool, user)
 	}
 	rdb, err := platform.OpenRedis(cfg.RedisURL)
 	if err != nil {
