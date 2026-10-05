@@ -19,7 +19,7 @@ import (
 func readBody(w http.ResponseWriter, r *http.Request) {
 	b, err := io.ReadAll(r.Body)
 	if err != nil {
-		requestError(w, r, err)
+		requestError(quiet)(w, r, err)
 		return
 	}
 	_, _ = io.WriteString(w, strconv.Itoa(len(b)))

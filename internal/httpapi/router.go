@@ -53,7 +53,7 @@ func mountAPI(si gen.StrictServerInterface, spec *openapi3.T, log *slog.Logger) 
 	validate := validateRequests(spec)
 	return func(r chi.Router) {
 		strict := gen.NewStrictHandlerWithOptions(si, nil, gen.StrictHTTPServerOptions{
-			RequestErrorHandlerFunc:  requestError,
+			RequestErrorHandlerFunc:  requestError(log),
 			ResponseErrorHandlerFunc: responseError(log),
 		})
 		gen.HandlerWithOptions(strict, gen.ChiServerOptions{
@@ -62,7 +62,7 @@ func mountAPI(si gen.StrictServerInterface, spec *openapi3.T, log *slog.Logger) 
 			// it, so the last entry runs first. Validation is first so that it
 			// runs last: authentication, role check and rate limit go after it.
 			Middlewares:      []gen.MiddlewareFunc{validate},
-			ErrorHandlerFunc: paramError,
+			ErrorHandlerFunc: paramError(log),
 		})
 	}
 }

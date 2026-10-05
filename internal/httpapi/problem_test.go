@@ -198,7 +198,7 @@ func TestMalformedJSONIs400(t *testing.T) {
 	require.Error(t, err)
 
 	res := httptest.NewRecorder()
-	requestError(res, httptest.NewRequest(http.MethodPost, "/", nil), err)
+	requestError(quiet)(res, httptest.NewRequest(http.MethodPost, "/", nil), err)
 	require.Equal(t, http.StatusBadRequest, res.Code)
 	require.Equal(t, "invalid_request", problemFrom(t, res)["code"])
 }
@@ -210,31 +210,51 @@ func TestOversizedBodyIs413(t *testing.T) {
 	require.ErrorAs(t, err, &tooBig)
 
 	res := httptest.NewRecorder()
-	requestError(res, httptest.NewRequest(http.MethodPost, "/", nil), err)
+	requestError(quiet)(res, httptest.NewRequest(http.MethodPost, "/", nil), err)
 	require.Equal(t, http.StatusRequestEntityTooLarge, res.Code)
 	require.Equal(t, "payload_too_large", problemFrom(t, res)["code"])
 }
 
-func TestParameterErrorNamesTheParameter(t *testing.T) {
-	cases := []error{
-		&gen.InvalidParamFormatError{ParamName: "limit", Err: errors.New("not a number")},
-		&gen.RequiredParamError{ParamName: "limit"},
-		&gen.RequiredHeaderError{ParamName: "limit", Err: errors.New("missing")},
-		&gen.UnmarshalingParamError{ParamName: "limit", Err: errors.New("bad")},
-		&gen.TooManyValuesForParamError{ParamName: "limit", Count: 2},
-		&gen.UnescapedCookieParamError{ParamName: "limit", Err: errors.New("bad")},
-	}
-	for _, err := range cases {
-		res := httptest.NewRecorder()
-		paramError(res, httptest.NewRequest(http.MethodGet, "/", nil), err)
-		require.Equal(t, http.StatusBadRequest, res.Code)
+// rejectedBy runs handle with a logger and answers the single field error,
+// failing if the response or the log repeats the submitted value.
+func rejectedBy(t *testing.T, handle func(*slog.Logger) func(http.ResponseWriter, *http.Request, error), err error) map[string]any {
+	t.Helper()
+	var logs bytes.Buffer
+	res := httptest.NewRecorder()
+	handle(slog.New(slog.NewJSONHandler(&logs, nil)))(res, httptest.NewRequest(http.MethodGet, "/", nil), err)
 
-		body := problemFrom(t, res)
-		require.Equal(t, "invalid_request", body["code"])
-		fields := body["errors"].([]any)
-		require.Len(t, fields, 1)
-		require.Equalf(t, "limit", fields[0].(map[string]any)["field"], "%T", err)
+	require.Equal(t, http.StatusBadRequest, res.Code)
+	body := problemFrom(t, res)
+	require.Equal(t, "invalid_request", body["code"])
+	require.NotContains(t, res.Body.String(), "secret-value-123")
+	require.NotContains(t, logs.String(), "secret-value-123")
+	require.Contains(t, logs.String(), `"err_types":"`)
+	fields := body["errors"].([]any)
+	require.Len(t, fields, 1)
+	return fields[0].(map[string]any)
+}
+
+func TestParameterErrorNamesTheParameterWithoutTheValue(t *testing.T) {
+	value := errors.New(`error unmarshaling 'secret-value-123' text as *types.UUID`)
+	for _, err := range []error{
+		&gen.InvalidParamFormatError{ParamName: "limit", Err: value},
+		&gen.RequiredParamError{ParamName: "limit"},
+		&gen.RequiredHeaderError{ParamName: "limit", Err: value},
+		&gen.UnmarshalingParamError{ParamName: "limit", Err: value},
+		&gen.TooManyValuesForParamError{ParamName: "limit", Count: 2},
+		&gen.UnescapedCookieParamError{ParamName: "limit", Err: value},
+	} {
+		t.Run(fmt.Sprintf("%T", err), func(t *testing.T) {
+			require.Equal(t, map[string]any{"field": "limit", "message": "is missing or malformed"},
+				rejectedBy(t, paramError, err))
+		})
 	}
+}
+
+func TestUndecodableBodyIsNamedWithoutTheValue(t *testing.T) {
+	err := fmt.Errorf("can't decode JSON body: %w", errors.New(`invalid value "secret-value-123"`))
+	require.Equal(t, map[string]any{"field": "body", "message": "is missing or malformed"},
+		rejectedBy(t, requestError, err))
 }
 
 func TestUnknownRouteIsAProblem(t *testing.T) {
