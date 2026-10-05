@@ -3,6 +3,7 @@ package platform_test
 import (
 	"context"
 	"encoding/json"
+	"log/slog"
 	"net/http"
 	"net/http/httptest"
 	"os"
@@ -130,7 +131,11 @@ func readyz(t *testing.T, pingPostgres func(context.Context) error) (int, string
 	// Redis is stubbed so these tests see only PostgreSQL's answer;
 	// redis_test.go covers Redis's.
 	redisOK := func(context.Context) error { return nil }
-	srv := httptest.NewServer(httpapi.Handler(&httpapi.Server{PingPostgres: pingPostgres, PingRedis: redisOK}))
+	srv := httptest.NewServer(httpapi.NewRouter(httpapi.Deps{
+		PingPostgres: pingPostgres,
+		PingRedis:    redisOK,
+		Log:          slog.New(slog.DiscardHandler),
+	}))
 	defer srv.Close()
 
 	res, err := http.Get(srv.URL + "/readyz")

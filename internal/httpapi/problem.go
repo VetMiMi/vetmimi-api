@@ -10,7 +10,6 @@ import (
 	"net/http"
 	"strconv"
 
-	"github.com/go-chi/chi/v5/middleware"
 	"github.com/jackc/pgx/v5/pgconn"
 
 	"github.com/VetMiMi/vetmimi-api/internal/httpapi/gen"
@@ -122,7 +121,7 @@ func responseError(log *slog.Logger) func(http.ResponseWriter, *http.Request, er
 		}
 		if e.Code.Status() >= http.StatusInternalServerError {
 			log.ErrorContext(r.Context(), "request failed",
-				"request_id", middleware.GetReqID(r.Context()), "code", e.Code, "err", err)
+				"request_id", RequestID(r.Context()), "code", e.Code, "err", err)
 		}
 		writeProblem(w, e)
 	}

@@ -6,6 +6,7 @@ import (
 	"crypto/rand"
 	"encoding/hex"
 	"encoding/json"
+	"log/slog"
 	"net/http"
 	"net/http/httptest"
 	"os"
@@ -107,9 +108,10 @@ func TestOpenRedisDoesNotQuoteTheURL(t *testing.T) {
 
 func readyzRedis(t *testing.T, rdb *redis.Client) (int, string) {
 	t.Helper()
-	srv := httptest.NewServer(httpapi.Handler(&httpapi.Server{
+	srv := httptest.NewServer(httpapi.NewRouter(httpapi.Deps{
 		PingPostgres: func(context.Context) error { return nil },
 		PingRedis:    func(ctx context.Context) error { return rdb.Ping(ctx).Err() },
+		Log:          slog.New(slog.DiscardHandler),
 	}))
 	defer srv.Close()
 

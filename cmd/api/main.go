@@ -15,8 +15,6 @@ import (
 	"syscall"
 	"time"
 
-	"github.com/go-chi/chi/v5"
-	"github.com/go-chi/chi/v5/middleware"
 	"github.com/jackc/pgx/v5/pgxpool"
 	"github.com/redis/go-redis/v9"
 
@@ -74,22 +72,11 @@ func run(ctx context.Context, log *slog.Logger, cfg platform.Config, mode string
 }
 
 func runAPI(ctx context.Context, log *slog.Logger, cfg platform.Config, pool *pgxpool.Pool, rdb *redis.Client) error {
-	r := chi.NewRouter()
-	// Client IPs are taken from Caddy's X-Forwarded-For in the platform
-	// middleware later; chi's RealIP trusts every proxy header and is not used.
-	r.Use(middleware.RequestID, middleware.Recoverer)
-	r.Use(middleware.Timeout(30 * time.Second))
-	r.Mount("/", httpapi.Handler(&httpapi.Server{
-		Log:          log,
+	srv := newServer(cfg.Port, httpapi.NewRouter(httpapi.Deps{
 		PingPostgres: pool.Ping,
 		PingRedis:    func(ctx context.Context) error { return rdb.Ping(ctx).Err() },
+		Log:          log,
 	}))
-
-	srv := &http.Server{
-		Addr:              ":" + strconv.Itoa(cfg.Port),
-		Handler:           r,
-		ReadHeaderTimeout: 5 * time.Second,
-	}
 
 	errc := make(chan error, 1)
 	go func() {
@@ -107,5 +94,19 @@ func runAPI(ctx context.Context, log *slog.Logger, cfg platform.Config, pool *pg
 		shutdown, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 		defer cancel()
 		return srv.Shutdown(shutdown)
+	}
+}
+
+// newServer bounds how long a client may take to send headers and hold an
+// idle connection. It sets no WriteTimeout: the video WebSocket (ADR-007)
+// stays open for a whole session, and every other route gets its deadline
+// from the router instead.
+func newServer(port int, h http.Handler) *http.Server {
+	return &http.Server{
+		Addr:              ":" + strconv.Itoa(port),
+		Handler:           h,
+		ReadHeaderTimeout: 5 * time.Second,
+		IdleTimeout:       120 * time.Second,
+		MaxHeaderBytes:    16 << 10,
 	}
 }
