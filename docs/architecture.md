@@ -330,7 +330,7 @@ values for secrets.
 | `DATABASE_URL` | PostgreSQL connection string. |
 | `DATABASE_URL_TEST` | Server for `go test`; each test binary creates and drops its own `vetmimi_test_<random>` database on it (`internal/platform/pgtest`). |
 | `REDIS_URL` | Redis for asynq and rate limits. |
-| `REDIS_URL_TEST` | Redis database used by tests (`/1`). |
+| `REDIS_URL_TEST` | Redis database used by tests (`/1`). Each test uses queue names of its own and deletes only its own keys, never `FLUSHDB`, because test binaries share the database; a missing value fails the run. |
 | `SERVICE_KEY` | Shared with the Next server; required on public routes and sign-in. |
 | `SIGNING_SECRET` | 32+ random bytes; HMAC key for management and join tokens and room tickets. |
 | `TOTP_ENCRYPTION_KEY` | 32 bytes, base64; encrypts TOTP secrets at rest. |

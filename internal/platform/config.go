@@ -1,6 +1,3 @@
-// Package platform holds the process-wide plumbing every domain shares:
-// configuration, logging and the database pool today, Redis and the clock as
-// they arrive.
 package platform
 
 import (

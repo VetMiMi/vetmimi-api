@@ -127,8 +127,8 @@ func TestConcurrentMigrateAppliesOnce(t *testing.T) {
 
 func readyz(t *testing.T, pingPostgres func(context.Context) error) (int, string) {
 	t.Helper()
-	// Redis is wired in VetMiMi/vetmimi-api#6; until then it is stubbed so
-	// these tests see only PostgreSQL's answer.
+	// Redis is stubbed so these tests see only PostgreSQL's answer;
+	// redis_test.go covers Redis's.
 	redisOK := func(context.Context) error { return nil }
 	srv := httptest.NewServer(httpapi.Handler(&httpapi.Server{PingPostgres: pingPostgres, PingRedis: redisOK}))
 	defer srv.Close()
