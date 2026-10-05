@@ -197,7 +197,7 @@ fi
 echo "more" >>README.md && commit_all "docs: readme"
 out=$("$script" tag origin HEAD 2>&1) || true
 if [ "$(git ls-remote --tags origin refs/tags/v0.3.0 | cut -f1)" = "$first" ] &&
-  printf '%s' "$out" | grep -q "already exists"; then
+  printf '%s' "$out" | grep -q "v0.3.0 already exists on origin; nothing to do"; then
   pass "tag_existing_skipped"
 else
   fail "tag_existing_skipped: $out"

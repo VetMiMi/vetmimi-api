@@ -61,7 +61,7 @@ is_semver() {
 # comparison below clear of octal.
 version_at() {
   local version
-  version=$(git show "$1:$SPEC" | read_version)
+  version=$(git show "$1:$SPEC" | read_version) || die "could not read $SPEC at $1"
   [ -n "$version" ] || die "$1: $SPEC has no info.version"
   is_semver "$version" || die "$1: info.version \"$version\" is not MAJOR.MINOR.PATCH"
   printf '%s\n' "$version"
