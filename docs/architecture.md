@@ -328,7 +328,7 @@ values for secrets.
 | `ENV` | `development` or `production`. Production refuses to start without every secret. |
 | `LOG_LEVEL` | `debug`, `info` (default), `warn`, `error`. |
 | `DATABASE_URL` | PostgreSQL connection string. |
-| `DATABASE_URL_TEST` | The `vetmimi_test` database used by `go test`. |
+| `DATABASE_URL_TEST` | Server for `go test`; each test binary creates and drops its own `vetmimi_test_<random>` database on it (`internal/platform/pgtest`). |
 | `REDIS_URL` | Redis for asynq and rate limits. |
 | `REDIS_URL_TEST` | Redis database used by tests (`/1`). |
 | `SERVICE_KEY` | Shared with the Next server; required on public routes and sign-in. |
@@ -410,7 +410,7 @@ routes, SDP and ICE payloads. Error logs carry codes and ids only.
 
 - Go, PostgreSQL 17 and Redis from Homebrew (`brew services start`), no Docker
   on the laptop. Databases `vetmimi` and `vetmimi_test`; `DATABASE_URL_TEST`
-  points at the second. Redis database 0 for development, 1 for tests.
+  points at the second, and tests create throw-away databases beside it. Redis database 0 for development, 1 for tests.
 - Media: any S3-compatible endpoint (MinIO from Homebrew works). Email: leave
   `RESEND_API_KEY` empty. Video: two browser tabs connect without TURN.
 - `make dev` and `make worker` run the two modes; `make migrate` applies goose
