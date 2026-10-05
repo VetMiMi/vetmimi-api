@@ -14,12 +14,14 @@ import (
 // Redis client exist. A nil ping makes readiness report that dependency as
 // failing, which is the truth. Log receives requests and unexpected
 // failures; nil means slog.Default(). ServiceKey is the key public operations
-// and sign-in require; empty, they refuse every call.
+// and sign-in require; empty, they refuse every call. RateLimits counts
+// requests; nil behaves as if Redis were unreachable.
 type Deps struct {
 	PingPostgres func(context.Context) error
 	PingRedis    func(context.Context) error
 	Log          *slog.Logger
 	ServiceKey   string
+	RateLimits   *RateLimits
 }
 
 // server implements gen.StrictServerInterface.

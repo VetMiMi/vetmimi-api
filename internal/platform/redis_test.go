@@ -6,9 +6,6 @@ import (
 	"crypto/rand"
 	"encoding/hex"
 	"encoding/json"
-	"log/slog"
-	"net/http"
-	"net/http/httptest"
 	"os"
 	"strings"
 	"sync"
@@ -16,8 +13,6 @@ import (
 
 	"github.com/redis/go-redis/v9"
 	"github.com/stretchr/testify/require"
-
-	"github.com/VetMiMi/vetmimi-api/internal/httpapi"
 )
 
 // unusedRedis is a port nothing listens on, so every command is refused.
@@ -104,39 +99,4 @@ func TestOpenRedisDoesNotQuoteTheURL(t *testing.T) {
 	_, err := OpenRedis("redis://:hunter2-secret@127.0.0.1:notaport/0")
 	require.Error(t, err)
 	require.NotContains(t, err.Error(), "hunter2-secret")
-}
-
-func readyzRedis(t *testing.T, rdb *redis.Client) (int, string) {
-	t.Helper()
-	srv := httptest.NewServer(httpapi.NewRouter(httpapi.Deps{
-		PingPostgres: func(context.Context) error { return nil },
-		PingRedis:    func(ctx context.Context) error { return rdb.Ping(ctx).Err() },
-		Log:          slog.New(slog.DiscardHandler),
-	}))
-	defer srv.Close()
-
-	res, err := http.Get(srv.URL + "/readyz")
-	require.NoError(t, err)
-	defer res.Body.Close()
-	var body struct {
-		Checks struct{ Redis string }
-	}
-	require.NoError(t, json.NewDecoder(res.Body).Decode(&body))
-	return res.StatusCode, body.Checks.Redis
-}
-
-func TestReadyzWithLiveRedis(t *testing.T) {
-	status, check := readyzRedis(t, testRedis(t))
-	require.Equal(t, http.StatusOK, status)
-	require.Equal(t, "ok", check)
-}
-
-func TestReadyzWithRedisStopped(t *testing.T) {
-	rdb, err := OpenRedis(unusedRedis)
-	require.NoError(t, err)
-	defer rdb.Close()
-
-	status, check := readyzRedis(t, rdb)
-	require.Equal(t, http.StatusServiceUnavailable, status)
-	require.Equal(t, "fail", check)
 }

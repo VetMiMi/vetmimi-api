@@ -83,6 +83,7 @@ func runAPI(ctx context.Context, log *slog.Logger, cfg platform.Config, pool *pg
 		PingRedis:    func(ctx context.Context) error { return rdb.Ping(ctx).Err() },
 		Log:          log,
 		ServiceKey:   cfg.ServiceKey,
+		RateLimits:   httpapi.NewRateLimits(platform.NewLimiter(rdb, "", time.Now), log, time.Now),
 	}))
 
 	errc := make(chan error, 1)

@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"log/slog"
 	"net/http"
+	"time"
 
 	"github.com/getkin/kin-openapi/openapi3"
 	"github.com/go-chi/chi/v5"
@@ -26,7 +27,11 @@ func NewRouter(deps Deps) http.Handler {
 		// step with the code, so failing to decode it is a broken build.
 		panic(fmt.Sprintf("httpapi: decode the embedded OpenAPI spec: %v", err))
 	}
-	return router(log, mountAPI(&server{deps}, spec, deps.ServiceKey, log))
+	limits := deps.RateLimits
+	if limits == nil {
+		limits = NewRateLimits(nil, log, time.Now)
+	}
+	return router(log, mountAPI(&server{deps}, spec, deps.ServiceKey, limits, log))
 }
 
 // router builds the chain around the routes mount registers, which tests use
@@ -48,9 +53,10 @@ func router(log *slog.Logger, mount func(chi.Router)) http.Handler {
 }
 
 // mountAPI registers the generated routes, each behind the authentication its
-// operation in spec declares and validated against spec, and answers their
-// decode, parameter and handler errors as Problems.
-func mountAPI(si gen.StrictServerInterface, spec *openapi3.T, serviceKey string, log *slog.Logger) func(chi.Router) {
+// operation in spec declares, counted against its rate limit and validated
+// against spec, and answers their decode, parameter and handler errors as
+// Problems.
+func mountAPI(si gen.StrictServerInterface, spec *openapi3.T, serviceKey string, limits *RateLimits, log *slog.Logger) func(chi.Router) {
 	ops, err := indexOperations(spec)
 	if err != nil {
 		// TestEveryOperationDeclaresSecurity holds openapi.yaml to the rule
@@ -59,6 +65,7 @@ func mountAPI(si gen.StrictServerInterface, spec *openapi3.T, serviceKey string,
 	}
 	validate := validateRequests(spec)
 	checkServiceKey := requireServiceKey(serviceKey, ops, log)
+	rateLimit := limits.operations(ops)
 	return func(r chi.Router) {
 		strict := gen.NewStrictHandlerWithOptions(si, nil, gen.StrictHTTPServerOptions{
 			RequestErrorHandlerFunc:  requestError(log),
@@ -69,8 +76,9 @@ func mountAPI(si gen.StrictServerInterface, spec *openapi3.T, serviceKey string,
 			// The generated wrapper wraps each entry around the ones before
 			// it, so the last entry runs first. Validation is first so that it
 			// runs last: authentication, role check and rate limit go after it,
-			// and a caller without the key learns nothing about the contract.
-			Middlewares:      []gen.MiddlewareFunc{validate, checkServiceKey},
+			// and a caller without the key learns nothing about the contract
+			// and is never counted, while a malformed request still is.
+			Middlewares:      []gen.MiddlewareFunc{validate, rateLimit, checkServiceKey},
 			ErrorHandlerFunc: paramError(log),
 		})
 	}
