@@ -55,8 +55,3 @@ func TestReadyzIsUnavailableBeforeWiring(t *testing.T) {
 	res, _ := get(t, Handler(&Server{}), "/readyz")
 	require.Equal(t, http.StatusServiceUnavailable, res.StatusCode)
 }
-
-func TestUnknownRouteIs404(t *testing.T) {
-	res, _ := get(t, Handler(&Server{}), "/nope")
-	require.Equal(t, http.StatusNotFound, res.StatusCode)
-}

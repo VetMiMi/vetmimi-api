@@ -58,7 +58,7 @@ func runAPI(ctx context.Context, log *slog.Logger, cfg platform.Config) error {
 	// middleware later; chi's RealIP trusts every proxy header and is not used.
 	r.Use(middleware.RequestID, middleware.Recoverer)
 	r.Use(middleware.Timeout(30 * time.Second))
-	r.Mount("/", httpapi.Handler(&httpapi.Server{}))
+	r.Mount("/", httpapi.Handler(&httpapi.Server{Log: log}))
 
 	srv := &http.Server{
 		Addr:              ":" + strconv.Itoa(cfg.Port),
