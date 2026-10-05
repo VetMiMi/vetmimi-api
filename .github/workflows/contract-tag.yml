@@ -1,0 +1,22 @@
+name: Contract tag
+
+# Tags each info.version of openapi.yaml once, on the main commit that carries
+# it, so vetmimi-next can pin the contract by ref (ADR-003).
+
+on:
+  push:
+    branches: [main]
+
+permissions:
+  contents: write
+
+jobs:
+  tag:
+    name: Contract tag
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+        with:
+          token: ${{ secrets.GITHUB_TOKEN }}
+      - name: Tag v<info.version> on this commit unless the tag exists
+        run: scripts/contract-version.sh tag origin "$GITHUB_SHA"

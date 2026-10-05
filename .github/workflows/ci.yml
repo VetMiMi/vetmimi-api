@@ -54,6 +54,23 @@ jobs:
       - run: terraform -chdir=deploy/terraform init -backend=false && terraform -chdir=deploy/terraform validate
         if: hashFiles('deploy/terraform/*.tf') != ''
 
+  contract:
+    name: Contract version
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+        with:
+          fetch-depth: 0
+      - name: Test the contract version script
+        run: scripts/contract-version_test.sh
+      - name: Check a changed openapi.yaml raises info.version
+        if: github.event_name == 'pull_request'
+        env:
+          BASE_REF: ${{ github.base_ref }}
+        run: |
+          git fetch --quiet origin "$BASE_REF"
+          scripts/contract-version.sh check "origin/$BASE_REF"
+
   commits:
     name: Commit checks
     runs-on: ubuntu-latest
