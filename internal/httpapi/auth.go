@@ -14,18 +14,10 @@ import (
 	"github.com/VetMiMi/vetmimi-api/internal/platform/apperr"
 )
 
-type sessionKey struct{}
-
-// currentSession is the session a signed-in request authenticated with. It
-// is set for every sessionToken operation, so their handlers can rely on it.
-func currentSession(ctx context.Context) (auth.Session, bool) {
-	s, ok := ctx.Value(sessionKey{}).(auth.Session)
-	return s, ok
-}
-
 // requireSession answers 401 unauthenticated to a request for a sessionToken
 // operation that does not carry a live session as a bearer token (ADR-002),
-// and puts the session in the context of one that does. Other operations are
+// and puts the session in the context of one that does, where auth.FromContext
+// finds it; their handlers can rely on it. Other operations are
 // left to their own check. The token is never logged.
 func requireSession(sessions *auth.Sessions, ops operations, log *slog.Logger) gen.MiddlewareFunc {
 	fail := responseError(log)
@@ -46,7 +38,7 @@ func requireSession(sessions *auth.Sessions, ops operations, log *slog.Logger) g
 				fail(w, r, err)
 				return
 			}
-			next.ServeHTTP(w, r.WithContext(context.WithValue(r.Context(), sessionKey{}, session)))
+			next.ServeHTTP(w, r.WithContext(auth.WithSession(r.Context(), session)))
 		})
 	}
 }
@@ -89,7 +81,7 @@ func (s *server) CreateSession(ctx context.Context, req gen.CreateSessionRequest
 
 // DeleteCurrentSession signs out: the session's token stops working at once.
 func (s *server) DeleteCurrentSession(ctx context.Context, _ gen.DeleteCurrentSessionRequestObject) (gen.DeleteCurrentSessionResponseObject, error) {
-	session, _ := currentSession(ctx)
+	session, _ := auth.FromContext(ctx)
 	if err := s.Sessions.SignOut(ctx, session.ID); err != nil {
 		return nil, err
 	}
@@ -100,7 +92,7 @@ func (s *server) DeleteCurrentSession(ctx context.Context, _ gen.DeleteCurrentSe
 // GetCurrentUser answers with the user the session belongs to, as the
 // session middleware loaded them.
 func (s *server) GetCurrentUser(ctx context.Context, _ gen.GetCurrentUserRequestObject) (gen.GetCurrentUserResponseObject, error) {
-	session, _ := currentSession(ctx)
+	session, _ := auth.FromContext(ctx)
 	return gen.GetCurrentUser200JSONResponse(currentUser(session.User)), nil
 }
 
