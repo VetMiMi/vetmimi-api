@@ -9,6 +9,7 @@ import (
 	"math"
 	"net/http"
 	"strconv"
+	"strings"
 
 	"github.com/jackc/pgx/v5/pgconn"
 
@@ -62,22 +63,46 @@ func retryAfterSeconds(e *apperr.Error) int {
 	return max(1, int(math.Ceil(e.RetryAfter.Seconds())))
 }
 
-// requestError answers a body the strict server could not decode.
-func requestError(w http.ResponseWriter, _ *http.Request, err error) {
-	var tooBig *http.MaxBytesError
-	if errors.As(err, &tooBig) {
-		writeProblem(w, apperr.New(apperr.PayloadTooLarge,
-			fmt.Sprintf("The body is over its %d-byte limit.", tooBig.Limit)))
-		return
+// requestError answers a body the strict server could not decode. The
+// decoder's message can quote the body, so the answer is fixed and only the
+// error's types are logged.
+func requestError(log *slog.Logger) func(http.ResponseWriter, *http.Request, error) {
+	return func(w http.ResponseWriter, r *http.Request, err error) {
+		var tooBig *http.MaxBytesError
+		if errors.As(err, &tooBig) {
+			writeProblem(w, apperr.New(apperr.PayloadTooLarge,
+				fmt.Sprintf("The body is over its %d-byte limit.", tooBig.Limit)))
+			return
+		}
+		rejected(log, w, r, "body", err)
 	}
-	writeProblem(w, apperr.New(apperr.InvalidRequest, err.Error()))
 }
 
 // paramError answers a path, query or header parameter that failed to bind,
-// naming the parameter so the caller can find it.
-func paramError(w http.ResponseWriter, _ *http.Request, err error) {
-	writeProblem(w, apperr.Invalid("A parameter is missing or malformed.",
-		apperr.FieldError{Field: paramName(err), Message: err.Error()}))
+// naming the parameter so the caller can find it. The binder's message
+// quotes the value, so the answer is fixed and only the error's types are
+// logged.
+func paramError(log *slog.Logger) func(http.ResponseWriter, *http.Request, error) {
+	return func(w http.ResponseWriter, r *http.Request, err error) {
+		rejected(log, w, r, paramName(err), err)
+	}
+}
+
+func rejected(log *slog.Logger, w http.ResponseWriter, r *http.Request, field string, err error) {
+	log.InfoContext(r.Context(), "request rejected",
+		"request_id", RequestID(r.Context()), "field", field, "err_types", errorTypes(err))
+	writeProblem(w, apperr.Invalid("The request does not match the API contract.",
+		apperr.FieldError{Field: field, Message: "is missing or malformed"}))
+}
+
+// errorTypes names the type of each error in err's chain, which says what
+// went wrong without the message, where the submitted value would be.
+func errorTypes(err error) string {
+	var types []string
+	for ; err != nil; err = errors.Unwrap(err) {
+		types = append(types, fmt.Sprintf("%T", err))
+	}
+	return strings.Join(types, " > ")
 }
 
 func paramName(err error) string {
