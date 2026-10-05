@@ -12,8 +12,6 @@ import (
 	"strings"
 	"time"
 
-	"github.com/go-chi/chi/v5"
-
 	"github.com/VetMiMi/vetmimi-api/internal/platform/apperr"
 )
 
@@ -28,8 +26,9 @@ func RequestID(ctx context.Context) string {
 	return id
 }
 
-// ClientIP is the visitor's address, for rate limits. It is the zero Addr
-// when the request carried none that parses.
+// ClientIP is the visitor's address, for rate limits: X-Visitor-IP on a
+// request that carried a valid service key, else the address the request came
+// from. It is the zero Addr when neither parses.
 func ClientIP(ctx context.Context) netip.Addr {
 	ip, _ := ctx.Value(clientIPKey{}).(netip.Addr)
 	return ip
@@ -105,7 +104,7 @@ func logRequests(log *slog.Logger) func(http.Handler) http.Handler {
 			log.InfoContext(r.Context(), "request",
 				"request_id", RequestID(r.Context()),
 				"method", r.Method,
-				"route", chi.RouteContext(r.Context()).RoutePattern(),
+				"route", routePattern(r),
 				"status", status,
 				"duration_ms", time.Since(start).Milliseconds(),
 				"bytes", rw.bytes)

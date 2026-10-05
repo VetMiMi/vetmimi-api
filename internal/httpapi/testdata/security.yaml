@@ -1,0 +1,63 @@
+# A small spec for servicekey_test.go and operations_test.go. No public or
+# auth tag is generated yet, so each kind of security has an operation here:
+# the tests mount stub routes for them behind the real middleware. getHealthz
+# requires the key and a query parameter, so the generated route, mounted
+# through mountAPI, shows the key is checked before the request is validated.
+openapi: "3.1.0"
+info:
+  title: Security fixture
+  version: "0"
+paths:
+  /healthz:
+    get:
+      operationId: getHealthz
+      security:
+        - serviceKey: []
+      parameters:
+        - name: probe
+          in: query
+          required: true
+          schema:
+            type: string
+            enum: ["yes"]
+      responses:
+        "200":
+          description: Up.
+  /readyz:
+    get:
+      operationId: getReadyz
+      security: []
+      responses:
+        "200":
+          description: Ready.
+  /public/stories/{slug}:
+    get:
+      operationId: getPublicStory
+      security:
+        - serviceKey: []
+      parameters:
+        - name: slug
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        "200":
+          description: The story.
+  /auth/me:
+    get:
+      operationId: getCurrentUser
+      security:
+        - sessionToken: []
+      responses:
+        "200":
+          description: The signed-in user.
+components:
+  securitySchemes:
+    serviceKey:
+      type: apiKey
+      in: header
+      name: X-Service-Key
+    sessionToken:
+      type: http
+      scheme: bearer
