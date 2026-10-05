@@ -168,14 +168,25 @@ prefix of the email.
 | `GET /admin/settings` | `site` keys only | yes | yes |
 | `PATCH /admin/settings` | no | `booking` keys | all keys |
 | `/admin/services`, `/admin/availability/*` | no | yes | yes |
-| `/admin/appointments/*`, `/admin/dashboard`, `/admin/communications` | no | yes | yes |
+| `/admin/appointments/*` (video session start and end included), `/admin/dashboard`, `/admin/communications` | no | yes | yes |
 | `/admin/contact-enquiries` | no | yes | yes |
-| Content list, get, create, patch, submit-for-review, versions, restore, relations | yes | no | yes |
-| Content approve, request-changes, publish, schedule, unpublish, archive; featured slots | no | no | yes |
-| `/admin/media` (upload, patch, archive) | yes | no | yes |
+| Stories, service pages, portfolio items and pages: list, get, create, patch, submit-for-review, versions, restore, relations; page sections | yes | no | yes |
+| The same: approve, request-changes, publish, schedule, unpublish, archive; featured areas, read and replace | no | no | yes |
+| `/admin/media` list, get, upload, patch, archive | yes | no | yes |
 | `DELETE /admin/media/{id}` | no | no | yes |
-| `/admin/facebook-posts` create, patch, status up to `permission_pending` | yes | no | yes |
+| `/admin/facebook-posts` list, get, create, patch, delete, status up to `permission_pending` | yes | no | yes |
 | Facebook status `approved`, `scheduled`, `published`, `withdrawn` | no | no | yes |
+
+The table is `rolesByOperation` in `internal/httpapi/roles.go`, one row per
+`sessionToken` operation; `TestEverySessionOperationHasRoles` fails when an
+operation has no row or a row names no such operation. The role check runs
+right after the session check and before the rate limit and validation, so a
+caller without the role is not counted and learns nothing about the contract.
+Every refusal is the same `403 forbidden` body, naming no operation or
+resource, and an operation missing from the table is refused to everyone.
+Rules finer than an operation, the settings key groups and Facebook statuses
+past `permission_pending`, are the domain's: it reads the roles with
+`auth.FromContext`.
 
 Content editors never see booking data; booking administrators never edit
 content. Daw Mi holds all three roles.
