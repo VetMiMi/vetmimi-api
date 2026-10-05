@@ -93,9 +93,12 @@ typed errors from `internal/platform/apperr`, and never import `net/http`.
 ## Testing
 
 - Every behaviour gets a success-path and a failure-path test.
-- Domain packages are tested against a real PostgreSQL (`DATABASE_URL_TEST`,
-  a `vetmimi_test` database on the local Homebrew server or the CI service
-  container). No mocks of the database; no testcontainers.
+- Domain packages are tested against a real PostgreSQL. `DATABASE_URL_TEST`
+  names a server (the local Homebrew one or the CI service container) whose
+  role may `CREATE DATABASE`; `internal/platform/pgtest` gives each test binary
+  its own migrated `vetmimi_test_<random>` database and drops it afterwards.
+  Call `pgtest.Run(m)` from `TestMain`. No mocks of the database; no
+  testcontainers. A missing `DATABASE_URL_TEST` fails the run, never skips.
 - Scheduling code additionally needs a concurrency test: two goroutines, one
   slot, exactly one winner.
 - For every guard you add (constraint, transition check, token check), delete
