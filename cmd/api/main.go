@@ -17,6 +17,7 @@ import (
 
 	"github.com/go-chi/chi/v5"
 	"github.com/go-chi/chi/v5/middleware"
+	"github.com/jackc/pgx/v5/pgxpool"
 
 	"github.com/VetMiMi/vetmimi-api/internal/httpapi"
 	"github.com/VetMiMi/vetmimi-api/internal/platform"
@@ -36,29 +37,44 @@ func main() {
 	slog.SetDefault(log)
 
 	ctx, stop := signal.NotifyContext(context.Background(), syscall.SIGINT, syscall.SIGTERM)
-	defer stop()
-
-	switch *mode {
-	case "api":
-		err = runAPI(ctx, log, cfg)
-	case "worker":
-		log.Info("worker mode is not implemented yet")
-	default:
-		err = fmt.Errorf("unknown mode %q", *mode)
-	}
+	err = run(ctx, log, cfg, *mode)
+	stop()
 	if err != nil {
 		log.Error("exit", "err", err)
 		os.Exit(1)
 	}
 }
 
-func runAPI(ctx context.Context, log *slog.Logger, cfg platform.Config) error {
+// run opens and migrates the database for every mode, so a failed migration
+// exits non-zero before the api listens and the deploy health check sees a
+// failed release.
+func run(ctx context.Context, log *slog.Logger, cfg platform.Config, mode string) error {
+	if mode != "api" && mode != "worker" {
+		return fmt.Errorf("unknown mode %q", mode)
+	}
+	pool, err := platform.OpenPostgres(ctx, cfg.DatabaseURL)
+	if err != nil {
+		return err
+	}
+	defer pool.Close()
+	if err := platform.Migrate(ctx, pool); err != nil {
+		return err
+	}
+
+	if mode == "worker" {
+		log.Info("worker mode is not implemented yet")
+		return nil
+	}
+	return runAPI(ctx, log, cfg, pool)
+}
+
+func runAPI(ctx context.Context, log *slog.Logger, cfg platform.Config, pool *pgxpool.Pool) error {
 	r := chi.NewRouter()
 	// Client IPs are taken from Caddy's X-Forwarded-For in the platform
 	// middleware later; chi's RealIP trusts every proxy header and is not used.
 	r.Use(middleware.RequestID, middleware.Recoverer)
 	r.Use(middleware.Timeout(30 * time.Second))
-	r.Mount("/", httpapi.Handler(&httpapi.Server{Log: log}))
+	r.Mount("/", httpapi.Handler(&httpapi.Server{Log: log, PingPostgres: pool.Ping}))
 
 	srv := &http.Server{
 		Addr:              ":" + strconv.Itoa(cfg.Port),

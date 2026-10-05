@@ -1,5 +1,5 @@
 // Package platform holds the process-wide plumbing every domain shares:
-// configuration and logging today, the database pool, Redis and the clock as
+// configuration, logging and the database pool today, Redis and the clock as
 // they arrive.
 package platform
 
