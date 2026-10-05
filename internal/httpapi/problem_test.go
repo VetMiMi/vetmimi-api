@@ -51,7 +51,9 @@ func failWith(t *testing.T, err error) (*httptest.ResponseRecorder, map[string]a
 	var logs bytes.Buffer
 	log := slog.New(slog.NewJSONHandler(&logs, nil))
 	r := chi.NewRouter()
-	mountAPI(&failing{err: err}, log)(r)
+	spec, specErr := gen.GetSpec()
+	require.NoError(t, specErr)
+	mountAPI(&failing{err: err}, spec, log)(r)
 	h := requestID(r)
 
 	res := httptest.NewRecorder()
