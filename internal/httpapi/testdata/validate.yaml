@@ -1,0 +1,107 @@
+# A small spec for validate_test.go. Only the health tag is generated so far,
+# so the validator is tested against an operation shaped like the real ones:
+# a 3.1 document listing a localhost server, a global service-key requirement,
+# path, query and header parameters, and a body that refers to components.
+openapi: "3.1.0"
+info:
+  title: Validation fixture
+  version: "0"
+servers:
+  - url: "http://localhost:8080"
+security:
+  - serviceKey: []
+paths:
+  /healthz:
+    get:
+      operationId: getHealthz
+      security: []
+      parameters:
+        - name: probe
+          in: query
+          required: true
+          schema:
+            type: string
+            enum: ["yes"]
+      responses:
+        "200":
+          description: Up.
+  /bookings/{serviceId}:
+    post:
+      operationId: createBooking
+      parameters:
+        - name: serviceId
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+        - name: date
+          in: query
+          schema:
+            type: string
+            format: date
+        - name: limit
+          in: query
+          schema:
+            type: integer
+        - name: Idempotency-Key
+          in: header
+          required: true
+          schema:
+            type: string
+            format: uuid
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/BookingRequest"
+      responses:
+        "200":
+          description: Accepted.
+components:
+  securitySchemes:
+    serviceKey:
+      type: apiKey
+      in: header
+      name: X-Service-Key
+  schemas:
+    BookingRequest:
+      type: object
+      required: [email, startsAt, mode]
+      properties:
+        email:
+          type: string
+          format: email
+        startsAt:
+          type: string
+          format: date-time
+        mode:
+          type: string
+          enum: [video, in_person]
+        slug:
+          type: string
+          pattern: "^[a-z0-9]+(-[a-z0-9]+)*$"
+        guests:
+          type: integer
+          minimum: 1
+          maximum: 4
+          default: 1
+        tags:
+          type: array
+          minItems: 1
+          maxItems: 2
+          uniqueItems: true
+          items:
+            type: string
+            minLength: 2
+        contact:
+          $ref: "#/components/schemas/Contact"
+      additionalProperties: false
+    Contact:
+      type: object
+      properties:
+        phone:
+          type: string
+          maxLength: 20
+      additionalProperties: false
