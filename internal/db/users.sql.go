@@ -7,6 +7,7 @@ package db
 
 import (
 	"context"
+	"time"
 
 	"github.com/jackc/pgx/v5/pgtype"
 )
@@ -66,15 +67,59 @@ func (q *Queries) CreateUser(ctx context.Context, arg CreateUserParams) (pgtype.
 	return id, err
 }
 
-const getUserTOTPSecret = `-- name: GetUserTOTPSecret :one
-SELECT totp_secret_enc FROM users WHERE id = $1
+const getUserForSignIn = `-- name: GetUserForSignIn :one
+SELECT id, email, display_name, password_hash, roles, is_practitioner, totp_secret_enc
+FROM users
+WHERE email = $1
 `
 
-func (q *Queries) GetUserTOTPSecret(ctx context.Context, id pgtype.UUID) ([]byte, error) {
-	row := q.db.QueryRow(ctx, getUserTOTPSecret, id)
-	var totp_secret_enc []byte
-	err := row.Scan(&totp_secret_enc)
-	return totp_secret_enc, err
+type GetUserForSignInRow struct {
+	ID             pgtype.UUID
+	Email          string
+	DisplayName    string
+	PasswordHash   string
+	Roles          []string
+	IsPractitioner bool
+	TotpSecretEnc  []byte
+}
+
+func (q *Queries) GetUserForSignIn(ctx context.Context, email string) (GetUserForSignInRow, error) {
+	row := q.db.QueryRow(ctx, getUserForSignIn, email)
+	var i GetUserForSignInRow
+	err := row.Scan(
+		&i.ID,
+		&i.Email,
+		&i.DisplayName,
+		&i.PasswordHash,
+		&i.Roles,
+		&i.IsPractitioner,
+		&i.TotpSecretEnc,
+	)
+	return i, err
+}
+
+const recordSignIn = `-- name: RecordSignIn :execrows
+UPDATE users
+SET last_sign_in_at = $1::timestamptz
+WHERE id = $2 AND disabled_at IS NULL AND password_hash = $3
+`
+
+type RecordSignInParams struct {
+	Now          time.Time
+	ID           pgtype.UUID
+	PasswordHash string
+}
+
+// RecordSignIn succeeds only while the user is enabled and still has the
+// password hash sign-in verified. Its row lock orders it against a
+// concurrent create-user, whose session delete then sees this sign-in's
+// session, or whose new hash makes this update miss.
+func (q *Queries) RecordSignIn(ctx context.Context, arg RecordSignInParams) (int64, error) {
+	result, err := q.db.Exec(ctx, recordSignIn, arg.Now, arg.ID, arg.PasswordHash)
+	if err != nil {
+		return 0, err
+	}
+	return result.RowsAffected(), nil
 }
 
 const replaceUserCredentials = `-- name: ReplaceUserCredentials :one

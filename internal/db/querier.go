@@ -15,15 +15,28 @@ type Querier interface {
 	// is later than the last one accepted, so two concurrent sign-ins with one
 	// code cannot both succeed.
 	ClaimTOTPStep(ctx context.Context, arg ClaimTOTPStepParams) (int64, error)
+	CreateSession(ctx context.Context, arg CreateSessionParams) (pgtype.UUID, error)
 	// CreateUser and ReplaceUserCredentials store the step of the code typed at
 	// enrolment as already accepted, so that code can never also sign in.
 	CreateUser(ctx context.Context, arg CreateUserParams) (pgtype.UUID, error)
-	GetUserTOTPSecret(ctx context.Context, id pgtype.UUID) ([]byte, error)
+	DeleteExpiredSessions(ctx context.Context, arg DeleteExpiredSessionsParams) (int64, error)
+	DeleteSession(ctx context.Context, id pgtype.UUID) error
+	DeleteUserSessions(ctx context.Context, userID pgtype.UUID) error
+	// GetSession returns the session a token hash names together with its user,
+	// so authenticating a request is one query.
+	GetSession(ctx context.Context, tokenHash []byte) (GetSessionRow, error)
+	GetUserForSignIn(ctx context.Context, email string) (GetUserForSignInRow, error)
 	Ping(ctx context.Context) (int32, error)
+	// RecordSignIn succeeds only while the user is enabled and still has the
+	// password hash sign-in verified. Its row lock orders it against a
+	// concurrent create-user, whose session delete then sees this sign-in's
+	// session, or whose new hash makes this update miss.
+	RecordSignIn(ctx context.Context, arg RecordSignInParams) (int64, error)
 	// ReplaceUserCredentials re-enrols an existing user. It never clears
 	// is_practitioner: re-running create-user to reset Daw Mi's password without
 	// --practitioner must not leave the practice without its practitioner.
 	ReplaceUserCredentials(ctx context.Context, arg ReplaceUserCredentialsParams) (pgtype.UUID, error)
+	TouchSession(ctx context.Context, arg TouchSessionParams) error
 }
 
 var _ Querier = (*Queries)(nil)

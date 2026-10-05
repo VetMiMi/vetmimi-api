@@ -10,7 +10,6 @@ import (
 	"errors"
 	"time"
 
-	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgtype"
 	"github.com/pquerna/otp"
 	"github.com/pquerna/otp/totp"
@@ -120,34 +119,31 @@ func codeAt(secret []byte, step int64) string {
 	return code
 }
 
-// VerifyTOTP accepts code for the user and returns the step it matched.
-// Each step is accepted once: the database claims it only if it is later
-// than the last accepted step, so a replayed or concurrently reused code is
-// refused. Every refusal is the same invalid_credentials as a wrong password.
-func VerifyTOTP(ctx context.Context, q db.Querier, t *TOTP, userID pgtype.UUID, code string) (int64, error) {
-	sealed, err := q.GetUserTOTPSecret(ctx, userID)
-	if errors.Is(err, pgx.ErrNoRows) {
-		return 0, invalidCredentials()
-	}
-	if err != nil {
-		return 0, err
-	}
+// MatchSealed opens a sealed secret and reports the step whose code equals
+// code, as Match does. Sign-in calls it on every attempt, the failing ones
+// included, so a wrong password costs the same work as a wrong code.
+func (t *TOTP) MatchSealed(sealed []byte, code string) (step int64, ok bool, err error) {
 	secret, err := t.Open(sealed)
 	if err != nil {
-		return 0, err
+		return 0, false, err
 	}
-	step, ok := t.Match(secret, code)
-	if !ok {
-		return 0, invalidCredentials()
-	}
+	step, ok = t.Match(secret, code)
+	return step, ok, nil
+}
+
+// ClaimTOTPStep accepts step for the user. Each step is accepted once: the
+// database claims it only if it is later than the last accepted step, so a
+// replayed or concurrently reused code is refused. A refusal is the same
+// invalid_credentials as a wrong password.
+func ClaimTOTPStep(ctx context.Context, q db.Querier, userID pgtype.UUID, step int64) error {
 	claimed, err := q.ClaimTOTPStep(ctx, db.ClaimTOTPStepParams{ID: userID, Step: step})
 	if err != nil {
-		return 0, err
+		return err
 	}
 	if claimed != 1 {
-		return 0, invalidCredentials()
+		return invalidCredentials()
 	}
-	return step, nil
+	return nil
 }
 
 func invalidCredentials() error { return apperr.New(apperr.InvalidCredentials, "") }

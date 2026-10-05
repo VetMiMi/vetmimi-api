@@ -1,5 +1,5 @@
 // Package auth owns administrator accounts: password hashing, TOTP enrolment
-// and verification, and (as they arrive) sessions and roles.
+// and verification, sessions, and (as they arrive) roles.
 package auth
 
 import (

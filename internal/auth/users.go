@@ -8,6 +8,7 @@ import (
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgconn"
 	"github.com/jackc/pgx/v5/pgtype"
+	"github.com/jackc/pgx/v5/pgxpool"
 
 	"github.com/VetMiMi/vetmimi-api/internal/db"
 )
@@ -39,33 +40,46 @@ func NormalizeEmail(email string) string {
 }
 
 // SaveAccount creates the account, or, when its email already exists,
-// replaces that user's password, TOTP secret, display name and roles and
-// replaces the last accepted TOTP step with the enrolment step. It
-// reports whether it created the user.
-func SaveAccount(ctx context.Context, q db.Querier, a Account) (id pgtype.UUID, created bool, err error) {
+// replaces that user's password, TOTP secret, display name and roles,
+// replaces the last accepted TOTP step with the enrolment step, and deletes
+// the user's sessions, all in one transaction: a new password signs the user
+// out everywhere, and a failed save changes nothing. It reports whether it
+// created the user.
+func SaveAccount(ctx context.Context, pool *pgxpool.Pool, a Account) (id pgtype.UUID, created bool, err error) {
 	email := NormalizeEmail(a.Email)
-	id, err = q.ReplaceUserCredentials(ctx, db.ReplaceUserCredentialsParams{
-		Email:          email,
-		DisplayName:    a.DisplayName,
-		PasswordHash:   a.PasswordHash,
-		Roles:          a.Roles,
-		IsPractitioner: a.Practitioner,
-		TotpSecretEnc:  a.SealedTOTPSecret,
-		TotpLastStep:   a.EnrolmentStep,
+	err = pgx.BeginFunc(ctx, pool, func(tx pgx.Tx) error {
+		q := db.New(tx)
+		id, err = q.ReplaceUserCredentials(ctx, db.ReplaceUserCredentialsParams{
+			Email:          email,
+			DisplayName:    a.DisplayName,
+			PasswordHash:   a.PasswordHash,
+			Roles:          a.Roles,
+			IsPractitioner: a.Practitioner,
+			TotpSecretEnc:  a.SealedTOTPSecret,
+			TotpLastStep:   a.EnrolmentStep,
+		})
+		if err == nil {
+			return q.DeleteUserSessions(ctx, id)
+		}
+		if !errors.Is(err, pgx.ErrNoRows) {
+			return practitionerTaken(err)
+		}
+		id, err = q.CreateUser(ctx, db.CreateUserParams{
+			Email:          email,
+			DisplayName:    a.DisplayName,
+			PasswordHash:   a.PasswordHash,
+			Roles:          a.Roles,
+			IsPractitioner: a.Practitioner,
+			TotpSecretEnc:  a.SealedTOTPSecret,
+			TotpLastStep:   a.EnrolmentStep,
+		})
+		created = err == nil
+		return practitionerTaken(err)
 	})
-	if !errors.Is(err, pgx.ErrNoRows) {
-		return id, false, practitionerTaken(err)
+	if err != nil {
+		return pgtype.UUID{}, false, err
 	}
-	id, err = q.CreateUser(ctx, db.CreateUserParams{
-		Email:          email,
-		DisplayName:    a.DisplayName,
-		PasswordHash:   a.PasswordHash,
-		Roles:          a.Roles,
-		IsPractitioner: a.Practitioner,
-		TotpSecretEnc:  a.SealedTOTPSecret,
-		TotpLastStep:   a.EnrolmentStep,
-	})
-	return id, err == nil, practitionerTaken(err)
+	return id, created, nil
 }
 
 // practitionerTaken turns a violation of the one-practitioner index into

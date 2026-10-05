@@ -20,7 +20,6 @@ import (
 	"golang.org/x/term"
 
 	"github.com/VetMiMi/vetmimi-api/internal/auth"
-	"github.com/VetMiMi/vetmimi-api/internal/db"
 	"github.com/VetMiMi/vetmimi-api/internal/platform"
 )
 
@@ -82,17 +81,17 @@ func runCreateUser(ctx context.Context, log *slog.Logger, cfg platform.Config, p
 	if err != nil {
 		return err
 	}
-	return createUser(ctx, log, db.New(pool), codes, f, terminal{
+	return createUser(ctx, log, pool, codes, f, terminal{
 		in:           os.Stdin,
 		out:          os.Stdout,
 		readPassword: func() ([]byte, error) { return term.ReadPassword(fd) },
 	})
 }
 
-// createUser creates an administrator, or re-enrols an existing one. It saves
-// nothing until the administrator proves the authenticator app holds the new
-// secret by typing a code from it.
-func createUser(ctx context.Context, log *slog.Logger, q db.Querier, codes *auth.TOTP, f userFlags, t terminal) error {
+// createUser creates an administrator, or re-enrols an existing one and signs
+// them out everywhere. It saves nothing until the administrator proves the
+// authenticator app holds the new secret by typing a code from it.
+func createUser(ctx context.Context, log *slog.Logger, pool *pgxpool.Pool, codes *auth.TOTP, f userFlags, t terminal) error {
 	account, err := f.account()
 	if err != nil {
 		return err
@@ -116,7 +115,7 @@ func createUser(ctx context.Context, log *slog.Logger, q db.Querier, codes *auth
 	if account.SealedTOTPSecret, err = codes.Seal(enrolment.Secret); err != nil {
 		return err
 	}
-	id, created, err := auth.SaveAccount(ctx, q, account)
+	id, created, err := auth.SaveAccount(ctx, pool, account)
 	if err != nil {
 		return fmt.Errorf("create-user: %w", err)
 	}

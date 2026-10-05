@@ -146,27 +146,65 @@ func requireInvalidCredentials(t *testing.T, err error) {
 	require.Empty(t, appErr.Detail, "a TOTP refusal must read exactly like a wrong password")
 }
 
-func TestVerifyTOTPReturnsTheMatchedStep(t *testing.T) {
+// errWrongCode stands for a code that matches no step, which sign-in turns
+// into invalid_credentials.
+var errWrongCode = errors.New("wrong code")
+
+// use accepts code for the user as sign-in does: it matches the code against
+// the stored secret, then claims the step it matched.
+func use(t *testing.T, q db.Querier, codes *auth.TOTP, id pgtype.UUID, code string) (int64, error) {
+	t.Helper()
+	var sealed []byte
+	err := pgtest.Pool(t).QueryRow(context.Background(), "SELECT totp_secret_enc FROM users WHERE id = $1", id).Scan(&sealed)
+	require.NoError(t, err)
+	step, ok, err := codes.MatchSealed(sealed, code)
+	require.NoError(t, err)
+	if !ok {
+		return 0, errWrongCode
+	}
+	return step, auth.ClaimTOTPStep(context.Background(), q, id, step)
+}
+
+func TestMatchSealedNeedsTheRightKey(t *testing.T) {
+	codes := newTOTP(t, testKey)
+	secret := newSecret(t)
+	sealed, err := codes.Seal(secret)
+	require.NoError(t, err)
+
+	step, ok, err := codes.MatchSealed(sealed, codeAt(t, secret, now))
+	require.NoError(t, err)
+	require.True(t, ok)
+	require.Equal(t, now.Unix()/30, step)
+
+	_, ok, err = codes.MatchSealed(sealed, codeAt(t, secret, now.Add(60*time.Second)))
+	require.NoError(t, err)
+	require.False(t, ok)
+
+	_, _, err = newTOTP(t, bytes.Repeat([]byte{8}, 32)).MatchSealed(sealed, codeAt(t, secret, now))
+	require.Error(t, err, "sealed under another key")
+}
+
+func TestClaimTOTPStepRecordsTheMatchedStep(t *testing.T) {
 	q := db.New(pgtest.Pool(t))
 	codes := newTOTP(t, testKey)
 	id, secret := enrolled(t, q, codes)
 
-	step, err := auth.VerifyTOTP(context.Background(), q, codes, id, codeAt(t, secret, now.Add(-30*time.Second)))
+	step, err := use(t, q, codes, id, codeAt(t, secret, now.Add(-30*time.Second)))
 	require.NoError(t, err)
 	require.Equal(t, now.Unix()/30-1, step)
 	require.Equal(t, step, lastStep(t, id))
 }
 
-func TestVerifyTOTPRefusesAWrongCodeOrUnknownUser(t *testing.T) {
+func TestClaimTOTPStepRefusesAnUnknownUser(t *testing.T) {
 	q := db.New(pgtest.Pool(t))
 	codes := newTOTP(t, testKey)
 	id, secret := enrolled(t, q, codes)
 
-	_, err := auth.VerifyTOTP(context.Background(), q, codes, id, codeAt(t, secret, now.Add(60*time.Second)))
-	requireInvalidCredentials(t, err)
+	_, err := use(t, q, codes, id, codeAt(t, secret, now.Add(60*time.Second)))
+	require.ErrorIs(t, err, errWrongCode)
 	require.Zero(t, lastStep(t, id), "a refused code claims no step")
 
-	_, err = auth.VerifyTOTP(context.Background(), q, codes, pgtype.UUID{Bytes: [16]byte{1}, Valid: true}, codeAt(t, secret, now))
+	err = auth.ClaimTOTPStep(context.Background(), q, pgtype.UUID{Bytes: [16]byte{1}, Valid: true}, now.Unix()/30)
 	requireInvalidCredentials(t, err)
 }
 
@@ -174,27 +212,27 @@ func TestTOTPReplayIsRefused(t *testing.T) {
 	q := db.New(pgtest.Pool(t))
 	codes := newTOTP(t, testKey)
 	id, secret := enrolled(t, q, codes)
-	ctx := context.Background()
 
 	code := codeAt(t, secret, now)
-	_, err := auth.VerifyTOTP(ctx, q, codes, id, code)
+	_, err := use(t, q, codes, id, code)
 	require.NoError(t, err)
-	_, err = auth.VerifyTOTP(ctx, q, codes, id, code)
+	_, err = use(t, q, codes, id, code)
 	requireInvalidCredentials(t, err)
 
 	// The previous step's code is still inside the window, but older than
 	// the step already accepted.
-	_, err = auth.VerifyTOTP(ctx, q, codes, id, codeAt(t, secret, now.Add(-30*time.Second)))
+	_, err = use(t, q, codes, id, codeAt(t, secret, now.Add(-30*time.Second)))
 	requireInvalidCredentials(t, err)
 
-	_, err = auth.VerifyTOTP(ctx, q, codes, id, codeAt(t, secret, now.Add(30*time.Second)))
+	_, err = use(t, q, codes, id, codeAt(t, secret, now.Add(30*time.Second)))
 	require.NoError(t, err, "a later step is still accepted")
 }
 
 // The code typed at enrolment was seen on the administrator's screen; it must
 // not also work as a sign-in code, whether the account is new or re-enrolled.
 func TestEnrolmentCodeCannotSignIn(t *testing.T) {
-	q := db.New(pgtest.Pool(t))
+	pool := pgtest.Pool(t)
+	q := db.New(pool)
 	codes := newTOTP(t, testKey)
 	ctx := context.Background()
 	a := account(uniqueEmail(t))
@@ -208,13 +246,13 @@ func TestEnrolmentCodeCannotSignIn(t *testing.T) {
 		require.NoError(t, err)
 		a.SealedTOTPSecret, a.EnrolmentStep = sealed, step
 
-		id, created, err := auth.SaveAccount(ctx, q, a)
+		id, created, err := auth.SaveAccount(ctx, pool, a)
 		require.NoError(t, err)
 		require.Equal(t, wantCreated, created)
 
-		_, err = auth.VerifyTOTP(ctx, q, codes, id, code)
+		_, err = use(t, q, codes, id, code)
 		requireInvalidCredentials(t, err)
-		_, err = auth.VerifyTOTP(ctx, q, codes, id, codeAt(t, secret, now.Add(30*time.Second)))
+		_, err = use(t, q, codes, id, codeAt(t, secret, now.Add(30*time.Second)))
 		require.NoError(t, err, "the next code signs in")
 	}
 }
@@ -223,8 +261,8 @@ func TestConcurrentTOTPUseHasOneWinner(t *testing.T) {
 	pool := pgtest.Pool(t)
 	q := db.New(pool)
 	codes := newTOTP(t, testKey)
-	id, secret := enrolled(t, q, codes)
-	code := codeAt(t, secret, now)
+	id, _ := enrolled(t, q, codes)
+	step := now.Unix() / 30
 	ctx := context.Background()
 
 	for round := range 20 {
@@ -237,7 +275,7 @@ func TestConcurrentTOTPUseHasOneWinner(t *testing.T) {
 		for i := range errs {
 			wg.Go(func() {
 				<-start
-				_, errs[i] = auth.VerifyTOTP(ctx, q, codes, id, code)
+				errs[i] = auth.ClaimTOTPStep(ctx, q, id, step)
 			})
 		}
 		close(start)

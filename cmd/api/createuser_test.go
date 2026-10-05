@@ -87,7 +87,7 @@ func createUserWith(t *testing.T, f userFlags, passwords []string, ty *typist) r
 	var out, logs bytes.Buffer
 	ty.out = &out
 	log := slog.New(slog.NewJSONHandler(&logs, nil))
-	err = createUser(context.Background(), log, db.New(pgtest.Pool(t)), codes, f, terminal{
+	err = createUser(context.Background(), log, pgtest.Pool(t), codes, f, terminal{
 		in:           ty,
 		out:          &out,
 		readPassword: typedPasswords(passwords),
@@ -177,6 +177,13 @@ func TestCreateUserUpdatesAnExistingEmail(t *testing.T) {
 	first := createUserWith(t, f, []string{password, password}, &typist{right: true})
 	require.NoError(t, first.err)
 	before, _ := lookup(t, f.email)
+	_, err := db.New(pgtest.Pool(t)).CreateSession(context.Background(), db.CreateSessionParams{
+		UserID:    before.id,
+		TokenHash: []byte("a signed-in phone"),
+		Now:       now,
+		ExpiresAt: now.Add(auth.SessionLifetime),
+	})
+	require.NoError(t, err)
 
 	f.email = strings.ToUpper(f.email)
 	f.name = "Mi"
@@ -192,6 +199,10 @@ func TestCreateUserUpdatesAnExistingEmail(t *testing.T) {
 	require.Equal(t, []string{"booking_admin", "content_editor"}, after.roles)
 	require.NotEqual(t, before.passwordHash, after.passwordHash)
 	require.NotEqual(t, before.totpSecretEnc, after.totpSecretEnc)
+	var sessions int
+	err = pgtest.Pool(t).QueryRow(context.Background(), "SELECT count(*) FROM sessions WHERE user_id = $1", after.id).Scan(&sessions)
+	require.NoError(t, err)
+	require.Zero(t, sessions, "a new password signs the user out everywhere")
 }
 
 func TestCreateUserAllowsThreeTries(t *testing.T) {
