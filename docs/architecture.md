@@ -43,7 +43,7 @@ errors from `internal/platform/apperr`, and never import `net/http`.
 
 | Package | Owns |
 |---|---|
-| `platform` | Configuration from the environment, the pgx pool, the Redis client, the asynq client, the slog logger, the clock (`platform/clock`, injectable in tests), id and token generation, `platform/apperr` (typed errors with a stable code), `platform/settings` (typed read and write of the `settings` table). |
+| `platform` | Configuration from the environment, the pgx pool, the Redis client, the rate limiter, the asynq client, the slog logger, the clock (`platform/clock`, injectable in tests), id and token generation, `platform/apperr` (typed errors with a stable code), `platform/settings` (typed read and write of the `settings` table). |
 | `httpapi` | The generated strict server (`httpapi/gen`, from `openapi.yaml`), handlers that parse → call a domain function → map the result, middleware (auth, rate limits, body caps, security headers, request logging), and the single `apperr` → `Problem` mapping. |
 | `auth` | Users, password hashing (argon2id), TOTP enrolment and verification, sessions, roles, the sign-in throttle. |
 | `booking` | Services, availability rules, overrides and blocks, slot generation, appointments, the status transition table (`status.go`), appointment events, management tokens, hold expiry, retention purge. |
@@ -356,7 +356,7 @@ values for secrets.
 | `DATABASE_URL` | PostgreSQL connection string. |
 | `DATABASE_URL_TEST` | Server for `go test`; each test binary creates and drops its own `vetmimi_test_<random>` database on it (`internal/platform/pgtest`). |
 | `REDIS_URL` | Redis for asynq and rate limits. |
-| `REDIS_URL_TEST` | Redis database used by tests (`/1`). Each test uses queue names of its own and deletes only its own keys, never `FLUSHDB`, because test binaries share the database; a missing value fails the run. |
+| `REDIS_URL_TEST` | Redis database used by tests (`/1`). Each test uses queue names and a rate-limit key prefix of its own and deletes only its own keys, never `FLUSHDB`, because test binaries share the database; a missing value fails the run. |
 | `SERVICE_KEY` | Shared with the Next server; required on public routes and sign-in. |
 | `SIGNING_SECRET` | 32+ random bytes; HMAC key for management and join tokens and room tickets. |
 | `TOTP_ENCRYPTION_KEY` | 32 bytes, base64; encrypts TOTP secrets at rest. |
@@ -405,6 +405,17 @@ values for secrets.
 | other `/public/*` reads | service key | 1,200 per minute |
 | `/admin/*`, `/auth/*` | session | 300 per minute |
 | WebSocket upgrade | room id | 20 per minute |
+
+The table is `internal/httpapi/ratelimit.go`, chosen by operation id; the
+per-email sign-in limit is applied by the auth domain, because the email is in
+the body, and the WebSocket handler calls `AllowRoomUpgrade` itself. Windows
+start on a multiple of their length. Keys are
+`rl:<group>:<first 32 hex of SHA-256(subject)>:<window start>`, so no address,
+token or email is stored in Redis. Each check waits at most 250 ms. If Redis
+does not answer, sign-in answers `503 unavailable`, because that is where a
+missing limit helps an attacker most; every other group lets the request
+through (ADR-006: losing Redis must not stop bookings) and logs
+`rate_limit_unavailable` at most once a minute.
 
 **Headers** on every response: `X-Content-Type-Options: nosniff`,
 `Referrer-Policy: no-referrer`, `X-Frame-Options: DENY`,
