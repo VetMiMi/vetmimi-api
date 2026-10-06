@@ -100,7 +100,7 @@ func (q *Queries) GetAppointmentForMessage(ctx context.Context, id pgtype.UUID) 
 }
 
 const getCommunication = `-- name: GetCommunication :one
-SELECT id, appointment_id, contact_enquiry_id, kind, audience, channel, recipient, locale, status, scheduled_for, sent_at, provider_message_id, error, attempts, resend_of, created_by, note, created_at FROM communications WHERE id = $1
+SELECT id, appointment_id, contact_enquiry_id, kind, audience, channel, recipient, locale, status, scheduled_for, sent_at, provider_message_id, error, attempts, resend_of, created_by, note, created_at, message FROM communications WHERE id = $1
 `
 
 func (q *Queries) GetCommunication(ctx context.Context, id pgtype.UUID) (Communication, error) {
@@ -125,18 +125,19 @@ func (q *Queries) GetCommunication(ctx context.Context, id pgtype.UUID) (Communi
 		&i.CreatedBy,
 		&i.Note,
 		&i.CreatedAt,
+		&i.Message,
 	)
 	return i, err
 }
 
 const insertCommunication = `-- name: InsertCommunication :one
 INSERT INTO communications (
-    appointment_id, contact_enquiry_id, kind, audience, recipient, locale, scheduled_for
+    appointment_id, contact_enquiry_id, kind, audience, recipient, locale, scheduled_for, message
 ) VALUES (
     $1, $2, $3, $4, $5, $6,
-    coalesce($7::timestamptz, now())
+    coalesce($7::timestamptz, now()), $8
 )
-RETURNING id, appointment_id, contact_enquiry_id, kind, audience, channel, recipient, locale, status, scheduled_for, sent_at, provider_message_id, error, attempts, resend_of, created_by, note, created_at
+RETURNING id, appointment_id, contact_enquiry_id, kind, audience, channel, recipient, locale, status, scheduled_for, sent_at, provider_message_id, error, attempts, resend_of, created_by, note, created_at, message
 `
 
 type InsertCommunicationParams struct {
@@ -147,6 +148,7 @@ type InsertCommunicationParams struct {
 	Recipient        pgtype.Text
 	Locale           string
 	ScheduledFor     sql.NullTime
+	Message          pgtype.Text
 }
 
 func (q *Queries) InsertCommunication(ctx context.Context, arg InsertCommunicationParams) (Communication, error) {
@@ -158,6 +160,7 @@ func (q *Queries) InsertCommunication(ctx context.Context, arg InsertCommunicati
 		arg.Recipient,
 		arg.Locale,
 		arg.ScheduledFor,
+		arg.Message,
 	)
 	var i Communication
 	err := row.Scan(
@@ -179,8 +182,55 @@ func (q *Queries) InsertCommunication(ctx context.Context, arg InsertCommunicati
 		&i.CreatedBy,
 		&i.Note,
 		&i.CreatedAt,
+		&i.Message,
 	)
 	return i, err
+}
+
+const listAppointmentCommunications = `-- name: ListAppointmentCommunications :many
+SELECT id, appointment_id, contact_enquiry_id, kind, audience, channel, recipient, locale, status, scheduled_for, sent_at, provider_message_id, error, attempts, resend_of, created_by, note, created_at, message FROM communications
+WHERE appointment_id = $1
+ORDER BY created_at, id
+`
+
+func (q *Queries) ListAppointmentCommunications(ctx context.Context, appointmentID pgtype.UUID) ([]Communication, error) {
+	rows, err := q.db.Query(ctx, listAppointmentCommunications, appointmentID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	items := []Communication{}
+	for rows.Next() {
+		var i Communication
+		if err := rows.Scan(
+			&i.ID,
+			&i.AppointmentID,
+			&i.ContactEnquiryID,
+			&i.Kind,
+			&i.Audience,
+			&i.Channel,
+			&i.Recipient,
+			&i.Locale,
+			&i.Status,
+			&i.ScheduledFor,
+			&i.SentAt,
+			&i.ProviderMessageID,
+			&i.Error,
+			&i.Attempts,
+			&i.ResendOf,
+			&i.CreatedBy,
+			&i.Note,
+			&i.CreatedAt,
+			&i.Message,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
 }
 
 const listDueCommunications = `-- name: ListDueCommunications :many
@@ -249,7 +299,7 @@ func (q *Queries) ListQueuedReminderIDs(ctx context.Context, appointmentID pgtyp
 }
 
 const lockCommunication = `-- name: LockCommunication :one
-SELECT id, appointment_id, contact_enquiry_id, kind, audience, channel, recipient, locale, status, scheduled_for, sent_at, provider_message_id, error, attempts, resend_of, created_by, note, created_at FROM communications WHERE id = $1 FOR UPDATE SKIP LOCKED
+SELECT id, appointment_id, contact_enquiry_id, kind, audience, channel, recipient, locale, status, scheduled_for, sent_at, provider_message_id, error, attempts, resend_of, created_by, note, created_at, message FROM communications WHERE id = $1 FOR UPDATE SKIP LOCKED
 `
 
 // LockCommunication skips a row another worker holds, so two workers given
@@ -276,6 +326,7 @@ func (q *Queries) LockCommunication(ctx context.Context, id pgtype.UUID) (Commun
 		&i.CreatedBy,
 		&i.Note,
 		&i.CreatedAt,
+		&i.Message,
 	)
 	return i, err
 }

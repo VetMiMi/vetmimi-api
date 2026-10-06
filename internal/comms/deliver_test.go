@@ -113,3 +113,21 @@ func TestDeliver_DevelopmentLogsInsteadOfSending(t *testing.T) {
 	require.NotContains(t, logs.String(), visitorEmail)
 	require.NotContains(t, logs.String(), "Visitor")
 }
+
+func TestDeliver_SendsDawMisMessage(t *testing.T) {
+	appt := newAppointment(t, freeStart())
+	message := "I am away that week; please choose another."
+	r, task := queue(t, comms.Message{AppointmentID: appt.ID, Kind: comms.Cancelled, Recipient: visitorEmail,
+		Locale: "en", ToVisitor: message})
+	require.Equal(t, message, r.Message.String)
+	resend := newFakeResend(t, http.StatusOK)
+	tasks, logs := newTasks(t, resend, time.Now())
+
+	require.NoError(t, deliver(t, tasks, task))
+
+	sent := resend.sent()
+	require.Len(t, sent, 1)
+	require.Contains(t, sent[0].Body["text"], message)
+	require.Contains(t, sent[0].Body["html"], "I am away that week; please choose another.")
+	require.NotContains(t, logs.String(), message)
+}

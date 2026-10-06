@@ -36,6 +36,9 @@ type Message struct {
 	Locale string
 	// ScheduledFor is when to send; zero means now.
 	ScheduledFor time.Time
+	// ToVisitor is Daw Mi's own message on a decline or cancellation, sent
+	// as she wrote it; empty for none.
+	ToVisitor string
 }
 
 // Queue inserts m as a queued row through q, which is the caller's
@@ -52,6 +55,7 @@ func Queue(ctx context.Context, q db.Querier, m Message) (platform.Task, error) 
 		Recipient:     pgtype.Text{String: strings.ToLower(m.Recipient), Valid: true},
 		Locale:        locale,
 		ScheduledFor:  sql.NullTime{Time: m.ScheduledFor, Valid: !m.ScheduledFor.IsZero()},
+		Message:       pgtype.Text{String: m.ToVisitor, Valid: m.ToVisitor != ""},
 	})
 	if err != nil {
 		return platform.Task{}, fmt.Errorf("comms: queue %s: %w", m.Kind, err)

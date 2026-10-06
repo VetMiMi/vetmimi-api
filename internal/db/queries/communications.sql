@@ -1,9 +1,9 @@
 -- name: InsertCommunication :one
 INSERT INTO communications (
-    appointment_id, contact_enquiry_id, kind, audience, recipient, locale, scheduled_for
+    appointment_id, contact_enquiry_id, kind, audience, recipient, locale, scheduled_for, message
 ) VALUES (
     @appointment_id, @contact_enquiry_id, @kind, @audience, @recipient, @locale,
-    coalesce(sqlc.narg(scheduled_for)::timestamptz, now())
+    coalesce(sqlc.narg(scheduled_for)::timestamptz, now()), sqlc.narg(message)
 )
 RETURNING *;
 
@@ -55,3 +55,8 @@ SELECT previous_range FROM appointment_events
 WHERE appointment_id = @appointment_id AND kind = 'rescheduled' AND previous_range IS NOT NULL
 ORDER BY created_at DESC, id DESC
 LIMIT 1;
+
+-- name: ListAppointmentCommunications :many
+SELECT * FROM communications
+WHERE appointment_id = @appointment_id
+ORDER BY created_at, id;
