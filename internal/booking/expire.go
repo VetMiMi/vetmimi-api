@@ -103,19 +103,25 @@ func SweepHolds(ctx context.Context, pool *pgxpool.Pool, now time.Time) ([]platf
 	return tasks, nil
 }
 
-// Tasks runs the booking task handlers in the worker.
+// Tasks runs the booking task handlers in the worker. Timezone is the
+// practice's, as settings held it when the worker started.
 type Tasks struct {
-	Pool  *pgxpool.Pool
-	Queue *platform.Queue
-	Log   *slog.Logger
-	Now   clock.Now
+	Pool     *pgxpool.Pool
+	Queue    *platform.Queue
+	Log      *slog.Logger
+	Now      clock.Now
+	Timezone string
 }
 
-// Register adds the hold handlers and the sweep schedule to w.
+// Register adds the hold and retention handlers and their schedules to w.
+// The purge runs at 03:00 practice time, which CRON_TZ keeps at 03:00 across
+// daylight saving.
 func (t *Tasks) Register(w *platform.Worker) {
 	w.Handle(TaskExpireHold, t.expireHold)
 	w.Handle(TaskSweepHolds, t.sweepHolds)
+	w.Handle(TaskPurgeRetention, t.purgeRetention)
 	w.Every("@every 5m", TaskSweepHolds)
+	w.Every("CRON_TZ="+t.Timezone+" 0 3 * * *", TaskPurgeRetention)
 }
 
 func (t *Tasks) expireHold(ctx context.Context, payload []byte) error {

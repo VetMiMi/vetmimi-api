@@ -40,7 +40,7 @@ func Decline(ctx context.Context, pool *pgxpool.Pool, c Change, now time.Time) (
 			return Changed{}, err
 		}
 		task, err := comms.Queue(ctx, q, comms.Message{AppointmentID: appt.ID, Kind: comms.RequestDeclined,
-			Recipient: appt.VisitorEmail, Locale: appt.Locale, ToVisitor: c.ToVisitor})
+			Recipient: appt.VisitorEmail, Locale: appt.Locale, Text: c.ToVisitor})
 		return Changed{Tasks: []platform.Task{task}, Remove: []platform.Task{holdTask(appt.ID, time.Time{})}}, err
 	})
 }
@@ -66,7 +66,7 @@ func Cancel(ctx context.Context, pool *pgxpool.Pool, c Change, now time.Time) (C
 			return Changed{}, nil
 		}
 		task, err := comms.Queue(ctx, q, comms.Message{AppointmentID: appt.ID, Kind: comms.Cancelled,
-			Recipient: appt.VisitorEmail, Locale: appt.Locale, ToVisitor: c.ToVisitor})
+			Recipient: appt.VisitorEmail, Locale: appt.Locale, Text: c.ToVisitor})
 		return Changed{Tasks: []platform.Task{task}}, err
 	})
 }

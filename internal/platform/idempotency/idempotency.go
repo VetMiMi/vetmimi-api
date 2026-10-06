@@ -17,11 +17,12 @@ import (
 	"github.com/VetMiMi/vetmimi-api/internal/platform/apperr"
 )
 
-// The scopes of the keys: a visitor's appointment request and an
-// appointment Daw Mi makes by hand. The table also allows contact_enquiry.
+// The scopes of the keys: a visitor's appointment request, an appointment
+// Daw Mi makes by hand, and a contact enquiry.
 const (
 	PublicAppointment = "public_appointment"
 	AdminAppointment  = "admin_appointment"
+	ContactEnquiry    = "contact_enquiry"
 )
 
 // Lifetime is how long a key is kept.

@@ -5,6 +5,8 @@
 ဝက်ဘ်ဆိုက်မှတစ်ဆင့် စုံစမ်းမေးမြန်းမှုအသစ်တစ်ခု ရောက်ရှိလာပါတယ်။
 
 {{template "visitor_text" .}}
+{{if .EnquiryOrganisation}}အဖွဲ့အစည်း - {{.EnquiryOrganisation}}{{end}}
+အမျိုးအစား - {{.EnquiryType}}
 
 အကြောင်းအရာ - {{.EnquirySubject}}
 
@@ -16,7 +18,9 @@
 {{define "html"}}{{template "open_html" .}}
 <p>ဝက်ဘ်ဆိုက်မှတစ်ဆင့် စုံစမ်းမေးမြန်းမှုအသစ်တစ်ခု ရောက်ရှိလာပါတယ်။</p>
 {{template "visitor_html" .}}
-<p>အကြောင်းအရာ - {{.EnquirySubject}}</p>
+<p>{{if .EnquiryOrganisation}}အဖွဲ့အစည်း - {{.EnquiryOrganisation}}<br>{{end}}
+အမျိုးအစား - {{.EnquiryType}}<br>
+အကြောင်းအရာ - {{.EnquirySubject}}</p>
 <p style="white-space:pre-line">{{.EnquiryMessage}}</p>
 {{template "admin_html" .}}
 {{template "close_html" .}}{{end}}

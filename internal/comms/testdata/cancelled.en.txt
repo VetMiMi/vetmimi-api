@@ -1,6 +1,7 @@
 Hello Thandar,
 
 Your appointment has been cancelled and will no longer take place.
+It was cancelled less than 48 hours before it was due to start, so it counts as a late cancellation. A fee of 50% of the session fee may apply, though your first late cancellation is free.
 
 Service: Individual Art Therapy
 Date and time: Monday 5 October 2026, 10:00 am AEDT

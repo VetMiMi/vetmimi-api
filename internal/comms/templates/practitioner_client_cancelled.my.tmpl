@@ -6,8 +6,11 @@
 
 {{template "details_text" .}}
 အခြေအနေ - {{.Status}}
+{{if .LateCancellation}}နောက်ကျ ပယ်ဖျက်ခြင်း - {{.Policy.NoticeHours}} နာရီ ကြိုတင်အသိပေးချိန်အတွင်း{{end}}
 
 {{template "visitor_text" .}}
+
+{{template "client_message_text" .}}
 
 {{template "admin_text" .}}
 {{end}}
@@ -16,6 +19,8 @@
 <p>ဝန်ဆောင်မှုခံယူသူက ဒီချိန်းဆိုမှုကို ပယ်ဖျက်လိုက်ပါတယ်။ ဒီအချိန် ပြန်လည် လွတ်သွားပါပြီ။</p>
 {{template "details_html" .}}
 <p>အခြေအနေ - {{.Status}}</p>
+{{if .LateCancellation}}<p>နောက်ကျ ပယ်ဖျက်ခြင်း - {{.Policy.NoticeHours}} နာရီ ကြိုတင်အသိပေးချိန်အတွင်း</p>{{end}}
 {{template "visitor_html" .}}
+{{template "client_message_html" .}}
 {{template "admin_html" .}}
 {{template "close_html" .}}{{end}}

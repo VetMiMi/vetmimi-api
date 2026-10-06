@@ -3,18 +3,15 @@ package booking
 import (
 	"context"
 	"database/sql"
-	"encoding/base64"
 	"errors"
-	"fmt"
 	"slices"
-	"strings"
 	"time"
 
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgtype"
 
 	"github.com/VetMiMi/vetmimi-api/internal/db"
-	"github.com/VetMiMi/vetmimi-api/internal/platform/apperr"
+	"github.com/VetMiMi/vetmimi-api/internal/platform"
 	"github.com/VetMiMi/vetmimi-api/internal/platform/settings"
 )
 
@@ -57,9 +54,6 @@ type Page struct {
 
 const defaultLimit = 50
 
-var errCursor = apperr.Invalid("The cursor is not one this list returned.",
-	apperr.FieldError{Field: "cursor", Message: "is malformed"})
-
 // ListAppointments lists appointments for the admin, a page at a time. Each
 // view has its own order: upcoming soonest first, pending by the hold that
 // ends first, the others newest first.
@@ -73,7 +67,7 @@ func ListAppointments(ctx context.Context, q db.Querier, f Filter, now time.Time
 		StartsBefore: optionalTime(f.To),
 		ServiceID:    f.ServiceID,
 		Format:       pgtype.Text{String: f.Format, Valid: f.Format != ""},
-		Search:       likePattern(f.Search),
+		Search:       platform.LikePattern(f.Search),
 		MaxRows:      int32(cmpLimit(f.Limit)) + 1,
 	}
 	preset := allStatuses
@@ -96,7 +90,7 @@ func ListAppointments(ctx context.Context, q db.Querier, f Filter, now time.Time
 		}
 	}
 	if f.Cursor != "" {
-		if p.AfterAt, p.AfterID, err = decodeCursor(f.Cursor); err != nil {
+		if p.AfterAt, p.AfterID, err = platform.DecodeCursor(f.Cursor); err != nil {
 			return Page{}, err
 		}
 	}
@@ -109,7 +103,7 @@ func ListAppointments(ctx context.Context, q db.Querier, f Filter, now time.Time
 	if limit := cmpLimit(f.Limit); len(rows) > limit {
 		page.Items = rows[:limit]
 		last := page.Items[limit-1]
-		page.NextCursor = encodeCursor(last.SortAt, last.ID)
+		page.NextCursor = platform.EncodeCursor(last.SortAt, last.ID)
 	}
 	return page, nil
 }
@@ -123,39 +117,6 @@ func cmpLimit(n int) int {
 
 func optionalTime(t time.Time) sql.NullTime {
 	return sql.NullTime{Time: t, Valid: !t.IsZero()}
-}
-
-// likePattern matches s anywhere, with ILIKE's wildcards in s taken
-// literally.
-func likePattern(s string) pgtype.Text {
-	s = strings.TrimSpace(s)
-	if s == "" {
-		return pgtype.Text{}
-	}
-	s = strings.NewReplacer(`\`, `\\`, `%`, `\%`, `_`, `\_`).Replace(s)
-	return pgtype.Text{String: "%" + s + "%", Valid: true}
-}
-
-// A cursor is the last row's sort time and id, opaque to the client.
-func encodeCursor(at time.Time, id pgtype.UUID) string {
-	return base64.RawURLEncoding.EncodeToString(fmt.Appendf(nil, "%d|%s", at.UnixMicro(), id.String()))
-}
-
-func decodeCursor(c string) (sql.NullTime, pgtype.UUID, error) {
-	raw, err := base64.RawURLEncoding.DecodeString(c)
-	if err != nil {
-		return sql.NullTime{}, pgtype.UUID{}, errCursor
-	}
-	var micros int64
-	var id pgtype.UUID
-	at, rest, ok := strings.Cut(string(raw), "|")
-	if !ok || id.Scan(rest) != nil {
-		return sql.NullTime{}, pgtype.UUID{}, errCursor
-	}
-	if _, err := fmt.Sscan(at, &micros); err != nil {
-		return sql.NullTime{}, pgtype.UUID{}, errCursor
-	}
-	return sql.NullTime{Time: time.UnixMicro(micros).UTC(), Valid: true}, id, nil
 }
 
 // Detail is everything the admin's appointment screen shows, including its

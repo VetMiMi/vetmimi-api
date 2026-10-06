@@ -32,13 +32,16 @@ type RenderData struct {
 	BookURL         string
 
 	// ManageURL is the visitor's management link and JoinURL the VetMiMi room
-	// link; the issues that add those routes fill them. MeetingLink is the
-	// link Daw Mi set in manual_link mode.
+	// link, which the video issue fills. MeetingLink is the link Daw Mi set in
+	// manual_link mode.
 	ManageURL   string
 	JoinURL     string
 	MeetingLink string
 	// MessageToVisitor is Daw Mi's own words on a decline or cancellation.
 	MessageToVisitor string
+	// LateCancellation is set when the visitor cancelled inside the notice
+	// period.
+	LateCancellation bool
 
 	// For Daw Mi only.
 	VisitorName  string
@@ -46,9 +49,15 @@ type RenderData struct {
 	VisitorPhone string
 	VisitorNote  string
 	AdminURL     string
-	// practitioner_new_enquiry only, filled when contact enquiries arrive.
-	EnquirySubject string
-	EnquiryMessage string
+	// ClientMessage is the visitor's own words with a cancellation or a
+	// reschedule request; PreferredTimes the starts they offered, formatted.
+	ClientMessage  string
+	PreferredTimes []string
+	// practitioner_new_enquiry only.
+	EnquirySubject      string
+	EnquiryMessage      string
+	EnquiryOrganisation string
+	EnquiryType         string
 }
 
 // Policy is the late cancellation and no-show terms from settings.
@@ -93,6 +102,8 @@ func DataFor(appt db.GetAppointmentForMessageRow, s settings.Settings, siteURL, 
 		VisitorPhone: appt.VisitorPhone.String,
 		VisitorNote:  appt.VisitorNote.String,
 		AdminURL:     strings.TrimRight(siteURL, "/") + "/admin/appointments/" + appt.ID.String(),
+
+		LateCancellation: appt.LateCancellation,
 	}
 	if !previous.IsZero() {
 		d.PreviousStart = FormatTime(previous, loc, locale)

@@ -19,13 +19,10 @@ output-options:
     - availability
     - booking-public
     - appointments
+    - contact
   # The WebSocket upgrade is a plain net/http handler, not a strict operation.
   exclude-operation-ids:
     - connectVideoRoom
-    # Public booking and the manage link arrive with their own issues.
-    - getManagedAppointment
-    - cancelManagedAppointment
-    - requestManagedReschedule
     # The dashboard and the manual meeting link arrive with their own issues.
     - getBookingDashboard
     - setAppointmentMeetingLink

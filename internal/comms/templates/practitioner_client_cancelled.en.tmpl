@@ -5,8 +5,11 @@ The client cancelled this appointment. The time is free again.
 
 {{template "details_text" .}}
 Status: {{.Status}}
+{{if .LateCancellation}}Late cancellation: inside the {{.Policy.NoticeHours}}-hour notice period.{{end}}
 
 {{template "visitor_text" .}}
+
+{{template "client_message_text" .}}
 
 {{template "admin_text" .}}
 {{end}}
@@ -15,6 +18,8 @@ Status: {{.Status}}
 <p>The client cancelled this appointment. The time is free again.</p>
 {{template "details_html" .}}
 <p>Status: {{.Status}}</p>
+{{if .LateCancellation}}<p>Late cancellation: inside the {{.Policy.NoticeHours}}-hour notice period.</p>{{end}}
 {{template "visitor_html" .}}
+{{template "client_message_html" .}}
 {{template "admin_html" .}}
 {{template "close_html" .}}{{end}}

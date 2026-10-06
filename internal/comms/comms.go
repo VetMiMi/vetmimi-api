@@ -26,19 +26,22 @@ const (
 	TaskRescheduleReminders = "comms:reschedule-reminders"
 )
 
-// Message is one email to queue about an appointment.
+// Message is one email to queue about an appointment or, with
+// ContactEnquiryID instead, a contact enquiry.
 type Message struct {
-	AppointmentID pgtype.UUID
-	Kind          Kind
-	Recipient     string
+	AppointmentID    pgtype.UUID
+	ContactEnquiryID pgtype.UUID
+	Kind             Kind
+	Recipient        string
 	// Locale is the visitor's; practitioner kinds are always rendered in en,
 	// because Daw Mi's locale is not a setting yet.
 	Locale string
 	// ScheduledFor is when to send; zero means now.
 	ScheduledFor time.Time
-	// ToVisitor is Daw Mi's own message on a decline or cancellation, sent
-	// as she wrote it; empty for none.
-	ToVisitor string
+	// Text is someone's own words, sent as written: Daw Mi's to the visitor
+	// on a decline or cancellation, or the visitor's to her on a
+	// cancellation or reschedule request through their link. Empty for none.
+	Text string
 }
 
 // Queue inserts m as a queued row through q, which is the caller's
@@ -49,13 +52,14 @@ func Queue(ctx context.Context, q db.Querier, m Message) (platform.Task, error) 
 		locale = "en"
 	}
 	row, err := q.InsertCommunication(ctx, db.InsertCommunicationParams{
-		AppointmentID: m.AppointmentID,
-		Kind:          string(m.Kind),
-		Audience:      string(m.Kind.Audience()),
-		Recipient:     pgtype.Text{String: strings.ToLower(m.Recipient), Valid: true},
-		Locale:        locale,
-		ScheduledFor:  sql.NullTime{Time: m.ScheduledFor, Valid: !m.ScheduledFor.IsZero()},
-		Message:       pgtype.Text{String: m.ToVisitor, Valid: m.ToVisitor != ""},
+		AppointmentID:    m.AppointmentID,
+		ContactEnquiryID: m.ContactEnquiryID,
+		Kind:             string(m.Kind),
+		Audience:         string(m.Kind.Audience()),
+		Recipient:        pgtype.Text{String: strings.ToLower(m.Recipient), Valid: true},
+		Locale:           locale,
+		ScheduledFor:     sql.NullTime{Time: m.ScheduledFor, Valid: !m.ScheduledFor.IsZero()},
+		Message:          pgtype.Text{String: m.Text, Valid: m.Text != ""},
 	})
 	if err != nil {
 		return platform.Task{}, fmt.Errorf("comms: queue %s: %w", m.Kind, err)

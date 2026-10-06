@@ -4,6 +4,8 @@
 A new enquiry arrived through the website.
 
 {{template "visitor_text" .}}
+{{if .EnquiryOrganisation}}Organisation: {{.EnquiryOrganisation}}{{end}}
+Type: {{.EnquiryType}}
 
 Subject: {{.EnquirySubject}}
 
@@ -15,7 +17,9 @@ Subject: {{.EnquirySubject}}
 {{define "html"}}{{template "open_html" .}}
 <p>A new enquiry arrived through the website.</p>
 {{template "visitor_html" .}}
-<p>Subject: {{.EnquirySubject}}</p>
+<p>{{if .EnquiryOrganisation}}Organisation: {{.EnquiryOrganisation}}<br>{{end}}
+Type: {{.EnquiryType}}<br>
+Subject: {{.EnquirySubject}}</p>
 <p style="white-space:pre-line">{{.EnquiryMessage}}</p>
 {{template "admin_html" .}}
 {{template "close_html" .}}{{end}}

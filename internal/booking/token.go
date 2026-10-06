@@ -1,11 +1,6 @@
 package booking
 
-import (
-	"crypto/hmac"
-	"crypto/rand"
-	"crypto/sha256"
-	"encoding/base64"
-)
+import "crypto/rand"
 
 const seedBytes = 32
 
@@ -18,15 +13,4 @@ func NewSeed() ([]byte, error) {
 		return nil, err
 	}
 	return seed, nil
-}
-
-// NewManagementToken derives the token in a visitor's management link from
-// its seed (docs/architecture.md, "Token formats"): 43 characters of
-// base64url HMAC-SHA256 under SIGNING_SECRET, so the database alone holds no
-// usable link.
-func NewManagementToken(secret, seed []byte) string {
-	mac := hmac.New(sha256.New, secret)
-	mac.Write([]byte("manage"))
-	mac.Write(seed)
-	return base64.RawURLEncoding.EncodeToString(mac.Sum(nil))
 }

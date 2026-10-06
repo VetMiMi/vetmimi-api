@@ -14,6 +14,85 @@ import (
 	"github.com/jackc/pgx/v5/pgtype"
 )
 
+const cancelAppointmentByClient = `-- name: CancelAppointmentByClient :one
+UPDATE appointments
+SET status = 'cancelled_by_client', late_cancellation = $1, hold_expires_at = NULL,
+    status_changed_at = $2, updated_at = $2, version = version + 1
+WHERE id = $3
+RETURNING id, reference, practitioner_id, service_id, status, starts_at, ends_at, duration_minutes, busy_range, timezone, format, locale, source, visitor_name, visitor_email, visitor_phone, visitor_note, privacy_ack_at, policy_ack_at, hold_expires_at, management_token_seed, management_token_hash, meeting_link, admin_note, late_cancellation, status_changed_at, created_by, version, created_at, updated_at
+`
+
+type CancelAppointmentByClientParams struct {
+	LateCancellation bool
+	Now              time.Time
+	ID               pgtype.UUID
+}
+
+// CancelAppointmentByClient is a visitor's cancellation through the
+// management link; the caller has checked it with booking.CanTransition.
+func (q *Queries) CancelAppointmentByClient(ctx context.Context, arg CancelAppointmentByClientParams) (Appointment, error) {
+	row := q.db.QueryRow(ctx, cancelAppointmentByClient, arg.LateCancellation, arg.Now, arg.ID)
+	var i Appointment
+	err := row.Scan(
+		&i.ID,
+		&i.Reference,
+		&i.PractitionerID,
+		&i.ServiceID,
+		&i.Status,
+		&i.StartsAt,
+		&i.EndsAt,
+		&i.DurationMinutes,
+		&i.BusyRange,
+		&i.Timezone,
+		&i.Format,
+		&i.Locale,
+		&i.Source,
+		&i.VisitorName,
+		&i.VisitorEmail,
+		&i.VisitorPhone,
+		&i.VisitorNote,
+		&i.PrivacyAckAt,
+		&i.PolicyAckAt,
+		&i.HoldExpiresAt,
+		&i.ManagementTokenSeed,
+		&i.ManagementTokenHash,
+		&i.MeetingLink,
+		&i.AdminNote,
+		&i.LateCancellation,
+		&i.StatusChangedAt,
+		&i.CreatedBy,
+		&i.Version,
+		&i.CreatedAt,
+		&i.UpdatedAt,
+	)
+	return i, err
+}
+
+const deleteRetainedAppointments = `-- name: DeleteRetainedAppointments :execrows
+DELETE FROM appointments
+WHERE id IN (
+    SELECT a.id FROM appointments a
+    WHERE a.status NOT IN ('pending', 'confirmed') AND a.ends_at < $1
+    LIMIT $2
+)
+`
+
+type DeleteRetainedAppointmentsParams struct {
+	Before  time.Time
+	MaxRows int32
+}
+
+// DeleteRetainedAppointments deletes up to @max_rows final appointments that
+// ended before @before; their events and communications go with them by
+// ON DELETE CASCADE. Pending and confirmed rows are never deleted.
+func (q *Queries) DeleteRetainedAppointments(ctx context.Context, arg DeleteRetainedAppointmentsParams) (int64, error) {
+	result, err := q.db.Exec(ctx, deleteRetainedAppointments, arg.Before, arg.MaxRows)
+	if err != nil {
+		return 0, err
+	}
+	return result.RowsAffected(), nil
+}
+
 const getAppointmentDetail = `-- name: GetAppointmentDetail :one
 SELECT a.id, a.reference, a.practitioner_id, a.service_id, a.status, a.starts_at, a.ends_at, a.duration_minutes, a.busy_range, a.timezone, a.format, a.locale, a.source, a.visitor_name, a.visitor_email, a.visitor_phone, a.visitor_note, a.privacy_ack_at, a.policy_ack_at, a.hold_expires_at, a.management_token_seed, a.management_token_hash, a.meeting_link, a.admin_note, a.late_cancellation, a.status_changed_at, a.created_by, a.version, a.created_at, a.updated_at, s.slug AS service_slug, s.name AS service_name
 FROM appointments a
@@ -59,6 +138,90 @@ type GetAppointmentDetailRow struct {
 func (q *Queries) GetAppointmentDetail(ctx context.Context, id pgtype.UUID) (GetAppointmentDetailRow, error) {
 	row := q.db.QueryRow(ctx, getAppointmentDetail, id)
 	var i GetAppointmentDetailRow
+	err := row.Scan(
+		&i.ID,
+		&i.Reference,
+		&i.PractitionerID,
+		&i.ServiceID,
+		&i.Status,
+		&i.StartsAt,
+		&i.EndsAt,
+		&i.DurationMinutes,
+		&i.BusyRange,
+		&i.Timezone,
+		&i.Format,
+		&i.Locale,
+		&i.Source,
+		&i.VisitorName,
+		&i.VisitorEmail,
+		&i.VisitorPhone,
+		&i.VisitorNote,
+		&i.PrivacyAckAt,
+		&i.PolicyAckAt,
+		&i.HoldExpiresAt,
+		&i.ManagementTokenSeed,
+		&i.ManagementTokenHash,
+		&i.MeetingLink,
+		&i.AdminNote,
+		&i.LateCancellation,
+		&i.StatusChangedAt,
+		&i.CreatedBy,
+		&i.Version,
+		&i.CreatedAt,
+		&i.UpdatedAt,
+		&i.ServiceSlug,
+		&i.ServiceName,
+	)
+	return i, err
+}
+
+const getManagedAppointment = `-- name: GetManagedAppointment :one
+SELECT a.id, a.reference, a.practitioner_id, a.service_id, a.status, a.starts_at, a.ends_at, a.duration_minutes, a.busy_range, a.timezone, a.format, a.locale, a.source, a.visitor_name, a.visitor_email, a.visitor_phone, a.visitor_note, a.privacy_ack_at, a.policy_ack_at, a.hold_expires_at, a.management_token_seed, a.management_token_hash, a.meeting_link, a.admin_note, a.late_cancellation, a.status_changed_at, a.created_by, a.version, a.created_at, a.updated_at, s.slug AS service_slug, s.name AS service_name
+FROM appointments a
+JOIN services s ON s.id = a.service_id
+WHERE a.management_token_hash = $1
+`
+
+type GetManagedAppointmentRow struct {
+	ID                  pgtype.UUID
+	Reference           string
+	PractitionerID      pgtype.UUID
+	ServiceID           pgtype.UUID
+	Status              string
+	StartsAt            time.Time
+	EndsAt              time.Time
+	DurationMinutes     int32
+	BusyRange           pgtype.Range[pgtype.Timestamptz]
+	Timezone            string
+	Format              string
+	Locale              string
+	Source              string
+	VisitorName         string
+	VisitorEmail        string
+	VisitorPhone        pgtype.Text
+	VisitorNote         pgtype.Text
+	PrivacyAckAt        sql.NullTime
+	PolicyAckAt         sql.NullTime
+	HoldExpiresAt       sql.NullTime
+	ManagementTokenSeed []byte
+	ManagementTokenHash []byte
+	MeetingLink         pgtype.Text
+	AdminNote           pgtype.Text
+	LateCancellation    bool
+	StatusChangedAt     time.Time
+	CreatedBy           pgtype.UUID
+	Version             int32
+	CreatedAt           time.Time
+	UpdatedAt           time.Time
+	ServiceSlug         string
+	ServiceName         json.RawMessage
+}
+
+// GetManagedAppointment looks a management link up by its token's hash,
+// never by a seed or an id.
+func (q *Queries) GetManagedAppointment(ctx context.Context, tokenHash []byte) (GetManagedAppointmentRow, error) {
+	row := q.db.QueryRow(ctx, getManagedAppointment, tokenHash)
+	var i GetManagedAppointmentRow
 	err := row.Scan(
 		&i.ID,
 		&i.Reference,
@@ -434,6 +597,48 @@ SELECT id, reference, practitioner_id, service_id, status, starts_at, ends_at, d
 
 func (q *Queries) LockAppointment(ctx context.Context, id pgtype.UUID) (Appointment, error) {
 	row := q.db.QueryRow(ctx, lockAppointment, id)
+	var i Appointment
+	err := row.Scan(
+		&i.ID,
+		&i.Reference,
+		&i.PractitionerID,
+		&i.ServiceID,
+		&i.Status,
+		&i.StartsAt,
+		&i.EndsAt,
+		&i.DurationMinutes,
+		&i.BusyRange,
+		&i.Timezone,
+		&i.Format,
+		&i.Locale,
+		&i.Source,
+		&i.VisitorName,
+		&i.VisitorEmail,
+		&i.VisitorPhone,
+		&i.VisitorNote,
+		&i.PrivacyAckAt,
+		&i.PolicyAckAt,
+		&i.HoldExpiresAt,
+		&i.ManagementTokenSeed,
+		&i.ManagementTokenHash,
+		&i.MeetingLink,
+		&i.AdminNote,
+		&i.LateCancellation,
+		&i.StatusChangedAt,
+		&i.CreatedBy,
+		&i.Version,
+		&i.CreatedAt,
+		&i.UpdatedAt,
+	)
+	return i, err
+}
+
+const lockAppointmentByTokenHash = `-- name: LockAppointmentByTokenHash :one
+SELECT id, reference, practitioner_id, service_id, status, starts_at, ends_at, duration_minutes, busy_range, timezone, format, locale, source, visitor_name, visitor_email, visitor_phone, visitor_note, privacy_ack_at, policy_ack_at, hold_expires_at, management_token_seed, management_token_hash, meeting_link, admin_note, late_cancellation, status_changed_at, created_by, version, created_at, updated_at FROM appointments WHERE management_token_hash = $1 FOR UPDATE
+`
+
+func (q *Queries) LockAppointmentByTokenHash(ctx context.Context, tokenHash []byte) (Appointment, error) {
+	row := q.db.QueryRow(ctx, lockAppointmentByTokenHash, tokenHash)
 	var i Appointment
 	err := row.Scan(
 		&i.ID,
