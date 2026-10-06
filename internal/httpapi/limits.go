@@ -7,6 +7,7 @@ import (
 	"net/http"
 	"time"
 
+	"github.com/VetMiMi/vetmimi-api/internal/httpapi/gen"
 	"github.com/VetMiMi/vetmimi-api/internal/platform/apperr"
 )
 
@@ -73,6 +74,28 @@ func WithBodyCap(n int64) func(http.Handler) http.Handler {
 				raw = c.raw
 			}
 			r.Body = &cappedBody{ReadCloser: http.MaxBytesReader(w, raw, n), raw: raw}
+			next.ServeHTTP(w, r)
+		})
+	}
+}
+
+// bodyCapByOperation raises the 64 KiB default for the operations that carry
+// a whole article in two languages.
+var bodyCapByOperation = map[string]int64{
+	"createPost": 512 << 10,
+	"updatePost": 512 << 10,
+}
+
+// operationBodyCaps applies bodyCapByOperation to the generated routes. It
+// runs just before validation, the first reader of the body.
+func operationBodyCaps(ops operations) gen.MiddlewareFunc {
+	return func(next http.Handler) http.Handler {
+		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			op, _ := ops.lookup(r)
+			if n, ok := bodyCapByOperation[op.ID]; ok {
+				WithBodyCap(n)(next).ServeHTTP(w, r)
+				return
+			}
 			next.ServeHTTP(w, r)
 		})
 	}

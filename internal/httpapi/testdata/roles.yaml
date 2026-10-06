@@ -1,5 +1,5 @@
 # A small spec for roles_test.go. The generated routes stand in for
-# operations the role table treats differently. /auth/me is publishStory,
+# operations the role table treats differently. /auth/me is publishPost,
 # which only a site administrator may use, behind the real session check,
 # with a required query parameter so a test can tell validation's 400 from
 # the role check's 403. /auth/sessions/current is an operation the table does
@@ -12,7 +12,7 @@ info:
 paths:
   /auth/me:
     get:
-      operationId: publishStory
+      operationId: publishPost
       security:
         - sessionToken: []
       parameters:

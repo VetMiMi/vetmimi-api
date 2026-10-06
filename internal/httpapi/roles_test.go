@@ -130,11 +130,10 @@ func TestEachRolePassesItsOwnRows(t *testing.T) {
 		"listAppointments":      {"booking_admin"},
 		"getContactEnquiry":     {"booking_admin"},
 		"startVideoSession":     {"booking_admin"},
-		"updateStory":           {"content_editor"},
-		"createPageSection":     {"content_editor"},
-		"uploadMedia":           {"content_editor"},
-		"setFacebookPostStatus": {"content_editor"},
-		"publishStory":          {"booking_admin", "site_admin"},
+		"updatePost":            {"content_editor"},
+		"submitPost":            {"content_editor"},
+		"markPostChannelPosted": {"content_editor"},
+		"publishPost":           {"booking_admin", "site_admin"},
 	} {
 		require.Equal(t, http.StatusOK, rc.as(t, id, roles...).Code, "%s as %v", id, roles)
 	}
@@ -171,17 +170,17 @@ func keysOf(m map[string]any) []string {
 	return keys
 }
 
-func TestBookingAdminCannotPublishStory(t *testing.T) {
+func TestOnlySiteAdminPublishesAPost(t *testing.T) {
 	rc := newRoleCheck(t)
-	requireForbidden(t, rc.as(t, "publishStory", "booking_admin"))
-	requireForbidden(t, rc.as(t, "publishStory", "content_editor"))
-	requireForbidden(t, rc.as(t, "publishStory", "content_editor", "booking_admin"))
-	require.Equal(t, http.StatusOK, rc.as(t, "publishStory", "site_admin").Code)
+	requireForbidden(t, rc.as(t, "publishPost", "booking_admin"))
+	requireForbidden(t, rc.as(t, "publishPost", "content_editor"))
+	requireForbidden(t, rc.as(t, "publishPost", "content_editor", "booking_admin"))
+	require.Equal(t, http.StatusOK, rc.as(t, "publishPost", "site_admin").Code)
 }
 
 func TestSiteAdminOnlyRowsRefuseTheOtherRoles(t *testing.T) {
 	rc := newRoleCheck(t)
-	for _, id := range []string{"approvePage", "deleteMedia", "replaceFeaturedArea", "getFeaturedArea", "archiveStory"} {
+	for _, id := range []string{"requestPostChanges", "approvePost", "schedulePost", "unschedulePost", "publishPost", "archivePost"} {
 		requireForbidden(t, rc.as(t, id, "content_editor", "booking_admin"))
 	}
 }

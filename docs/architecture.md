@@ -21,7 +21,7 @@ from database constraints and small transactions, not from clever Go.
 |---|---|
 | **api process** | `api --mode api` (the default). chi router, all HTTP routes, the video signaling WebSocket. Stateless apart from the in-memory video room hub. |
 | **worker process** | The same binary with `--mode worker`. Runs the asynq server: email delivery, hold expiry, scheduled publishing, site revalidation, media derivatives, sweeps and clean-up. Never serves HTTP. |
-| **PostgreSQL 17** | Every durable fact: settings, users, sessions, services, availability, appointments, communications, content, media metadata. Enforces "no overlapping appointments" with an exclusion constraint (ADR-004). |
+| **PostgreSQL 17** | Every durable fact: settings, users, sessions, services, availability, appointments, communications, posts, media metadata. Enforces "no overlapping appointments" with an exclusion constraint (ADR-004). |
 | **Redis 7 + asynq** | Task queues (`critical`, `default`, `low`) and rate-limit counters. Losing Redis loses only queued tasks; sweepers rebuild them from PostgreSQL (ADR-006). |
 | **Resend** | Transactional email. Called only by the worker. |
 | **S3-compatible bucket** | Media originals (private prefix `originals/`) and web derivatives (public prefix `public/`), served from `MEDIA_PUBLIC_URL`. |
@@ -29,8 +29,7 @@ from database constraints and small transactions, not from clever Go.
 | **Next.js site** (`vetmimi-next`) | The browser's only HTTP origin (ADR-002). Its server components and route handlers call this API server-side with `X-Service-Key` (public routes) or `Authorization: Bearer` (admin routes). The API has no CORS. |
 | **WebSocket exception** | `GET /video/rooms/{roomId}/ws?ticket=…` is the one route a browser calls directly, with a five-minute room ticket that Next obtained server-side (ADR-007). |
 
-Other entry points: `cmd/import-content` (one-off migration of the site's JSON
-into content tables, ADR-008) and `api --mode create-user`, which creates an
+The other entry point is `api --mode create-user`, which creates an
 administrator, or replaces an existing one's password and TOTP secret. It reads
 the password from standard input, never a flag, prints the `otpauth://` URI and
 saves nothing until a valid code is typed back.
@@ -48,8 +47,8 @@ errors from `internal/platform/apperr`, and never import `net/http`.
 | `auth` | Users, password hashing (argon2id), TOTP enrolment and verification, sessions, roles, the sign-in throttle. |
 | `booking` | Services, availability rules, overrides and blocks, slot generation, appointments, the status transition table (`status.go`), appointment events, management tokens, hold expiry, retention purge. |
 | `video` | Video rooms, join tokens, room tickets, TURN credentials, the in-memory room hub and the WebSocket signaling loop, room closing. |
-| `content` | Stories, service pages, portfolio items, pages and sections, publication and approval state, versions, relations, featured slots, slug redirects, Facebook post tracking, scheduled publishing, site revalidation. |
-| `media` | Uploads, type sniffing, derivative generation, object storage, permission metadata, usage checks. |
+| `content` | The publishing portal (ADR-009): posts, their channel versions and publications, the workflow (`workflow.go`), approval checks per platform, public articles. |
+| `media` | Uploads, type sniffing, web-sized derivatives, object storage, usage checks. |
 | `comms` | Communication records, templates (`comms/templates/<kind>.<locale>.tmpl`), delivery through Resend, the sweeper, contact enquiries. |
 | `db` | sqlc output (generated, committed) and `db/queries/*.sql`. |
 
@@ -66,7 +65,7 @@ chi middleware runs in this order for every HTTP route:
 3. **Logger** — one slog line per request after it completes: request id, method, chi route pattern (never the raw path, so tokens in paths are never logged), status, duration, bytes.
 4. **Recover** — a panic becomes `500 internal_error` and an error log with the stack.
 5. **Timeout** — 30 seconds, and the request context carries it into every query. Media upload gets 120 seconds. The WebSocket route is mounted outside this group.
-6. **Body cap** — `http.MaxBytesReader`: 64 KiB for JSON, 512 KiB for content saves (rich text), 21 MiB for media upload.
+6. **Body cap** — `http.MaxBytesReader`: 64 KiB for JSON, 512 KiB for saving a post (`bodyCapByOperation`: Markdown in two languages), 21 MiB for media upload.
 7. **Authentication** — `X-Service-Key` for `/public/*` and `POST /auth/sessions`; `Authorization: Bearer <session>` for `/admin/*` and the other `/auth/*` routes. Then the role check for the route group, then the rate limiter for the group.
 8. **OpenAPI validation** — `nethttp-middleware` validates path, query, headers and body against the embedded spec. Shape errors become `400 invalid_request` with `errors[]`.
 9. **Handler** — strict-server handler; calls one domain function; maps the result or the `apperr` to a response.
@@ -113,7 +112,7 @@ never shows `detail` to visitors. Renaming a code is a breaking change.
 | `invalid_transition` | 409 | The status change is not allowed from the current status. |
 | `slug_taken` | 409 | Another record of the same type already uses the slug. |
 | `overlapping_period` | 409 | A weekly availability period overlaps another on the same weekday. |
-| `in_use` | 409 | Delete refused: media used by content, or a service with appointments. Archive instead. |
+| `in_use` | 409 | Delete refused: media used by a post, or a service with appointments. Archive instead. |
 | `payload_too_large` | 413 | Body or upload over its cap. |
 | `unsupported_media_type` | 415 | Upload type not accepted (JPEG, PNG, WebP, PDF only). |
 | `outside_booking_window` | 422 | Start time inside the minimum notice or beyond the maximum advance window. |
@@ -122,9 +121,7 @@ never shows `detail` to visitors. Renaming a code is a breaking change.
 | `acknowledgement_required` | 422 | Privacy or booking policy acknowledgement missing. |
 | `idempotency_key_reused` | 422 | Same `Idempotency-Key` sent with a different body. |
 | `action_not_allowed` | 422 | Business rule refuses the action, e.g. cancelling a past appointment through a management link, or a service or availability period that breaks a scheduling rule (`errors[]` names the field). |
-| `approval_required` | 422 | Publish or schedule requested while `approval_status` is not `approved`. |
-| `publish_requirements_unmet` | 422 | Hard publishing checks failed; `errors[]` lists each one. |
-| `website_not_published` | 422 | A Facebook post that links to website content cannot be marked published before that content is. |
+| `publish_requirements_unmet` | 422 | A post cannot be approved: an enabled channel version breaks its platform's rules, no channel is enabled, or a True Story lacks consent; `errors[]` lists each one. |
 | `rate_limited` | 429 | Too many requests for this route group; `Retry-After` is set. |
 | `internal_error` | 500 | Unexpected failure. Logged with the request id; nothing was half-saved. |
 | `unavailable` | 503 | PostgreSQL or Redis unreachable. |
@@ -170,12 +167,8 @@ prefix of the email.
 | `/admin/services`, `/admin/availability/*` | no | yes | yes |
 | `/admin/appointments/*` (video session start and end included), `/admin/dashboard`, `/admin/communications` | no | yes | yes |
 | `/admin/contact-enquiries` | no | yes | yes |
-| Stories, service pages, portfolio items and pages: list, get, create, patch, submit-for-review, versions, restore, relations; page sections | yes | no | yes |
-| The same: approve, request-changes, publish, schedule, unpublish, archive; featured areas, read and replace | no | no | yes |
-| `/admin/media` list, get, upload, patch, archive | yes | no | yes |
-| `DELETE /admin/media/{id}` | no | no | yes |
-| `/admin/facebook-posts` list, get, create, patch, delete, status up to `permission_pending` | yes | no | yes |
-| Facebook status `approved`, `scheduled`, `published`, `withdrawn` | no | no | yes |
+| `/admin/posts`: list, get, create, patch, delete, submit, mark a channel posted | yes | no | yes |
+| `/admin/posts/{id}`: request-changes, approve, schedule, unschedule, publish, archive | no | no | yes |
 
 The table is `rolesByOperation` in `internal/httpapi/roles.go`, one row per
 `sessionToken` operation; `TestEverySessionOperationHasRoles` fails when an
@@ -184,9 +177,8 @@ right after the session check and before the rate limit and validation, so a
 caller without the role is not counted and learns nothing about the contract.
 Every refusal is the same `403 forbidden` body, naming no operation or
 resource, and an operation missing from the table is refused to everyone.
-Rules finer than an operation, the settings key groups and Facebook statuses
-past `permission_pending`, are the domain's: it reads the roles with
-`auth.FromContext`.
+Rules finer than an operation, the settings key groups, are the domain's: it
+reads the roles with `auth.FromContext`.
 
 Content editors never see booking data; booking administrators never edit
 content. Daw Mi holds all three roles.
@@ -308,33 +300,24 @@ content. Daw Mi holds all three roles.
    pings every 20 seconds and drops a participant silent for 10 more, and on
    shutdown closes every socket with 1001 so the browser reconnects.
 
-### 5. Publish a story
+### 5. Publish a post
 
-1. Daw Mi presses Publish. Next calls `POST /admin/stories/{id}/publish` with
-   the `version`; the API checks the session and the `site_admin` role.
-2. In one transaction: lock the row, check `version`, check the publication
-   transition is allowed, and require `approval_status = approved`
-   (`422 approval_required`).
-3. Hard publishing checks: English title, slug, excerpt and body present; for
-   category `true_stories`, storyteller approval, website permission and privacy
-   review complete; every linked image has website permission `approved` or
-   `not_required`, is not `do_not_use` or archived, and has English alt text. Failures give
-   `422 publish_requirements_unmet` listing each check.
-4. The public projection (public fields only, all locales, media ids) is
-   written to `published_snapshot`; `publication_status` becomes `published`;
-   `published_at` is set on first publication, `last_published_at` and
-   `published_by` every time; `published_version` records the row version. A
-   `content_versions` row (`publish`) is written. If the slug differs from the
-   last published one, a `slug_redirects` row is added.
-5. Commit. Enqueue `site:revalidate` with tags `stories`, `story:<slug>` (and
-   the old slug's tag), and `featured:<area>` for every featured area holding
-   the story.
-6. The worker posts `{ "tags": [...] }` to `SITE_URL/api/revalidate` with
-   `X-Revalidate-Secret`, retrying 5 times.
-7. Scheduling is the same path split in two: `schedule` stores `publish_at` and
-   sets `scheduled`; `content:publish-scheduled` runs steps 2–6 at `publish_at`
-   as the system user, and if approval was reset by a later edit it moves the
-   record back to `review` and lists it under "Attention required" instead.
+1. An editor writes the post and its channel versions (`POST`/`PATCH /admin/posts`)
+   and submits it; the post is `in_review`.
+2. Daw Mi approves (`site_admin`). In one transaction the post is locked, its
+   `version` checked, and every enabled version checked against its platform
+   (docs/data-model.md, "Posts"); a True Story needs consent confirmed. Failures
+   give `422 publish_requirements_unmet` listing each one.
+3. She publishes now, or schedules a future time. Publishing opens a
+   `post_publications` row per enabled channel: the website's is `published` at
+   once, so `GET /public/articles/{slug}` serves it; social ones are `pending`
+   and the post is `publishing`.
+4. Social channels are delivered by the publishing worker, or Daw Mi posts them
+   herself (copy & open) and marks them posted. When every channel is
+   `published` or `manual`, the post is `published`.
+5. Editing an `approved` or `scheduled` post sends it back to `in_review`. The
+   scheduler, site revalidation and the platform connectors arrive with their
+   own issues; this step list grows with them.
 
 ## Time handling rules
 
@@ -373,9 +356,8 @@ content. Daw Mi holds all three roles.
 | `comms:reschedule-reminders` | After `updateSettings` changes `reminder_hours` | Immediate | Task id `reminders:<settings version>`; rewrites only `queued` reminder rows and replaces their tasks |
 | `booking:expire-hold` | Appointment created as `pending` | At `hold_expires_at` | Task id `hold:<id>`; acts only if still `pending` and the hold has passed; writes `expired`, event and `request_expired` email in one transaction |
 | `booking:sweep-holds` | asynq periodic | Every 5 minutes | Runs the same expiry for any overdue `pending` row |
-| `content:publish-scheduled` | `schedule` action | At `publish_at` | Task id `publish:<type>:<id>:<version>`; acts only if still `scheduled` with the same `publish_at` |
-| `content:sweep-scheduled` | asynq periodic | Every 5 minutes | Publishes overdue `scheduled` rows through the same function |
-| `site:revalidate` | After publish, unpublish, archive, featured change, service change | Immediate | Revalidating a tag twice is harmless |
+| `content:publish-scheduled` (planned) | `schedule` action | At `scheduled_at` | Runs the same start of publishing as Publish now, only if the post is still `scheduled` for that time |
+| `site:revalidate` (planned) | After an article is published or archived, service change | Immediate | Revalidating a tag twice is harmless |
 | `media:derive` | After upload commit | Immediate, queue `low`, concurrency 1 | Skips unless `processing_status = processing`; overwrites the same object keys |
 | `video:close-room` | Room created or moved | At `closes_at` | Task id `room:<id>:<closes_at>`; ends the room only if still open and the window has passed |
 | `video:sweep-rooms` | asynq periodic | Every 5 minutes | Ends only rooms still open past `closes_at`; ending twice is a no-op |
@@ -516,10 +498,6 @@ agents.
   wall-clock by nature, so `availability_rules` alone stores local `time`.
 - ADR-007 and `AGENTS.md` call link tokens random 32-byte values, but ADR-006
   tasks carry only a row id, so tokens are HMAC-derived from a random seed.
-- ADR-008 gives each content table `featured`; ordered areas need
-  `featured_slots`, so `featured` is maintained from the slots.
-- ADR-008 lists `media` with the publication shape; media has no publication
-  workflow and uses `asset_status` and `archived_at` instead.
 - ADR-006 fixes `channel = 'email'`; "Mark as communicated" rows use `manual`.
 - The content requirements name Professional Approver and Publisher roles;
   ADR-002 fixes three, so approving and publishing are `site_admin` rights.

@@ -36,3 +36,4 @@ What becomes easier, what becomes harder, what we must now watch.
 | [006](006-communications-as-durable-records.md) | Communications as durable records, delivered by asynq workers |
 | [007](007-one-to-one-webrtc-with-go-signaling.md) | One-to-one WebRTC with Go WebSocket signaling |
 | [008](008-content-in-postgres-served-through-the-api.md) | Content in PostgreSQL, served through the API, revalidated by tag |
+| [009](009-publishing-portal.md) | A publishing portal for posts, replacing the website CMS |

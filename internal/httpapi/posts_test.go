@@ -1,0 +1,73 @@
+package httpapi
+
+import (
+	"fmt"
+	"net/http"
+	"net/http/httptest"
+	"strings"
+	"testing"
+
+	"github.com/stretchr/testify/require"
+)
+
+// action posts {"version": v} to one of a post's workflow actions.
+func (a *authAPI) action(t *testing.T, token, id, name string, post map[string]any) *httptest.ResponseRecorder {
+	t.Helper()
+	return a.sendJSON(http.MethodPost, "/admin/posts/"+id+"/"+name, token,
+		fmt.Sprintf(`{"version": %v}`, post["version"]))
+}
+
+// Through the router: an editor writes and submits, only a site
+// administrator approves and publishes, and the article then reaches the
+// public read in the visitor's language.
+func TestPostFromEditorToPublicArticle(t *testing.T) {
+	a := newAuthAPI(t)
+	editor := insertSession(t, a.clock.at, "content_editor")
+	admin := insertSession(t, a.clock.at, "site_admin")
+
+	long := strings.Repeat("ကြည့်", 15000) // 225 KB of Burmese, over the 64 KiB default cap
+	body := fmt.Sprintf(`{"title": "Colour and calm", "kind": "insight", "versions": {
+		"website": {"enabled": true, "slug": "colour-and-calm",
+			"title": {"en": "Colour and calm", "my": "အရောင်နှင့် ငြိမ်သက်မှု"},
+			"excerpt": {"en": "How colour settles the mind."},
+			"body": {"en": "# Colour\n\nPaint slowly.", "my": %q}},
+		"instagram": {"enabled": true, "caption": "Colour and calm #arttherapy"}}}`, long)
+	post := decoded(t, http.StatusCreated, a.sendJSON(http.MethodPost, "/admin/posts", editor, body))
+	require.Equal(t, "draft", post["status"])
+	id := post["id"].(string)
+
+	post = decoded(t, http.StatusOK, a.action(t, editor, id, "submit", post))
+	require.Equal(t, "in_review", post["status"])
+	requireForbidden(t, a.action(t, editor, id, "approve", post))
+	requireForbidden(t, a.action(t, insertSession(t, a.clock.at, "booking_admin"), id, "approve", post))
+
+	problem := refused(t, http.StatusUnprocessableEntity, "publish_requirements_unmet", a.action(t, admin, id, "approve", post))
+	require.Equal(t, []any{map[string]any{"field": "/versions/instagram/imageIds", "message": "needs at least one image"}},
+		problem["errors"])
+
+	patch := fmt.Sprintf(`{"version": %v, "versions": {"instagram": {"enabled": true,
+		"caption": "Colour and calm #arttherapy", "imageIds": ["0b7f9c2e-4d1a-4c3b-9e8f-7a6b5c4d3e2f"]}}}`, post["version"])
+	post = decoded(t, http.StatusOK, a.sendJSON(http.MethodPatch, "/admin/posts/"+id, editor, patch))
+	post = decoded(t, http.StatusOK, a.action(t, admin, id, "approve", post))
+	require.Equal(t, "approved", post["status"])
+	requireForbidden(t, a.action(t, editor, id, "publish", post))
+
+	post = decoded(t, http.StatusOK, a.action(t, admin, id, "publish", post))
+	require.Equal(t, "publishing", post["status"])
+	post = decoded(t, http.StatusOK, a.sendJSON(http.MethodPost, "/admin/posts/"+id+"/channels/instagram/mark-posted",
+		editor, `{"permalink": "https://www.instagram.com/p/abc/"}`))
+	require.Equal(t, "published", post["status"])
+
+	article := decoded(t, http.StatusOK, a.sendPublic(http.MethodGet, "/public/articles/colour-and-calm?locale=my", ""))
+	require.Equal(t, "အရောင်နှင့် ငြိမ်သက်မှု", article["title"])
+	require.Equal(t, long, article["body"])
+	require.Equal(t, "How colour settles the mind.", article["excerpt"])
+	list := decoded(t, http.StatusOK, a.sendPublic(http.MethodGet, "/public/articles", ""))
+	require.Equal(t, "en", list["locale"])
+	require.Contains(t, list["items"], map[string]any{"slug": "colour-and-calm", "kind": "insight",
+		"title": "Colour and calm", "excerpt": "How colour settles the mind.", "publishedAt": post["publishedAt"]})
+
+	refused(t, http.StatusNotFound, "not_found", a.sendPublic(http.MethodGet, "/public/articles/no-such-article", ""))
+	listed := decoded(t, http.StatusOK, a.send(http.MethodGet, "/admin/posts?status=published&q=colour", editor))
+	require.Equal(t, []any{"instagram", "website"}, listed["items"].([]any)[0].(map[string]any)["channels"])
+}

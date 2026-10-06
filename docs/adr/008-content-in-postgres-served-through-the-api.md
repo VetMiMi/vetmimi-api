@@ -1,6 +1,6 @@
 # 008 — Content in PostgreSQL, served through the API, revalidated by tag
 
-**Status:** Accepted · 2026-10-04
+**Status:** Superseded by [009](009-publishing-portal.md) · 2026-10-06
 
 ## Context
 
