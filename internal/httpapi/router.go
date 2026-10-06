@@ -10,6 +10,7 @@ import (
 	"github.com/go-chi/chi/v5"
 
 	"github.com/VetMiMi/vetmimi-api/internal/httpapi/gen"
+	"github.com/VetMiMi/vetmimi-api/internal/video"
 )
 
 // NewRouter returns the whole HTTP API: every route in openapi.yaml behind
@@ -34,12 +35,17 @@ func NewRouter(deps Deps) http.Handler {
 	if deps.RateLimits == nil {
 		deps.RateLimits = NewRateLimits(nil, log, time.Now)
 	}
-	return router(log, mountAPI(&server{deps}, spec, deps))
+	if deps.Hub == nil {
+		deps.Hub = video.NewHub(deps.Pool, log, deps.Now)
+	}
+	s := &server{deps}
+	return router(log, s.connectVideoRoom, mountAPI(s, spec, deps))
 }
 
-// router builds the chain around the routes mount registers, which tests use
-// to put stub routes behind the real middleware.
-func router(log *slog.Logger, mount func(chi.Router)) http.Handler {
+// router builds the chain around the routes mount registers and the video
+// WebSocket handler ws, if any. Tests use it to put stub routes behind the
+// real middleware.
+func router(log *slog.Logger, ws http.HandlerFunc, mount func(chi.Router)) http.Handler {
 	r := chi.NewRouter()
 	r.Use(requestID, realIP, logRequests(log), recoverPanics(log), setSecurityHeaders)
 	r.NotFound(notFound)
@@ -47,6 +53,9 @@ func router(log *slog.Logger, mount func(chi.Router)) http.Handler {
 
 	// Routes that must outlive the request timeout and body cap mount here,
 	// outside the group below: the video WebSocket (ADR-007).
+	if ws != nil {
+		r.Get(roomSocketPattern, ws)
+	}
 
 	r.Group(func(r chi.Router) {
 		r.Use(WithTimeout(defaultTimeout), WithBodyCap(defaultBodyCap))

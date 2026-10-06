@@ -219,14 +219,15 @@ func (s *server) applyChange(ctx context.Context, msg string,
 	return s.appointmentDetail(ctx, c.ID)
 }
 
-// afterChange hands the queue what a committed change asks of it and logs
-// the change by id only.
+// afterChange hands the queue what a committed change asks of it, closes
+// the sockets of a video room it ended, and logs the change by id only.
 func (s *server) afterChange(ctx context.Context, msg string, id pgtype.UUID, changed booking.Changed) {
 	if s.Queue != nil {
 		s.Queue.Remove(changed.Remove...)
 		s.Queue.Replace(ctx, changed.Replace...)
 		s.Queue.Enqueue(ctx, changed.Tasks...)
 	}
+	s.Hub.EndRoom(changed.EndedRoom)
 	s.Log.InfoContext(ctx, msg, "request_id", RequestID(ctx), "appointment_id", id.String())
 }
 

@@ -51,7 +51,7 @@ func CancelByClient(ctx context.Context, pool *pgxpool.Pool, token, message stri
 		if err := CancelReminders(ctx, q, appt.ID, string(CancelledByClient)); err != nil {
 			return err
 		}
-		if err := video.EndRoom(ctx, q, appt.ID, now); err != nil {
+		if out.EndedRoom, err = video.EndRoom(ctx, q, appt.ID, video.EndedByCancellation, now); err != nil {
 			return err
 		}
 		visitor, err := comms.Queue(ctx, q, comms.Message{AppointmentID: appt.ID, Kind: comms.Cancelled,

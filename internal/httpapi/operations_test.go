@@ -72,7 +72,11 @@ func TestIndexKeysAreTheMountedRoutePatterns(t *testing.T) {
 	mounted := map[string]bool{}
 	err = chi.Walk(NewRouter(Deps{Log: quiet}).(chi.Routes),
 		func(method, route string, _ http.Handler, _ ...func(http.Handler) http.Handler) error {
-			mounted[operationKey(method, route)] = true
+			// connectVideoRoom is mounted by hand, outside the generated
+			// routes and so outside the index.
+			if route != roomSocketPattern {
+				mounted[operationKey(method, route)] = true
+			}
 			return nil
 		})
 	require.NoError(t, err)

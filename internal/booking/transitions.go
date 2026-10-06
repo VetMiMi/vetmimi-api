@@ -64,15 +64,13 @@ func Cancel(ctx context.Context, pool *pgxpool.Pool, c Change, now time.Time) (C
 		if err := CancelReminders(ctx, q, appt.ID, string(CancelledByPractitioner)); err != nil {
 			return Changed{}, err
 		}
-		if err := video.EndRoom(ctx, q, appt.ID, now); err != nil {
-			return Changed{}, err
-		}
-		if !c.Notify {
-			return Changed{}, nil
+		room, err := video.EndRoom(ctx, q, appt.ID, video.EndedByCancellation, now)
+		if err != nil || !c.Notify {
+			return Changed{EndedRoom: room}, err
 		}
 		task, err := comms.Queue(ctx, q, comms.Message{AppointmentID: appt.ID, Kind: comms.Cancelled,
 			Recipient: appt.VisitorEmail, Locale: appt.Locale, Text: c.ToVisitor})
-		return Changed{Tasks: []platform.Task{task}}, err
+		return Changed{Tasks: []platform.Task{task}, EndedRoom: room}, err
 	})
 }
 

@@ -13,6 +13,21 @@ import (
 	"github.com/jackc/pgx/v5/pgtype"
 )
 
+const closeOverdueVideoRooms = `-- name: CloseOverdueVideoRooms :execrows
+UPDATE video_rooms SET state = 'ended', ended_at = $1::timestamptz, ended_reason = 'window_closed', updated_at = $1
+WHERE state <> 'ended' AND closes_at <= $1
+`
+
+// CloseOverdueVideoRooms ends every room still open past its window, for the
+// sweep that catches close-room tasks Redis lost.
+func (q *Queries) CloseOverdueVideoRooms(ctx context.Context, now time.Time) (int64, error) {
+	result, err := q.db.Exec(ctx, closeOverdueVideoRooms, now)
+	if err != nil {
+		return 0, err
+	}
+	return result.RowsAffected(), nil
+}
+
 const closeVideoRoomIfDue = `-- name: CloseVideoRoomIfDue :exec
 UPDATE video_rooms SET state = 'ended', ended_at = $1::timestamptz, ended_reason = 'window_closed', updated_at = $1
 WHERE id = $2 AND state <> 'ended' AND closes_at <= $1
@@ -30,9 +45,10 @@ func (q *Queries) CloseVideoRoomIfDue(ctx context.Context, arg CloseVideoRoomIfD
 	return err
 }
 
-const endVideoRoom = `-- name: EndVideoRoom :exec
+const endVideoRoom = `-- name: EndVideoRoom :one
 UPDATE video_rooms SET state = 'ended', ended_at = $1::timestamptz, ended_reason = $2, updated_at = $1
 WHERE appointment_id = $3 AND state <> 'ended'
+RETURNING id, appointment_id, join_token_seed, join_token_hash, opens_at, closes_at, state, started_at, ended_at, ended_reason, created_at, updated_at
 `
 
 type EndVideoRoomParams struct {
@@ -41,9 +57,61 @@ type EndVideoRoomParams struct {
 	AppointmentID pgtype.UUID
 }
 
-func (q *Queries) EndVideoRoom(ctx context.Context, arg EndVideoRoomParams) error {
-	_, err := q.db.Exec(ctx, endVideoRoom, arg.Now, arg.EndedReason, arg.AppointmentID)
-	return err
+// EndVideoRoom ends an appointment's room for a reason; a room already
+// ended is left as it is, so of two racing ends exactly one writes.
+func (q *Queries) EndVideoRoom(ctx context.Context, arg EndVideoRoomParams) (VideoRoom, error) {
+	row := q.db.QueryRow(ctx, endVideoRoom, arg.Now, arg.EndedReason, arg.AppointmentID)
+	var i VideoRoom
+	err := row.Scan(
+		&i.ID,
+		&i.AppointmentID,
+		&i.JoinTokenSeed,
+		&i.JoinTokenHash,
+		&i.OpensAt,
+		&i.ClosesAt,
+		&i.State,
+		&i.StartedAt,
+		&i.EndedAt,
+		&i.EndedReason,
+		&i.CreatedAt,
+		&i.UpdatedAt,
+	)
+	return i, err
+}
+
+const getAppointmentStatus = `-- name: GetAppointmentStatus :one
+SELECT status FROM appointments WHERE id = $1
+`
+
+func (q *Queries) GetAppointmentStatus(ctx context.Context, id pgtype.UUID) (string, error) {
+	row := q.db.QueryRow(ctx, getAppointmentStatus, id)
+	var status string
+	err := row.Scan(&status)
+	return status, err
+}
+
+const getVideoRoom = `-- name: GetVideoRoom :one
+SELECT id, appointment_id, join_token_seed, join_token_hash, opens_at, closes_at, state, started_at, ended_at, ended_reason, created_at, updated_at FROM video_rooms WHERE id = $1
+`
+
+func (q *Queries) GetVideoRoom(ctx context.Context, id pgtype.UUID) (VideoRoom, error) {
+	row := q.db.QueryRow(ctx, getVideoRoom, id)
+	var i VideoRoom
+	err := row.Scan(
+		&i.ID,
+		&i.AppointmentID,
+		&i.JoinTokenSeed,
+		&i.JoinTokenHash,
+		&i.OpensAt,
+		&i.ClosesAt,
+		&i.State,
+		&i.StartedAt,
+		&i.EndedAt,
+		&i.EndedReason,
+		&i.CreatedAt,
+		&i.UpdatedAt,
+	)
+	return i, err
 }
 
 const getVideoRoomByAppointment = `-- name: GetVideoRoomByAppointment :one
@@ -157,6 +225,44 @@ func (q *Queries) InsertVideoRoom(ctx context.Context, arg InsertVideoRoomParams
 	return i, err
 }
 
+const listVideoRooms = `-- name: ListVideoRooms :many
+SELECT id, appointment_id, join_token_seed, join_token_hash, opens_at, closes_at, state, started_at, ended_at, ended_reason, created_at, updated_at FROM video_rooms WHERE id = ANY($1::uuid[])
+`
+
+// ListVideoRooms reads the rooms the hub holds sockets for.
+func (q *Queries) ListVideoRooms(ctx context.Context, ids []pgtype.UUID) ([]VideoRoom, error) {
+	rows, err := q.db.Query(ctx, listVideoRooms, ids)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	items := []VideoRoom{}
+	for rows.Next() {
+		var i VideoRoom
+		if err := rows.Scan(
+			&i.ID,
+			&i.AppointmentID,
+			&i.JoinTokenSeed,
+			&i.JoinTokenHash,
+			&i.OpensAt,
+			&i.ClosesAt,
+			&i.State,
+			&i.StartedAt,
+			&i.EndedAt,
+			&i.EndedReason,
+			&i.CreatedAt,
+			&i.UpdatedAt,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
 const moveVideoRoom = `-- name: MoveVideoRoom :many
 UPDATE video_rooms SET opens_at = $1, closes_at = $2, updated_at = $3
 WHERE appointment_id = $4 AND state <> 'ended'
@@ -207,4 +313,24 @@ func (q *Queries) MoveVideoRoom(ctx context.Context, arg MoveVideoRoomParams) ([
 		return nil, err
 	}
 	return items, nil
+}
+
+const setVideoRoomInSession = `-- name: SetVideoRoomInSession :execrows
+UPDATE video_rooms SET state = 'in_session', started_at = COALESCE(started_at, $1::timestamptz), updated_at = $1
+WHERE id = $2 AND state = 'waiting'
+`
+
+type SetVideoRoomInSessionParams struct {
+	Now time.Time
+	ID  pgtype.UUID
+}
+
+// SetVideoRoomInSession marks a waiting room in session once both
+// participants have joined; started_at keeps the first time.
+func (q *Queries) SetVideoRoomInSession(ctx context.Context, arg SetVideoRoomInSessionParams) (int64, error) {
+	result, err := q.db.Exec(ctx, setVideoRoomInSession, arg.Now, arg.ID)
+	if err != nil {
+		return 0, err
+	}
+	return result.RowsAffected(), nil
 }

@@ -59,8 +59,9 @@ func (s *server) RequestManagedReschedule(ctx context.Context, req gen.RequestMa
 	return gen.RequestManagedReschedule202JSONResponse(managedView(m)), nil
 }
 
-// afterManagedChange hands the queue what the committed change asks of it
-// and reads the appointment again. The log names the event only: the token
+// afterManagedChange hands the queue what the committed change asks of it,
+// closes the sockets of a video room it ended, and reads the appointment
+// again. The log names the event only: the token
 // is as good as a password, and the request log has only the route pattern.
 func (s *server) afterManagedChange(ctx context.Context, msg, token string, changed booking.Changed,
 	now time.Time) (booking.Managed, error) {
@@ -68,6 +69,7 @@ func (s *server) afterManagedChange(ctx context.Context, msg, token string, chan
 		s.Queue.Remove(changed.Remove...)
 		s.Queue.Enqueue(ctx, changed.Tasks...)
 	}
+	s.Hub.EndRoom(changed.EndedRoom)
 	s.Log.InfoContext(ctx, msg, "request_id", RequestID(ctx))
 	return booking.GetManaged(ctx, db.New(s.Pool), token, now)
 }
