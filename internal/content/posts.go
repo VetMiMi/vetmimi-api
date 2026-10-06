@@ -8,6 +8,7 @@ import (
 	"context"
 	"database/sql"
 	"errors"
+	"slices"
 	"time"
 
 	"github.com/jackc/pgx/v5"
@@ -138,9 +139,14 @@ func CreatePost(ctx context.Context, pool *pgxpool.Pool, e Edit, author pgtype.U
 	return out, refusal(err)
 }
 
+var errLiveEdit = apperr.New(apperr.ActionNotAllowed,
+	"Once a post has gone out, only its title and website version can be edited.")
+
 // UpdatePost applies e to the post as of version. Saving an approved or
-// scheduled post sends it back to review, so nothing unreviewed goes out;
-// once publishing has started the post can no longer be edited.
+// scheduled post sends it back to review, so nothing unreviewed goes out.
+// Once publishing has started only the title and the website version can
+// change: that too goes back to review, and the article is off the site
+// until it is published again. What went out on social channels stays.
 func UpdatePost(ctx context.Context, pool *pgxpool.Pool, id pgtype.UUID, version int32, e Edit,
 	actor pgtype.UUID, now time.Time) (Post, error) {
 	return change(ctx, pool, id, version, now, func(q *db.Queries, p *db.Post) error {
@@ -153,6 +159,12 @@ func UpdatePost(ctx context.Context, pool *pgxpool.Pool, id pgtype.UUID, version
 		switch p.Status {
 		case "idea", "draft", "in_review":
 		case "approved", "scheduled":
+			backToReview(p)
+		case "publishing", "published":
+			if e.Kind != "" || e.Consent != nil ||
+				slices.ContainsFunc(e.Versions, func(v db.SavePostVersionParams) bool { return v.Channel != "website" }) {
+				return errLiveEdit
+			}
 			backToReview(p)
 		default:
 			return apperr.New(apperr.InvalidTransition, "A post that is "+p.Status+" cannot be edited.")

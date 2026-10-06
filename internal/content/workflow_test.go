@@ -5,6 +5,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/jackc/pgx/v5/pgtype"
 	"github.com/stretchr/testify/require"
 
 	"github.com/VetMiMi/vetmimi-api/internal/content"
@@ -75,7 +76,7 @@ func TestActionsRefuseOtherStatusesAndStaleVersions(t *testing.T) {
 
 	f.published()
 	require.Equal(t, "publishing", f.post.Status)
-	requireCode(t, apperr.InvalidTransition, f.edit(content.Edit{Title: "Too late"}))
+	requireCode(t, apperr.ActionNotAllowed, f.edit(content.Edit{Versions: []db.SavePostVersionParams{facebook("Too late")}}))
 	p, err = content.Archive(ctx, pool, f.post.ID, f.post.Version, f.now)
 	require.NoError(t, err)
 	require.Equal(t, "archived", p.Status)
@@ -112,13 +113,15 @@ func TestApproveChecksEveryEnabledChannel(t *testing.T) {
 	li := db.SavePostVersionParams{Channel: "linkedin", Enabled: true, Text: textOf(strings.Repeat("x", 3001))}
 	site := website("checked-site")
 	site.Excerpt = localized("", "မြန်မာ")
-	off := db.SavePostVersionParams{Channel: "facebook", Enabled: false}
+	site.CoverImageID = randomIDs(1)[0]
+	off := db.SavePostVersionParams{Channel: "facebook", Enabled: false, ImageIds: randomIDs(1)}
 	f := newPost(t, "insight", site, ig, li, off)
 	require.NoError(t, f.submit())
 
 	e := requireCode(t, apperr.PublishRequirementsUnmet, f.approve())
 	require.ElementsMatch(t, []apperr.FieldError{
 		{Field: "/versions/website/excerpt/en", Message: "is required"},
+		{Field: "/versions/website/coverImageId", Message: "is not in the media library"},
 		{Field: "/versions/instagram/imageIds", Message: "needs at least one image"},
 		{Field: "/versions/instagram/caption", Message: "must be at most 2,200 characters"},
 		{Field: "/versions/instagram/caption", Message: "must have at most 30 hashtags"},
@@ -126,9 +129,17 @@ func TestApproveChecksEveryEnabledChannel(t *testing.T) {
 	}, e.Fields)
 	require.Equal(t, "in_review", f.post.Status)
 
-	ig.Text, ig.ImageIds = textOf("Calm, in colour. #arttherapy"), randomIDs(2)
+	ig.Text, ig.ImageIds = textOf("Calm, in colour. #arttherapy"), []pgtype.UUID{newMedia(t), randomIDs(1)[0]}
 	li.Text = textOf("A new article on finding calm.")
-	require.NoError(t, f.edit(content.Edit{Versions: []db.SavePostVersionParams{website("checked-site"), ig, li}}))
+	site = website("checked-site")
+	site.CoverImageID = newMedia(t)
+	require.NoError(t, f.edit(content.Edit{Versions: []db.SavePostVersionParams{site, ig, li}}))
+	e = requireCode(t, apperr.PublishRequirementsUnmet, f.approve())
+	require.Equal(t, []apperr.FieldError{{Field: "/versions/instagram/imageIds/1", Message: "is not in the media library"}},
+		e.Fields)
+
+	ig.ImageIds[1] = newMedia(t)
+	require.NoError(t, f.edit(content.Edit{Versions: []db.SavePostVersionParams{ig}}))
 	require.NoError(t, f.approve())
 }
 
