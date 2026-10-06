@@ -15,6 +15,10 @@ type Querier interface {
 	// CancelAppointmentByClient is a visitor's cancellation through the
 	// management link; the caller has checked it with booking.CanTransition.
 	CancelAppointmentByClient(ctx context.Context, arg CancelAppointmentByClientParams) (Appointment, error)
+	// ClaimPostPublication takes a social channel for the publishing worker:
+	// one that is pending, or stuck publishing since before @stuck_before, of a
+	// post still publishing. No row back means there is nothing to do.
+	ClaimPostPublication(ctx context.Context, arg ClaimPostPublicationParams) (PostPublication, error)
 	// ClaimTOTPStep is the replay guard: a step is accepted once, and only if it
 	// is later than the last one accepted, so two concurrent sign-ins with one
 	// code cannot both succeed.
@@ -28,8 +32,8 @@ type Querier interface {
 	CreateAvailabilityBlock(ctx context.Context, arg CreateAvailabilityBlockParams) (AvailabilityBlock, error)
 	CreateAvailabilityOverride(ctx context.Context, arg CreateAvailabilityOverrideParams) (AvailabilityOverride, error)
 	CreateAvailabilityRule(ctx context.Context, arg CreateAvailabilityRuleParams) (AvailabilityRule, error)
+	CreateMedia(ctx context.Context, arg CreateMediaParams) (Media, error)
 	CreatePost(ctx context.Context, arg CreatePostParams) (Post, error)
-	CreatePostPublication(ctx context.Context, arg CreatePostPublicationParams) error
 	CreateService(ctx context.Context, arg CreateServiceParams) (Service, error)
 	CreateSession(ctx context.Context, arg CreateSessionParams) (pgtype.UUID, error)
 	// CreateUser and ReplaceUserCredentials store the step of the code typed at
@@ -53,11 +57,17 @@ type Querier interface {
 	DeleteRetainedContactEnquiries(ctx context.Context, arg DeleteRetainedContactEnquiriesParams) (int64, error)
 	DeleteService(ctx context.Context, id pgtype.UUID) (int64, error)
 	DeleteSession(ctx context.Context, id pgtype.UUID) error
+	// DeleteUnusedMedia deletes an item no post version shows, whatever the
+	// post's status; no row back means it is gone or in use.
+	DeleteUnusedMedia(ctx context.Context, id pgtype.UUID) (Media, error)
 	DeleteUserSessions(ctx context.Context, userID pgtype.UUID) error
 	// EndVideoRoom ends an appointment's room for a reason; a room already
 	// ended is left as it is, so of two racing ends exactly one writes.
 	EndVideoRoom(ctx context.Context, arg EndVideoRoomParams) (VideoRoom, error)
+	ExistingMedia(ctx context.Context, ids []pgtype.UUID) ([]pgtype.UUID, error)
 	FinishIdempotencyKey(ctx context.Context, arg FinishIdempotencyKeyParams) error
+	// FinishPostPublication records how the worker's attempt went.
+	FinishPostPublication(ctx context.Context, arg FinishPostPublicationParams) (PostPublication, error)
 	GetAppointmentDetail(ctx context.Context, id pgtype.UUID) (GetAppointmentDetailRow, error)
 	GetAppointmentForMessage(ctx context.Context, id pgtype.UUID) (GetAppointmentForMessageRow, error)
 	GetAppointmentStatus(ctx context.Context, id pgtype.UUID) (string, error)
@@ -67,6 +77,7 @@ type Querier interface {
 	// GetManagedAppointment looks a management link up by its token's hash,
 	// never by a seed or an id.
 	GetManagedAppointment(ctx context.Context, tokenHash []byte) (GetManagedAppointmentRow, error)
+	GetMedia(ctx context.Context, id pgtype.UUID) (Media, error)
 	GetPost(ctx context.Context, id pgtype.UUID) (Post, error)
 	GetPractitionerID(ctx context.Context) (pgtype.UUID, error)
 	GetPublicArticle(ctx context.Context, slug pgtype.Text) (GetPublicArticleRow, error)
@@ -121,6 +132,9 @@ type Querier interface {
 	// ListDueCommunications serves comms:sweep through the partial index on
 	// queued rows.
 	ListDueCommunications(ctx context.Context, arg ListDueCommunicationsParams) ([]ListDueCommunicationsRow, error)
+	ListDueScheduledPosts(ctx context.Context, arg ListDueScheduledPostsParams) ([]ListDueScheduledPostsRow, error)
+	// ListMedia is newest first; the page continues after (@after_at, @after_id).
+	ListMedia(ctx context.Context, arg ListMediaParams) ([]Media, error)
 	// ListOverdueHolds serves booking:sweep-holds through the partial index on
 	// pending holds.
 	ListOverdueHolds(ctx context.Context, arg ListOverdueHoldsParams) ([]pgtype.UUID, error)
@@ -129,14 +143,18 @@ type Querier interface {
 	ListPostVersions(ctx context.Context, postID pgtype.UUID) ([]PostVersion, error)
 	// ListPosts is newest first; the page continues after (@after_at, @after_id).
 	ListPosts(ctx context.Context, arg ListPostsParams) ([]ListPostsRow, error)
-	// ListPublicArticles selects the website versions that are live: published
-	// on the website, of a post not archived.
+	// ListPublicArticles selects the website versions that are live: enabled,
+	// published on the website, of a post that is publishing or published (not
+	// archived, nor back in review after an edit), with the cover image.
 	ListPublicArticles(ctx context.Context, arg ListPublicArticlesParams) ([]ListPublicArticlesRow, error)
 	// ListPublicBookableServices selects only what a visitor may see.
 	ListPublicBookableServices(ctx context.Context) ([]ListPublicBookableServicesRow, error)
 	ListQueuedReminderIDs(ctx context.Context, appointmentID pgtype.UUID) ([]pgtype.UUID, error)
 	ListServices(ctx context.Context) ([]Service, error)
 	ListSettings(ctx context.Context) ([]ListSettingsRow, error)
+	// ListStuckPostPublications finds social channels of publishing posts that
+	// have waited or run since before @before: their task was lost.
+	ListStuckPostPublications(ctx context.Context, arg ListStuckPostPublicationsParams) ([]PostPublication, error)
 	// ListVideoRooms reads the rooms the hub holds sockets for.
 	ListVideoRooms(ctx context.Context, ids []pgtype.UUID) ([]VideoRoom, error)
 	LockAppointment(ctx context.Context, id pgtype.UUID) (Appointment, error)
@@ -161,6 +179,10 @@ type Querier interface {
 	MoveAppointment(ctx context.Context, arg MoveAppointmentParams) (Appointment, error)
 	// MoveVideoRoom follows a reschedule; an ended room stays as it is.
 	MoveVideoRoom(ctx context.Context, arg MoveVideoRoomParams) ([]VideoRoom, error)
+	// OpenPostPublication opens a channel's publication. Publishing a post again
+	// (after its website version was edited) republishes the website, keeping
+	// its first publication time, and leaves every social channel as it is.
+	OpenPostPublication(ctx context.Context, arg OpenPostPublicationParams) error
 	Ping(ctx context.Context) (int32, error)
 	// PreviousRangeOf is where the latest reschedule moved the appointment from.
 	PreviousRangeOf(ctx context.Context, appointmentID pgtype.UUID) (pgtype.Range[pgtype.Timestamptz], error)
@@ -179,6 +201,8 @@ type Querier interface {
 	// RescheduleRequestOpen reports a reschedule request newer than the last
 	// reschedule or status change, which would have answered it.
 	RescheduleRequestOpen(ctx context.Context, appointmentID pgtype.UUID) (bool, error)
+	// RetryPostPublication gives a failed channel a fresh set of attempts.
+	RetryPostPublication(ctx context.Context, arg RetryPostPublicationParams) (PostPublication, error)
 	// SavePost writes every field a change may touch; the caller holds the lock.
 	SavePost(ctx context.Context, arg SavePostParams) (Post, error)
 	SavePostVersion(ctx context.Context, arg SavePostVersionParams) error
@@ -195,6 +219,9 @@ type Querier interface {
 	UpdateAvailabilityBlock(ctx context.Context, arg UpdateAvailabilityBlockParams) (AvailabilityBlock, error)
 	UpdateAvailabilityOverride(ctx context.Context, arg UpdateAvailabilityOverrideParams) (AvailabilityOverride, error)
 	UpdateAvailabilityRule(ctx context.Context, arg UpdateAvailabilityRuleParams) (AvailabilityRule, error)
+	// UpdateMedia changes the description as of @version; no row back means the
+	// item is gone or changed since it was read.
+	UpdateMedia(ctx context.Context, arg UpdateMediaParams) (Media, error)
 	// UpdateService writes the whole row only if nobody changed it since the
 	// caller read version; no row back means they did.
 	UpdateService(ctx context.Context, arg UpdateServiceParams) (Service, error)

@@ -139,6 +139,20 @@ type IdempotencyKey struct {
 	CreatedAt      time.Time
 }
 
+type Media struct {
+	ID         pgtype.UUID
+	Width      int32
+	Height     int32
+	Widths     []int32
+	ByteSize   int64
+	Alt        json.RawMessage
+	Credit     pgtype.Text
+	UploadedBy pgtype.UUID
+	Version    int32
+	CreatedAt  time.Time
+	UpdatedAt  time.Time
+}
+
 type Post struct {
 	ID                 pgtype.UUID
 	Title              string

@@ -21,6 +21,7 @@ import (
 
 	"github.com/VetMiMi/vetmimi-api/internal/auth"
 	"github.com/VetMiMi/vetmimi-api/internal/httpapi"
+	"github.com/VetMiMi/vetmimi-api/internal/media"
 	"github.com/VetMiMi/vetmimi-api/internal/platform"
 	"github.com/VetMiMi/vetmimi-api/internal/video"
 )
@@ -90,21 +91,23 @@ func runAPI(ctx context.Context, log *slog.Logger, cfg platform.Config, pool *pg
 	}
 	hub := video.NewHub(pool, log, time.Now)
 	srv := newServer(cfg.Port, httpapi.NewRouter(httpapi.Deps{
-		PingPostgres:  pool.Ping,
-		PingRedis:     func(ctx context.Context) error { return rdb.Ping(ctx).Err() },
-		Log:           log,
-		ServiceKey:    cfg.ServiceKey,
-		RateLimits:    httpapi.NewRateLimits(platform.NewLimiter(rdb, "", time.Now), log, time.Now),
-		Sessions:      sessions,
-		Pool:          pool,
-		Queue:         platform.NewQueue(rdb, log),
-		SigningSecret: cfg.SigningSecret,
-		PublicAPIURL:  cfg.PublicAPIURL,
-		TURNHost:      cfg.TURNHost,
-		TURNSecret:    cfg.TURNSecret,
-		SiteURL:       cfg.SiteURL,
-		Hub:           hub,
-		Now:           time.Now,
+		PingPostgres:   pool.Ping,
+		PingRedis:      func(ctx context.Context) error { return rdb.Ping(ctx).Err() },
+		Log:            log,
+		ServiceKey:     cfg.ServiceKey,
+		RateLimits:     httpapi.NewRateLimits(platform.NewLimiter(rdb, "", time.Now), log, time.Now),
+		Sessions:       sessions,
+		Pool:           pool,
+		Queue:          platform.NewQueue(rdb, log),
+		SigningSecret:  cfg.SigningSecret,
+		PublicAPIURL:   cfg.PublicAPIURL,
+		TURNHost:       cfg.TURNHost,
+		TURNSecret:     cfg.TURNSecret,
+		SiteURL:        cfg.SiteURL,
+		Hub:            hub,
+		Media:          media.NewStore(cfg),
+		MediaPublicURL: cfg.MediaPublicURL,
+		Now:            time.Now,
 	}))
 	if cfg.TURNHost == "" {
 		// Development only: production refuses to start without TURN.
