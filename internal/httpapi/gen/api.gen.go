@@ -115,22 +115,22 @@ func (e AvailabilityOverrideInputKind) Valid() bool {
 
 // Defines values for BookingAction.
 const (
-	Book        BookingAction = "book"
-	EnquiryOnly BookingAction = "enquiry_only"
-	NotBookable BookingAction = "not_bookable"
-	Request     BookingAction = "request"
+	BookingActionBook        BookingAction = "book"
+	BookingActionEnquiryOnly BookingAction = "enquiry_only"
+	BookingActionNotBookable BookingAction = "not_bookable"
+	BookingActionRequest     BookingAction = "request"
 )
 
 // Valid indicates whether the value is a known member of the BookingAction enum.
 func (e BookingAction) Valid() bool {
 	switch e {
-	case Book:
+	case BookingActionBook:
 		return true
-	case EnquiryOnly:
+	case BookingActionEnquiryOnly:
 		return true
-	case NotBookable:
+	case BookingActionNotBookable:
 		return true
-	case Request:
+	case BookingActionRequest:
 		return true
 	default:
 		return false
@@ -164,6 +164,60 @@ const (
 func (e HealthStatus) Valid() bool {
 	switch e {
 	case HealthStatusOk:
+		return true
+	default:
+		return false
+	}
+}
+
+// Defines values for Locale.
+const (
+	En Locale = "en"
+	My Locale = "my"
+)
+
+// Valid indicates whether the value is a known member of the Locale enum.
+func (e Locale) Valid() bool {
+	switch e {
+	case En:
+		return true
+	case My:
+		return true
+	default:
+		return false
+	}
+}
+
+// Defines values for PublicBookableServiceBookingAction.
+const (
+	PublicBookableServiceBookingActionBook    PublicBookableServiceBookingAction = "book"
+	PublicBookableServiceBookingActionRequest PublicBookableServiceBookingAction = "request"
+)
+
+// Valid indicates whether the value is a known member of the PublicBookableServiceBookingAction enum.
+func (e PublicBookableServiceBookingAction) Valid() bool {
+	switch e {
+	case PublicBookableServiceBookingActionBook:
+		return true
+	case PublicBookableServiceBookingActionRequest:
+		return true
+	default:
+		return false
+	}
+}
+
+// Defines values for PublicBookableServiceListBookingMode.
+const (
+	PublicBookableServiceListBookingModeInstant         PublicBookableServiceListBookingMode = "instant"
+	PublicBookableServiceListBookingModeRequestApproval PublicBookableServiceListBookingMode = "request_approval"
+)
+
+// Valid indicates whether the value is a known member of the PublicBookableServiceListBookingMode enum.
+func (e PublicBookableServiceListBookingMode) Valid() bool {
+	switch e {
+	case PublicBookableServiceListBookingModeInstant:
+		return true
+	case PublicBookableServiceListBookingModeRequestApproval:
 		return true
 	default:
 		return false
@@ -551,6 +605,23 @@ type AvailabilityOverrideList struct {
 	Timezone Timezone `json:"timezone"`
 }
 
+// AvailabilityPreview Exactly what the public sees for this service.
+type AvailabilityPreview struct {
+	Days []SlotDay `json:"days"`
+
+	// From Calendar date in the practice timezone.
+	From      openapi_types.Date `json:"from"`
+	ServiceId openapi_types.UUID `json:"serviceId"`
+
+	// Timezone IANA timezone name of the practice.
+	//
+	// Examples: Australia/Sydney
+	Timezone Timezone `json:"timezone"`
+
+	// To Calendar date in the practice timezone.
+	To openapi_types.Date `json:"to"`
+}
+
 // AvailabilityRule defines model for AvailabilityRule.
 type AvailabilityRule struct {
 	// EndTime Local time `HH:MM` in the practice timezone.
@@ -609,6 +680,9 @@ type Health struct {
 // HealthStatus defines model for Health.Status.
 type HealthStatus string
 
+// Locale Site language: English or Burmese.
+type Locale string
+
 // LocalizedText Text per locale. Required fields need `en`.
 type LocalizedText struct {
 	En *string `json:"en,omitempty"`
@@ -639,6 +713,56 @@ type Problem struct {
 	// Type URI identifying the problem type: `urn:vetmimi:problem:<code>`.
 	Type string `json:"type"`
 }
+
+// PublicAvailability defines model for PublicAvailability.
+type PublicAvailability struct {
+	// Days Only days with at least one slot.
+	Days []SlotDay `json:"days"`
+
+	// From Calendar date in the practice timezone.
+	From openapi_types.Date `json:"from"`
+
+	// Service Service slug.
+	Service string `json:"service"`
+
+	// Timezone IANA timezone name of the practice.
+	//
+	// Examples: Australia/Sydney
+	Timezone Timezone `json:"timezone"`
+
+	// To Calendar date in the practice timezone.
+	To openapi_types.Date `json:"to"`
+}
+
+// PublicBookableService defines model for PublicBookableService.
+type PublicBookableService struct {
+	BookingAction   PublicBookableServiceBookingAction `json:"bookingAction"`
+	Description     *string                            `json:"description,omitempty"`
+	DurationMinutes int                                `json:"durationMinutes"`
+	FeeText         *string                            `json:"feeText,omitempty"`
+	Formats         []Format                           `json:"formats"`
+	Name            string                             `json:"name"`
+	Slug            string                             `json:"slug"`
+}
+
+// PublicBookableServiceBookingAction defines model for PublicBookableService.BookingAction.
+type PublicBookableServiceBookingAction string
+
+// PublicBookableServiceList defines model for PublicBookableServiceList.
+type PublicBookableServiceList struct {
+	// BookingEnabled False while public booking is paused; `items` is then empty.
+	BookingEnabled bool                                 `json:"bookingEnabled"`
+	BookingMode    PublicBookableServiceListBookingMode `json:"bookingMode"`
+	Items          []PublicBookableService              `json:"items"`
+
+	// Timezone IANA timezone name of the practice.
+	//
+	// Examples: Australia/Sydney
+	Timezone Timezone `json:"timezone"`
+}
+
+// PublicBookableServiceListBookingMode defines model for PublicBookableServiceList.BookingMode.
+type PublicBookableServiceListBookingMode string
 
 // Readiness defines model for Readiness.
 type Readiness struct {
@@ -866,6 +990,22 @@ type SettingsPatchMeetingLinkMode string
 // SettingsPatchPaymentMethods defines model for SettingsPatch.PaymentMethods.
 type SettingsPatchPaymentMethods string
 
+// Slot A bookable time; `endsAt` is the session end, buffers excluded.
+type Slot struct {
+	// EndsAt UTC timestamp (RFC 3339).
+	EndsAt time.Time `json:"endsAt"`
+
+	// StartsAt UTC timestamp (RFC 3339).
+	StartsAt time.Time `json:"startsAt"`
+}
+
+// SlotDay defines model for SlotDay.
+type SlotDay struct {
+	// Date Calendar date in the practice timezone.
+	Date  openapi_types.Date `json:"date"`
+	Slots []Slot             `json:"slots"`
+}
+
 // Timezone IANA timezone name of the practice.
 //
 // Examples: Australia/Sydney
@@ -934,6 +1074,36 @@ type ListAvailabilityOverridesParams struct {
 	To *openapi_types.Date `form:"to,omitempty" json:"to,omitempty"`
 }
 
+// PreviewAvailabilityParams defines parameters for PreviewAvailability.
+type PreviewAvailabilityParams struct {
+	// ServiceId Service to preview.
+	ServiceId openapi_types.UUID `form:"serviceId" json:"serviceId"`
+
+	// From First local date.
+	From openapi_types.Date `form:"from" json:"from"`
+
+	// To Last local date; at most 62 days after `from`.
+	To openapi_types.Date `form:"to" json:"to"`
+}
+
+// GetPublicAvailabilityParams defines parameters for GetPublicAvailability.
+type GetPublicAvailabilityParams struct {
+	// Service Service slug.
+	Service string `form:"service" json:"service"`
+
+	// From First local date.
+	From openapi_types.Date `form:"from" json:"from"`
+
+	// To Last local date; at most 62 days after `from`.
+	To openapi_types.Date `form:"to" json:"to"`
+}
+
+// ListPublicBookableServicesParams defines parameters for ListPublicBookableServices.
+type ListPublicBookableServicesParams struct {
+	// Locale Language of the localised fields; English is the fallback.
+	Locale *Locale `form:"locale,omitempty" json:"locale,omitempty"`
+}
+
 // CreateAvailabilityBlockJSONRequestBody defines body for CreateAvailabilityBlock for application/json ContentType.
 type CreateAvailabilityBlockJSONRequestBody = AvailabilityBlockInput
 
@@ -996,6 +1166,9 @@ type ServerInterface interface {
 	// UpdateAvailabilityOverride Replace a one-off opening or date change
 	// (PUT /admin/availability/overrides/{overrideId})
 	UpdateAvailabilityOverride(w http.ResponseWriter, r *http.Request, overrideId OverrideId)
+	// PreviewAvailability Preview public availability
+	// (GET /admin/availability/preview)
+	PreviewAvailability(w http.ResponseWriter, r *http.Request, params PreviewAvailabilityParams)
 	// ListAvailabilityRules List weekly availability periods
 	// (GET /admin/availability/rules)
 	ListAvailabilityRules(w http.ResponseWriter, r *http.Request)
@@ -1047,6 +1220,12 @@ type ServerInterface interface {
 	// GetHealthz Liveness check
 	// (GET /healthz)
 	GetHealthz(w http.ResponseWriter, r *http.Request)
+	// GetPublicAvailability Get free slots for a service
+	// (GET /public/availability)
+	GetPublicAvailability(w http.ResponseWriter, r *http.Request, params GetPublicAvailabilityParams)
+	// ListPublicBookableServices List services that can be booked or requested
+	// (GET /public/booking/services)
+	ListPublicBookableServices(w http.ResponseWriter, r *http.Request, params ListPublicBookableServicesParams)
 	// GetReadyz Readiness check
 	// (GET /readyz)
 	GetReadyz(w http.ResponseWriter, r *http.Request)
@@ -1101,6 +1280,12 @@ func (_ Unimplemented) DeleteAvailabilityOverride(w http.ResponseWriter, r *http
 // UpdateAvailabilityOverride Replace a one-off opening or date change
 // (PUT /admin/availability/overrides/{overrideId})
 func (_ Unimplemented) UpdateAvailabilityOverride(w http.ResponseWriter, r *http.Request, overrideId OverrideId) {
+	w.WriteHeader(http.StatusNotImplemented)
+}
+
+// PreviewAvailability Preview public availability
+// (GET /admin/availability/preview)
+func (_ Unimplemented) PreviewAvailability(w http.ResponseWriter, r *http.Request, params PreviewAvailabilityParams) {
 	w.WriteHeader(http.StatusNotImplemented)
 }
 
@@ -1203,6 +1388,18 @@ func (_ Unimplemented) DeleteCurrentSession(w http.ResponseWriter, r *http.Reque
 // GetHealthz Liveness check
 // (GET /healthz)
 func (_ Unimplemented) GetHealthz(w http.ResponseWriter, r *http.Request) {
+	w.WriteHeader(http.StatusNotImplemented)
+}
+
+// GetPublicAvailability Get free slots for a service
+// (GET /public/availability)
+func (_ Unimplemented) GetPublicAvailability(w http.ResponseWriter, r *http.Request, params GetPublicAvailabilityParams) {
+	w.WriteHeader(http.StatusNotImplemented)
+}
+
+// ListPublicBookableServices List services that can be booked or requested
+// (GET /public/booking/services)
+func (_ Unimplemented) ListPublicBookableServices(w http.ResponseWriter, r *http.Request, params ListPublicBookableServicesParams) {
 	w.WriteHeader(http.StatusNotImplemented)
 }
 
@@ -1436,6 +1633,65 @@ func (siw *ServerInterfaceWrapper) UpdateAvailabilityOverride(w http.ResponseWri
 
 	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		siw.Handler.UpdateAvailabilityOverride(w, r, overrideId)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
+// PreviewAvailability operation middleware
+func (siw *ServerInterfaceWrapper) PreviewAvailability(w http.ResponseWriter, r *http.Request) {
+
+	var err error
+	_ = err
+
+	// Parameter object where we will unmarshal all parameters from the context
+	var params PreviewAvailabilityParams
+
+	// ------------- Required query parameter "serviceId" -------------
+
+	err = runtime.BindQueryParameterWithOptions("form", true, true, "serviceId", r.URL.Query(), &params.ServiceId, runtime.BindQueryParameterOptions{Type: "string", Format: "uuid"})
+	if err != nil {
+		var requiredError *runtime.RequiredParameterError
+		if errors.As(err, &requiredError) {
+			siw.ErrorHandlerFunc(w, r, &RequiredParamError{ParamName: "serviceId"})
+		} else {
+			siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "serviceId", Err: err})
+		}
+		return
+	}
+
+	// ------------- Required query parameter "from" -------------
+
+	err = runtime.BindQueryParameterWithOptions("form", true, true, "from", r.URL.Query(), &params.From, runtime.BindQueryParameterOptions{Type: "string", Format: "date"})
+	if err != nil {
+		var requiredError *runtime.RequiredParameterError
+		if errors.As(err, &requiredError) {
+			siw.ErrorHandlerFunc(w, r, &RequiredParamError{ParamName: "from"})
+		} else {
+			siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "from", Err: err})
+		}
+		return
+	}
+
+	// ------------- Required query parameter "to" -------------
+
+	err = runtime.BindQueryParameterWithOptions("form", true, true, "to", r.URL.Query(), &params.To, runtime.BindQueryParameterOptions{Type: "string", Format: "date"})
+	if err != nil {
+		var requiredError *runtime.RequiredParameterError
+		if errors.As(err, &requiredError) {
+			siw.ErrorHandlerFunc(w, r, &RequiredParamError{ParamName: "to"})
+		} else {
+			siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "to", Err: err})
+		}
+		return
+	}
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.PreviewAvailability(w, r, params)
 	}))
 
 	for _, middleware := range siw.HandlerMiddlewares {
@@ -1767,6 +2023,98 @@ func (siw *ServerInterfaceWrapper) GetHealthz(w http.ResponseWriter, r *http.Req
 	handler.ServeHTTP(w, r)
 }
 
+// GetPublicAvailability operation middleware
+func (siw *ServerInterfaceWrapper) GetPublicAvailability(w http.ResponseWriter, r *http.Request) {
+
+	var err error
+	_ = err
+
+	// Parameter object where we will unmarshal all parameters from the context
+	var params GetPublicAvailabilityParams
+
+	// ------------- Required query parameter "service" -------------
+
+	err = runtime.BindQueryParameterWithOptions("form", true, true, "service", r.URL.Query(), &params.Service, runtime.BindQueryParameterOptions{Type: "string", Format: ""})
+	if err != nil {
+		var requiredError *runtime.RequiredParameterError
+		if errors.As(err, &requiredError) {
+			siw.ErrorHandlerFunc(w, r, &RequiredParamError{ParamName: "service"})
+		} else {
+			siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "service", Err: err})
+		}
+		return
+	}
+
+	// ------------- Required query parameter "from" -------------
+
+	err = runtime.BindQueryParameterWithOptions("form", true, true, "from", r.URL.Query(), &params.From, runtime.BindQueryParameterOptions{Type: "string", Format: "date"})
+	if err != nil {
+		var requiredError *runtime.RequiredParameterError
+		if errors.As(err, &requiredError) {
+			siw.ErrorHandlerFunc(w, r, &RequiredParamError{ParamName: "from"})
+		} else {
+			siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "from", Err: err})
+		}
+		return
+	}
+
+	// ------------- Required query parameter "to" -------------
+
+	err = runtime.BindQueryParameterWithOptions("form", true, true, "to", r.URL.Query(), &params.To, runtime.BindQueryParameterOptions{Type: "string", Format: "date"})
+	if err != nil {
+		var requiredError *runtime.RequiredParameterError
+		if errors.As(err, &requiredError) {
+			siw.ErrorHandlerFunc(w, r, &RequiredParamError{ParamName: "to"})
+		} else {
+			siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "to", Err: err})
+		}
+		return
+	}
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.GetPublicAvailability(w, r, params)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
+// ListPublicBookableServices operation middleware
+func (siw *ServerInterfaceWrapper) ListPublicBookableServices(w http.ResponseWriter, r *http.Request) {
+
+	var err error
+	_ = err
+
+	// Parameter object where we will unmarshal all parameters from the context
+	var params ListPublicBookableServicesParams
+
+	// ------------- Optional query parameter "locale" -------------
+
+	err = runtime.BindQueryParameterWithOptions("form", true, false, "locale", r.URL.Query(), &params.Locale, runtime.BindQueryParameterOptions{Type: "string", Format: ""})
+	if err != nil {
+		var requiredError *runtime.RequiredParameterError
+		if errors.As(err, &requiredError) {
+			siw.ErrorHandlerFunc(w, r, &RequiredParamError{ParamName: "locale"})
+		} else {
+			siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "locale", Err: err})
+		}
+		return
+	}
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.ListPublicBookableServices(w, r, params)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
 // GetReadyz operation middleware
 func (siw *ServerInterfaceWrapper) GetReadyz(w http.ResponseWriter, r *http.Request) {
 
@@ -1971,6 +2319,15 @@ func HandlerWithOptions(si ServerInterface, options ChiServerOptions) http.Handl
 	})
 	r.Group(func(r chi.Router) {
 		r.Put(options.BaseURL+"/admin/availability/blocks/{blockId}", wrapper.UpdateAvailabilityBlock)
+	})
+	r.Group(func(r chi.Router) {
+		r.Get(options.BaseURL+"/admin/availability/preview", wrapper.PreviewAvailability)
+	})
+	r.Group(func(r chi.Router) {
+		r.Get(options.BaseURL+"/public/booking/services", wrapper.ListPublicBookableServices)
+	})
+	r.Group(func(r chi.Router) {
+		r.Get(options.BaseURL+"/public/availability", wrapper.GetPublicAvailability)
 	})
 
 	return r
@@ -2946,6 +3303,143 @@ type UpdateAvailabilityOverride500ApplicationProblemPlusJSONResponse struct {
 }
 
 func (response UpdateAvailabilityOverride500ApplicationProblemPlusJSONResponse) VisitUpdateAvailabilityOverrideResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/problem+json")
+	w.WriteHeader(500)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type PreviewAvailabilityRequestObject struct {
+	Params PreviewAvailabilityParams
+}
+
+type PreviewAvailabilityResponseObject interface {
+	VisitPreviewAvailabilityResponse(w http.ResponseWriter) error
+}
+
+type PreviewAvailability200JSONResponse AvailabilityPreview
+
+func (response PreviewAvailability200JSONResponse) VisitPreviewAvailabilityResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(200)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type PreviewAvailability400ApplicationProblemPlusJSONResponse struct {
+	BadRequestApplicationProblemPlusJSONResponse
+}
+
+func (response PreviewAvailability400ApplicationProblemPlusJSONResponse) VisitPreviewAvailabilityResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/problem+json")
+	w.WriteHeader(400)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type PreviewAvailability401ApplicationProblemPlusJSONResponse struct {
+	UnauthorizedApplicationProblemPlusJSONResponse
+}
+
+func (response PreviewAvailability401ApplicationProblemPlusJSONResponse) VisitPreviewAvailabilityResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/problem+json")
+	w.WriteHeader(401)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type PreviewAvailability403ApplicationProblemPlusJSONResponse struct {
+	ForbiddenApplicationProblemPlusJSONResponse
+}
+
+func (response PreviewAvailability403ApplicationProblemPlusJSONResponse) VisitPreviewAvailabilityResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/problem+json")
+	w.WriteHeader(403)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type PreviewAvailability404ApplicationProblemPlusJSONResponse struct {
+	NotFoundApplicationProblemPlusJSONResponse
+}
+
+func (response PreviewAvailability404ApplicationProblemPlusJSONResponse) VisitPreviewAvailabilityResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/problem+json")
+	w.WriteHeader(404)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type PreviewAvailability422ApplicationProblemPlusJSONResponse struct {
+	UnprocessableEntityApplicationProblemPlusJSONResponse
+}
+
+func (response PreviewAvailability422ApplicationProblemPlusJSONResponse) VisitPreviewAvailabilityResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/problem+json")
+	w.WriteHeader(422)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type PreviewAvailability429ApplicationProblemPlusJSONResponse struct {
+	TooManyRequestsApplicationProblemPlusJSONResponse
+}
+
+func (response PreviewAvailability429ApplicationProblemPlusJSONResponse) VisitPreviewAvailabilityResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response.Body); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/problem+json")
+	if response.Headers.RetryAfter != nil {
+		w.Header().Set("Retry-After", fmt.Sprint(*response.Headers.RetryAfter))
+	}
+	w.WriteHeader(429)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type PreviewAvailability500ApplicationProblemPlusJSONResponse struct {
+	InternalErrorApplicationProblemPlusJSONResponse
+}
+
+func (response PreviewAvailability500ApplicationProblemPlusJSONResponse) VisitPreviewAvailabilityResponse(w http.ResponseWriter) error {
 
 	var buf bytes.Buffer
 	if err := json.NewEncoder(&buf).Encode(response); err != nil {
@@ -4863,6 +5357,216 @@ func (response GetHealthz500ApplicationProblemPlusJSONResponse) VisitGetHealthzR
 	return err
 }
 
+type GetPublicAvailabilityRequestObject struct {
+	Params GetPublicAvailabilityParams
+}
+
+type GetPublicAvailabilityResponseObject interface {
+	VisitGetPublicAvailabilityResponse(w http.ResponseWriter) error
+}
+
+type GetPublicAvailability200JSONResponse PublicAvailability
+
+func (response GetPublicAvailability200JSONResponse) VisitGetPublicAvailabilityResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(200)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type GetPublicAvailability400ApplicationProblemPlusJSONResponse struct {
+	BadRequestApplicationProblemPlusJSONResponse
+}
+
+func (response GetPublicAvailability400ApplicationProblemPlusJSONResponse) VisitGetPublicAvailabilityResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/problem+json")
+	w.WriteHeader(400)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type GetPublicAvailability401ApplicationProblemPlusJSONResponse struct {
+	UnauthorizedApplicationProblemPlusJSONResponse
+}
+
+func (response GetPublicAvailability401ApplicationProblemPlusJSONResponse) VisitGetPublicAvailabilityResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/problem+json")
+	w.WriteHeader(401)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type GetPublicAvailability404ApplicationProblemPlusJSONResponse struct {
+	NotFoundApplicationProblemPlusJSONResponse
+}
+
+func (response GetPublicAvailability404ApplicationProblemPlusJSONResponse) VisitGetPublicAvailabilityResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/problem+json")
+	w.WriteHeader(404)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type GetPublicAvailability422ApplicationProblemPlusJSONResponse struct {
+	UnprocessableEntityApplicationProblemPlusJSONResponse
+}
+
+func (response GetPublicAvailability422ApplicationProblemPlusJSONResponse) VisitGetPublicAvailabilityResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/problem+json")
+	w.WriteHeader(422)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type GetPublicAvailability429ApplicationProblemPlusJSONResponse struct {
+	TooManyRequestsApplicationProblemPlusJSONResponse
+}
+
+func (response GetPublicAvailability429ApplicationProblemPlusJSONResponse) VisitGetPublicAvailabilityResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response.Body); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/problem+json")
+	if response.Headers.RetryAfter != nil {
+		w.Header().Set("Retry-After", fmt.Sprint(*response.Headers.RetryAfter))
+	}
+	w.WriteHeader(429)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type GetPublicAvailability500ApplicationProblemPlusJSONResponse struct {
+	InternalErrorApplicationProblemPlusJSONResponse
+}
+
+func (response GetPublicAvailability500ApplicationProblemPlusJSONResponse) VisitGetPublicAvailabilityResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/problem+json")
+	w.WriteHeader(500)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type ListPublicBookableServicesRequestObject struct {
+	Params ListPublicBookableServicesParams
+}
+
+type ListPublicBookableServicesResponseObject interface {
+	VisitListPublicBookableServicesResponse(w http.ResponseWriter) error
+}
+
+type ListPublicBookableServices200JSONResponse PublicBookableServiceList
+
+func (response ListPublicBookableServices200JSONResponse) VisitListPublicBookableServicesResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(200)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type ListPublicBookableServices400ApplicationProblemPlusJSONResponse struct {
+	BadRequestApplicationProblemPlusJSONResponse
+}
+
+func (response ListPublicBookableServices400ApplicationProblemPlusJSONResponse) VisitListPublicBookableServicesResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/problem+json")
+	w.WriteHeader(400)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type ListPublicBookableServices401ApplicationProblemPlusJSONResponse struct {
+	UnauthorizedApplicationProblemPlusJSONResponse
+}
+
+func (response ListPublicBookableServices401ApplicationProblemPlusJSONResponse) VisitListPublicBookableServicesResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/problem+json")
+	w.WriteHeader(401)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type ListPublicBookableServices429ApplicationProblemPlusJSONResponse struct {
+	TooManyRequestsApplicationProblemPlusJSONResponse
+}
+
+func (response ListPublicBookableServices429ApplicationProblemPlusJSONResponse) VisitListPublicBookableServicesResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response.Body); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/problem+json")
+	if response.Headers.RetryAfter != nil {
+		w.Header().Set("Retry-After", fmt.Sprint(*response.Headers.RetryAfter))
+	}
+	w.WriteHeader(429)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type ListPublicBookableServices500ApplicationProblemPlusJSONResponse struct {
+	InternalErrorApplicationProblemPlusJSONResponse
+}
+
+func (response ListPublicBookableServices500ApplicationProblemPlusJSONResponse) VisitListPublicBookableServicesResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/problem+json")
+	w.WriteHeader(500)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
 type GetReadyzRequestObject struct {
 }
 
@@ -4940,6 +5644,9 @@ type StrictServerInterface interface {
 	// UpdateAvailabilityOverride Replace a one-off opening or date change
 	// (PUT /admin/availability/overrides/{overrideId})
 	UpdateAvailabilityOverride(ctx context.Context, request UpdateAvailabilityOverrideRequestObject) (UpdateAvailabilityOverrideResponseObject, error)
+	// PreviewAvailability Preview public availability
+	// (GET /admin/availability/preview)
+	PreviewAvailability(ctx context.Context, request PreviewAvailabilityRequestObject) (PreviewAvailabilityResponseObject, error)
 	// ListAvailabilityRules List weekly availability periods
 	// (GET /admin/availability/rules)
 	ListAvailabilityRules(ctx context.Context, request ListAvailabilityRulesRequestObject) (ListAvailabilityRulesResponseObject, error)
@@ -4991,6 +5698,12 @@ type StrictServerInterface interface {
 	// GetHealthz Liveness check
 	// (GET /healthz)
 	GetHealthz(ctx context.Context, request GetHealthzRequestObject) (GetHealthzResponseObject, error)
+	// GetPublicAvailability Get free slots for a service
+	// (GET /public/availability)
+	GetPublicAvailability(ctx context.Context, request GetPublicAvailabilityRequestObject) (GetPublicAvailabilityResponseObject, error)
+	// ListPublicBookableServices List services that can be booked or requested
+	// (GET /public/booking/services)
+	ListPublicBookableServices(ctx context.Context, request ListPublicBookableServicesRequestObject) (ListPublicBookableServicesResponseObject, error)
 	// GetReadyz Readiness check
 	// (GET /readyz)
 	GetReadyz(ctx context.Context, request GetReadyzRequestObject) (GetReadyzResponseObject, error)
@@ -5260,6 +5973,32 @@ func (sh *strictHandler) UpdateAvailabilityOverride(w http.ResponseWriter, r *ht
 		sh.options.ResponseErrorHandlerFunc(w, r, err)
 	} else if validResponse, ok := response.(UpdateAvailabilityOverrideResponseObject); ok {
 		if err := validResponse.VisitUpdateAvailabilityOverrideResponse(w); err != nil {
+			sh.options.ResponseErrorHandlerFunc(w, r, err)
+		}
+	} else if response != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, fmt.Errorf("unexpected response type: %T", response))
+	}
+}
+
+// PreviewAvailability operation middleware
+func (sh *strictHandler) PreviewAvailability(w http.ResponseWriter, r *http.Request, params PreviewAvailabilityParams) {
+	var request PreviewAvailabilityRequestObject
+
+	request.Params = params
+
+	handler := func(ctx context.Context, w http.ResponseWriter, r *http.Request, request interface{}) (interface{}, error) {
+		return sh.ssi.PreviewAvailability(ctx, request.(PreviewAvailabilityRequestObject))
+	}
+	for _, middleware := range sh.middlewares {
+		handler = middleware(handler, "PreviewAvailability")
+	}
+
+	response, err := handler(r.Context(), w, r, request)
+
+	if err != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, err)
+	} else if validResponse, ok := response.(PreviewAvailabilityResponseObject); ok {
+		if err := validResponse.VisitPreviewAvailabilityResponse(w); err != nil {
 			sh.options.ResponseErrorHandlerFunc(w, r, err)
 		}
 	} else if response != nil {
@@ -5745,6 +6484,58 @@ func (sh *strictHandler) GetHealthz(w http.ResponseWriter, r *http.Request) {
 	}
 }
 
+// GetPublicAvailability operation middleware
+func (sh *strictHandler) GetPublicAvailability(w http.ResponseWriter, r *http.Request, params GetPublicAvailabilityParams) {
+	var request GetPublicAvailabilityRequestObject
+
+	request.Params = params
+
+	handler := func(ctx context.Context, w http.ResponseWriter, r *http.Request, request interface{}) (interface{}, error) {
+		return sh.ssi.GetPublicAvailability(ctx, request.(GetPublicAvailabilityRequestObject))
+	}
+	for _, middleware := range sh.middlewares {
+		handler = middleware(handler, "GetPublicAvailability")
+	}
+
+	response, err := handler(r.Context(), w, r, request)
+
+	if err != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, err)
+	} else if validResponse, ok := response.(GetPublicAvailabilityResponseObject); ok {
+		if err := validResponse.VisitGetPublicAvailabilityResponse(w); err != nil {
+			sh.options.ResponseErrorHandlerFunc(w, r, err)
+		}
+	} else if response != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, fmt.Errorf("unexpected response type: %T", response))
+	}
+}
+
+// ListPublicBookableServices operation middleware
+func (sh *strictHandler) ListPublicBookableServices(w http.ResponseWriter, r *http.Request, params ListPublicBookableServicesParams) {
+	var request ListPublicBookableServicesRequestObject
+
+	request.Params = params
+
+	handler := func(ctx context.Context, w http.ResponseWriter, r *http.Request, request interface{}) (interface{}, error) {
+		return sh.ssi.ListPublicBookableServices(ctx, request.(ListPublicBookableServicesRequestObject))
+	}
+	for _, middleware := range sh.middlewares {
+		handler = middleware(handler, "ListPublicBookableServices")
+	}
+
+	response, err := handler(r.Context(), w, r, request)
+
+	if err != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, err)
+	} else if validResponse, ok := response.(ListPublicBookableServicesResponseObject); ok {
+		if err := validResponse.VisitListPublicBookableServicesResponse(w); err != nil {
+			sh.options.ResponseErrorHandlerFunc(w, r, err)
+		}
+	} else if response != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, fmt.Errorf("unexpected response type: %T", response))
+	}
+}
+
 // GetReadyz operation middleware
 func (sh *strictHandler) GetReadyz(w http.ResponseWriter, r *http.Request) {
 	var request GetReadyzRequestObject
@@ -5774,113 +6565,124 @@ func (sh *strictHandler) GetReadyz(w http.ResponseWriter, r *http.Request) {
 // const string: with thousands of chunks the chained `+` fold is several
 // times slower for the Go compiler than parsing a slice literal.
 var swaggerSpec = []string{
-	"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",
-	"uPm/AQA=",
+	"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",
+	"3wEA",
 }
 
 // decodeSpec returns the embedded OpenAPI spec as raw JSON bytes,

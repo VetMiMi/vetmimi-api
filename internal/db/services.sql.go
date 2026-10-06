@@ -142,6 +142,52 @@ func (q *Queries) GetServiceBySlug(ctx context.Context, slug string) (Service, e
 	return i, err
 }
 
+const listPublicBookableServices = `-- name: ListPublicBookableServices :many
+SELECT slug, name, description, booking_action, duration_minutes, formats, fee_text
+FROM services
+WHERE state = 'active' AND booking_action IN ('book', 'request')
+ORDER BY sort_order, name->>'en'
+`
+
+type ListPublicBookableServicesRow struct {
+	Slug            string
+	Name            json.RawMessage
+	Description     json.RawMessage
+	BookingAction   string
+	DurationMinutes pgtype.Int4
+	Formats         []string
+	FeeText         json.RawMessage
+}
+
+// ListPublicBookableServices selects only what a visitor may see.
+func (q *Queries) ListPublicBookableServices(ctx context.Context) ([]ListPublicBookableServicesRow, error) {
+	rows, err := q.db.Query(ctx, listPublicBookableServices)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	items := []ListPublicBookableServicesRow{}
+	for rows.Next() {
+		var i ListPublicBookableServicesRow
+		if err := rows.Scan(
+			&i.Slug,
+			&i.Name,
+			&i.Description,
+			&i.BookingAction,
+			&i.DurationMinutes,
+			&i.Formats,
+			&i.FeeText,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
 const listServices = `-- name: ListServices :many
 SELECT id, slug, name, description, booking_action, state, duration_minutes, buffer_before_minutes, buffer_after_minutes, formats, fee_text, preparation_text, sort_order, version, created_at, updated_at FROM services ORDER BY sort_order, name->>'en'
 `
