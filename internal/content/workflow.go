@@ -17,8 +17,9 @@ import (
 
 // The workflow (docs/data-model.md, "Posts"): idea ⇄ draft → in_review →
 // approved → scheduled → publishing → published. A request for changes
-// sends in_review back to draft, an edit sends approved or scheduled back to
-// in_review, and any status may be archived. Each action below names the
+// sends in_review back to draft, an edit sends approved, scheduled or (the
+// website version only) publishing and published back to in_review, and any
+// status may be archived. Each action below names the
 // statuses it starts from; the HTTP role table decides who may take it.
 
 // Submit puts an idea or a draft in front of the reviewer.
@@ -55,7 +56,11 @@ func Approve(ctx context.Context, pool *pgxpool.Pool, id pgtype.UUID, version in
 		if err != nil {
 			return err
 		}
-		if problems := checkApproval(*p, versions); len(problems) > 0 {
+		inLibrary, err := mediaInLibrary(ctx, q, versions)
+		if err != nil {
+			return err
+		}
+		if problems := checkApproval(*p, versions, inLibrary); len(problems) > 0 {
 			return &apperr.Error{Code: apperr.PublishRequirementsUnmet,
 				Detail: "The post is not ready to approve.", Fields: problems}
 		}
@@ -140,11 +145,11 @@ func MarkPosted(ctx context.Context, pool *pgxpool.Pool, id pgtype.UUID, channel
 	})
 }
 
-// startPublishing opens a publication for every enabled channel. The website
-// goes live at once; social channels wait as pending for the publishing
-// worker, or for Daw Mi to post them by hand. The scheduled-publishing task
-// is to call this too, for a scheduled post whose time has come, inside the
-// same change so the post's lock covers it.
+// startPublishing opens a publication for every enabled channel, for
+// Publish now and for the scheduled task alike. The website goes live at
+// once; social channels wait as pending for the publishing worker (Tasks),
+// or for Daw Mi to post them by hand. A post published before and edited
+// since republishes its website only.
 func startPublishing(ctx context.Context, q *db.Queries, p *db.Post, now time.Time) error {
 	versions, err := q.ListPostVersions(ctx, p.ID)
 	if err != nil {
@@ -154,11 +159,11 @@ func startPublishing(ctx context.Context, q *db.Queries, p *db.Post, now time.Ti
 		if !v.Enabled {
 			continue
 		}
-		pub := db.CreatePostPublicationParams{PostID: p.ID, Channel: v.Channel, Status: "pending", Now: now}
+		pub := db.OpenPostPublicationParams{PostID: p.ID, Channel: v.Channel, Status: "pending", Now: now}
 		if v.Channel == "website" {
 			pub.Status, pub.PublishedAt = "published", sql.NullTime{Time: now, Valid: true}
 		}
-		if err := q.CreatePostPublication(ctx, pub); err != nil {
+		if err := q.OpenPostPublication(ctx, pub); err != nil {
 			return err
 		}
 	}

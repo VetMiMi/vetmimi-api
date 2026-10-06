@@ -2,6 +2,7 @@ package content
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"time"
 
@@ -22,8 +23,24 @@ type Article struct {
 	Body           string
 	SEOTitle       string
 	SEODescription string
-	CoverImageID   pgtype.UUID
+	Cover          *Cover
 	PublishedAt    time.Time
+}
+
+// Cover is an article's cover image from the media library, with its alt
+// text in the article's locale.
+type Cover struct {
+	ID            pgtype.UUID
+	Width, Height int32
+	Widths        []int32
+	Alt           string
+}
+
+func cover(id pgtype.UUID, width, height pgtype.Int4, widths []int32, alt json.RawMessage, locale string) *Cover {
+	if !id.Valid {
+		return nil
+	}
+	return &Cover{ID: id, Width: width.Int32, Height: height.Int32, Widths: widths, Alt: inLocale(alt, locale)}
 }
 
 var errNoArticle = apperr.New(apperr.NotFound, "No published article has this slug.")
@@ -41,8 +58,9 @@ func ListArticles(ctx context.Context, q db.Querier, locale, kind string, limit 
 	out := make([]Article, len(rows))
 	for i, r := range rows {
 		out[i] = Article{
-			Slug: r.Slug.String, Kind: r.Kind, CoverImageID: r.CoverImageID, PublishedAt: r.PublishedAt.Time,
+			Slug: r.Slug.String, Kind: r.Kind, PublishedAt: r.PublishedAt.Time,
 			Title: inLocale(r.Title, locale), Excerpt: inLocale(r.Excerpt, locale),
+			Cover: cover(r.CoverID, r.CoverWidth, r.CoverHeight, r.CoverWidths, r.CoverAlt, locale),
 		}
 	}
 	return out, nil
@@ -59,7 +77,8 @@ func GetArticle(ctx context.Context, q db.Querier, slug, locale string) (Article
 		return Article{}, err
 	}
 	a := Article{
-		Slug: r.Slug.String, Kind: r.Kind, CoverImageID: r.CoverImageID, PublishedAt: r.PublishedAt.Time,
+		Slug: r.Slug.String, Kind: r.Kind, PublishedAt: r.PublishedAt.Time,
+		Cover: cover(r.CoverID, r.CoverWidth, r.CoverHeight, r.CoverWidths, r.CoverAlt, locale),
 		Title: inLocale(r.Title, locale), Excerpt: inLocale(r.Excerpt, locale), Body: inLocale(r.Body, locale),
 		SEOTitle: inLocale(r.SeoTitle, locale), SEODescription: inLocale(r.SeoDescription, locale),
 	}

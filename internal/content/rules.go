@@ -1,10 +1,14 @@
 package content
 
 import (
+	"context"
 	"encoding/json"
 	"regexp"
+	"strconv"
 	"strings"
 	"unicode/utf8"
+
+	"github.com/jackc/pgx/v5/pgtype"
 
 	"github.com/VetMiMi/vetmimi-api/internal/db"
 	"github.com/VetMiMi/vetmimi-api/internal/platform/apperr"
@@ -21,8 +25,9 @@ const (
 var hashtag = regexp.MustCompile(`#[\p{L}\p{N}_]+`)
 
 // checkApproval lists everything that keeps p, with versions, from being
-// approved, as JSON pointers into the post.
-func checkApproval(p db.Post, versions []db.PostVersion) []apperr.FieldError {
+// approved, as JSON pointers into the post. inLibrary holds the media ids
+// that exist.
+func checkApproval(p db.Post, versions []db.PostVersion, inLibrary map[pgtype.UUID]bool) []apperr.FieldError {
 	var problems []apperr.FieldError
 	add := func(field, message string) {
 		problems = append(problems, apperr.FieldError{Field: field, Message: message})
@@ -37,6 +42,14 @@ func checkApproval(p db.Post, versions []db.PostVersion) []apperr.FieldError {
 		}
 		enabled++
 		at := "/versions/" + v.Channel
+		if v.CoverImageID.Valid && !inLibrary[v.CoverImageID] {
+			add(at+"/coverImageId", "is not in the media library")
+		}
+		for i, id := range v.ImageIds {
+			if !inLibrary[id] {
+				add(at+"/imageIds/"+strconv.Itoa(i), "is not in the media library")
+			}
+		}
 		switch v.Channel {
 		case "website":
 			if !v.Slug.Valid {
@@ -77,6 +90,30 @@ func checkApproval(p db.Post, versions []db.PostVersion) []apperr.FieldError {
 		add("/versions", "needs at least one enabled channel")
 	}
 	return problems
+}
+
+// mediaInLibrary is the set of media ids the enabled versions use that
+// exist in the library.
+func mediaInLibrary(ctx context.Context, q db.Querier, versions []db.PostVersion) (map[pgtype.UUID]bool, error) {
+	var ids []pgtype.UUID
+	for _, v := range versions {
+		if !v.Enabled {
+			continue
+		}
+		if v.CoverImageID.Valid {
+			ids = append(ids, v.CoverImageID)
+		}
+		ids = append(ids, v.ImageIds...)
+	}
+	found, err := q.ExistingMedia(ctx, ids)
+	if err != nil {
+		return nil, err
+	}
+	set := make(map[pgtype.UUID]bool, len(found))
+	for _, id := range found {
+		set[id] = true
+	}
+	return set, nil
 }
 
 func english(raw json.RawMessage) string {

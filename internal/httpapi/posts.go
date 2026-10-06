@@ -4,9 +4,12 @@ import (
 	"cmp"
 	"context"
 
+	openapi_types "github.com/oapi-codegen/runtime/types"
+
 	"github.com/VetMiMi/vetmimi-api/internal/content"
 	"github.com/VetMiMi/vetmimi-api/internal/db"
 	"github.com/VetMiMi/vetmimi-api/internal/httpapi/gen"
+	"github.com/VetMiMi/vetmimi-api/internal/platform"
 )
 
 // ListPosts lists posts newest first.
@@ -60,6 +63,7 @@ func (s *server) UpdatePost(ctx context.Context, req gen.UpdatePostRequestObject
 	if err != nil {
 		return nil, err
 	}
+	s.enqueue(ctx, content.RevalidateTasks(p)...)
 	s.logPost(ctx, "post_updated", p)
 	return gen.UpdatePost200JSONResponse(postView(p)), nil
 }
@@ -109,6 +113,7 @@ func (s *server) SchedulePost(ctx context.Context, req gen.SchedulePostRequestOb
 	if err != nil {
 		return nil, err
 	}
+	s.enqueue(ctx, content.ScheduledTask(p)...)
 	s.logPost(ctx, "post_scheduled", p)
 	return gen.SchedulePost200JSONResponse(postView(p)), nil
 }
@@ -129,6 +134,7 @@ func (s *server) PublishPost(ctx context.Context, req gen.PublishPostRequestObje
 	if err != nil {
 		return nil, err
 	}
+	s.enqueue(ctx, append(content.PublishTasks(p), content.RevalidateTasks(p)...)...)
 	s.logPost(ctx, "post_publishing", p)
 	return gen.PublishPost200JSONResponse(postView(p)), nil
 }
@@ -139,6 +145,7 @@ func (s *server) ArchivePost(ctx context.Context, req gen.ArchivePostRequestObje
 	if err != nil {
 		return nil, err
 	}
+	s.enqueue(ctx, content.RevalidateTasks(p)...)
 	s.logPost(ctx, "post_archived", p)
 	return gen.ArchivePost200JSONResponse(postView(p)), nil
 }
@@ -151,6 +158,24 @@ func (s *server) MarkPostChannelPosted(ctx context.Context, req gen.MarkPostChan
 	}
 	s.logPost(ctx, "post_channel_marked_posted", p, "channel", string(req.Channel))
 	return gen.MarkPostChannelPosted200JSONResponse(postView(p)), nil
+}
+
+// RetryPostChannel gives a failed social channel another round of attempts.
+func (s *server) RetryPostChannel(ctx context.Context, req gen.RetryPostChannelRequestObject) (gen.RetryPostChannelResponseObject, error) {
+	p, err := content.Retry(ctx, s.Pool, uuid(req.PostId), string(req.Channel), s.Now())
+	if err != nil {
+		return nil, err
+	}
+	s.enqueue(ctx, content.PublishTasks(p)...)
+	s.logPost(ctx, "post_channel_retried", p, "channel", string(req.Channel))
+	return gen.RetryPostChannel200JSONResponse(postView(p)), nil
+}
+
+// enqueue queues tasks once the change that led to them has committed.
+func (s *server) enqueue(ctx context.Context, tasks ...platform.Task) {
+	if s.Queue != nil {
+		s.Queue.Enqueue(ctx, tasks...)
+	}
 }
 
 func (s *server) logPost(ctx context.Context, msg string, p content.Post, attrs ...any) {
@@ -170,7 +195,7 @@ func (s *server) ListPublicArticles(ctx context.Context, req gen.ListPublicArtic
 	out := gen.ListPublicArticles200JSONResponse{Locale: locale, Items: make([]gen.PublicArticleSummary, len(articles))}
 	for i, a := range articles {
 		out.Items[i] = gen.PublicArticleSummary{Slug: a.Slug, Kind: gen.PostKind(a.Kind), Title: a.Title,
-			Excerpt: a.Excerpt, CoverImageId: uuidView(a.CoverImageID), PublishedAt: a.PublishedAt.UTC()}
+			Excerpt: a.Excerpt, CoverImage: s.coverView(a.Cover), PublishedAt: a.PublishedAt.UTC()}
 	}
 	return out, nil
 }
@@ -184,5 +209,13 @@ func (s *server) GetPublicArticle(ctx context.Context, req gen.GetPublicArticleR
 	}
 	return gen.GetPublicArticle200JSONResponse{Slug: a.Slug, Kind: gen.PostKind(a.Kind), Title: a.Title,
 		Excerpt: a.Excerpt, Body: a.Body, SeoTitle: a.SEOTitle, SeoDescription: a.SEODescription,
-		CoverImageId: uuidView(a.CoverImageID), PublishedAt: a.PublishedAt.UTC()}, nil
+		CoverImage: s.coverView(a.Cover), PublishedAt: a.PublishedAt.UTC()}, nil
+}
+
+func (s *server) coverView(c *content.Cover) *gen.PublicImage {
+	if c == nil {
+		return nil
+	}
+	return &gen.PublicImage{Id: openapi_types.UUID(c.ID.Bytes), Alt: c.Alt, Width: int(c.Width),
+		Height: int(c.Height), Sizes: s.imageSizes(c.ID, c.Widths)}
 }

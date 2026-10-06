@@ -72,9 +72,9 @@ func TestIndexKeysAreTheMountedRoutePatterns(t *testing.T) {
 	mounted := map[string]bool{}
 	err = chi.Walk(NewRouter(Deps{Log: quiet}).(chi.Routes),
 		func(method, route string, _ http.Handler, _ ...func(http.Handler) http.Handler) error {
-			// connectVideoRoom is mounted by hand, outside the generated
-			// routes and so outside the index.
-			if route != roomSocketPattern {
+			// connectVideoRoom and uploadMedia are mounted by hand, outside
+			// the generated routes and so outside the embedded spec.
+			if route != roomSocketPattern && operationKey(method, route) != operationKey(http.MethodPost, uploadMediaPattern) {
 				mounted[operationKey(method, route)] = true
 			}
 			return nil

@@ -14,6 +14,48 @@ import (
 	"github.com/jackc/pgx/v5/pgtype"
 )
 
+const claimPostPublication = `-- name: ClaimPostPublication :one
+UPDATE post_publications pub
+SET status = 'publishing', attempts = pub.attempts + 1, updated_at = $1
+FROM posts p
+WHERE pub.post_id = $2 AND pub.channel = $3 AND p.id = pub.post_id
+  AND p.status = 'publishing' AND pub.channel <> 'website'
+  AND (pub.status = 'pending' OR (pub.status = 'publishing' AND pub.updated_at < $4))
+RETURNING pub.post_id, pub.channel, pub.status, pub.external_id, pub.permalink, pub.error, pub.attempts, pub.published_at, pub.updated_at
+`
+
+type ClaimPostPublicationParams struct {
+	Now         time.Time
+	PostID      pgtype.UUID
+	Channel     string
+	StuckBefore time.Time
+}
+
+// ClaimPostPublication takes a social channel for the publishing worker:
+// one that is pending, or stuck publishing since before @stuck_before, of a
+// post still publishing. No row back means there is nothing to do.
+func (q *Queries) ClaimPostPublication(ctx context.Context, arg ClaimPostPublicationParams) (PostPublication, error) {
+	row := q.db.QueryRow(ctx, claimPostPublication,
+		arg.Now,
+		arg.PostID,
+		arg.Channel,
+		arg.StuckBefore,
+	)
+	var i PostPublication
+	err := row.Scan(
+		&i.PostID,
+		&i.Channel,
+		&i.Status,
+		&i.ExternalID,
+		&i.Permalink,
+		&i.Error,
+		&i.Attempts,
+		&i.PublishedAt,
+		&i.UpdatedAt,
+	)
+	return i, err
+}
+
 const createPost = `-- name: CreatePost :one
 INSERT INTO posts (title, kind, status, consent_confirmed_at, consent_confirmed_by, consent_note,
                    author_id, created_at, updated_at)
@@ -66,30 +108,6 @@ func (q *Queries) CreatePost(ctx context.Context, arg CreatePostParams) (Post, e
 	return i, err
 }
 
-const createPostPublication = `-- name: CreatePostPublication :exec
-INSERT INTO post_publications (post_id, channel, status, published_at, updated_at)
-VALUES ($1, $2, $3, $4, $5)
-`
-
-type CreatePostPublicationParams struct {
-	PostID      pgtype.UUID
-	Channel     string
-	Status      string
-	PublishedAt sql.NullTime
-	Now         time.Time
-}
-
-func (q *Queries) CreatePostPublication(ctx context.Context, arg CreatePostPublicationParams) error {
-	_, err := q.db.Exec(ctx, createPostPublication,
-		arg.PostID,
-		arg.Channel,
-		arg.Status,
-		arg.PublishedAt,
-		arg.Now,
-	)
-	return err
-}
-
 const deletePost = `-- name: DeletePost :execrows
 DELETE FROM posts WHERE id = $1 AND status IN ('idea', 'draft')
 `
@@ -101,6 +119,52 @@ func (q *Queries) DeletePost(ctx context.Context, id pgtype.UUID) (int64, error)
 		return 0, err
 	}
 	return result.RowsAffected(), nil
+}
+
+const finishPostPublication = `-- name: FinishPostPublication :one
+UPDATE post_publications
+SET status = $1, external_id = $2, permalink = $3,
+    error = $4, published_at = $5, updated_at = $6
+WHERE post_id = $7 AND channel = $8 AND status = 'publishing'
+RETURNING post_id, channel, status, external_id, permalink, error, attempts, published_at, updated_at
+`
+
+type FinishPostPublicationParams struct {
+	Status      string
+	ExternalID  pgtype.Text
+	Permalink   pgtype.Text
+	Error       pgtype.Text
+	PublishedAt sql.NullTime
+	Now         time.Time
+	PostID      pgtype.UUID
+	Channel     string
+}
+
+// FinishPostPublication records how the worker's attempt went.
+func (q *Queries) FinishPostPublication(ctx context.Context, arg FinishPostPublicationParams) (PostPublication, error) {
+	row := q.db.QueryRow(ctx, finishPostPublication,
+		arg.Status,
+		arg.ExternalID,
+		arg.Permalink,
+		arg.Error,
+		arg.PublishedAt,
+		arg.Now,
+		arg.PostID,
+		arg.Channel,
+	)
+	var i PostPublication
+	err := row.Scan(
+		&i.PostID,
+		&i.Channel,
+		&i.Status,
+		&i.ExternalID,
+		&i.Permalink,
+		&i.Error,
+		&i.Attempts,
+		&i.PublishedAt,
+		&i.UpdatedAt,
+	)
+	return i, err
 }
 
 const getPost = `-- name: GetPost :one
@@ -132,12 +196,14 @@ func (q *Queries) GetPost(ctx context.Context, id pgtype.UUID) (Post, error) {
 }
 
 const getPublicArticle = `-- name: GetPublicArticle :one
-SELECT v.slug, p.kind, v.title, v.excerpt, v.body, v.cover_image_id, v.seo_title,
-       v.seo_description, pub.published_at
+SELECT v.slug, p.kind, v.title, v.excerpt, v.body, v.seo_title, v.seo_description, pub.published_at,
+       m.id AS cover_id, m.width AS cover_width, m.height AS cover_height,
+       m.widths AS cover_widths, m.alt AS cover_alt
 FROM post_versions v
 JOIN posts p ON p.id = v.post_id
 JOIN post_publications pub ON pub.post_id = v.post_id AND pub.channel = 'website'
-WHERE v.channel = 'website' AND v.slug = $1
+LEFT JOIN media m ON m.id = v.cover_image_id
+WHERE v.channel = 'website' AND v.slug = $1 AND v.enabled
   AND pub.status = 'published' AND p.status IN ('publishing', 'published')
 `
 
@@ -147,10 +213,14 @@ type GetPublicArticleRow struct {
 	Title          json.RawMessage
 	Excerpt        json.RawMessage
 	Body           json.RawMessage
-	CoverImageID   pgtype.UUID
 	SeoTitle       json.RawMessage
 	SeoDescription json.RawMessage
 	PublishedAt    sql.NullTime
+	CoverID        pgtype.UUID
+	CoverWidth     pgtype.Int4
+	CoverHeight    pgtype.Int4
+	CoverWidths    []int32
+	CoverAlt       json.RawMessage
 }
 
 func (q *Queries) GetPublicArticle(ctx context.Context, slug pgtype.Text) (GetPublicArticleRow, error) {
@@ -162,12 +232,53 @@ func (q *Queries) GetPublicArticle(ctx context.Context, slug pgtype.Text) (GetPu
 		&i.Title,
 		&i.Excerpt,
 		&i.Body,
-		&i.CoverImageID,
 		&i.SeoTitle,
 		&i.SeoDescription,
 		&i.PublishedAt,
+		&i.CoverID,
+		&i.CoverWidth,
+		&i.CoverHeight,
+		&i.CoverWidths,
+		&i.CoverAlt,
 	)
 	return i, err
+}
+
+const listDueScheduledPosts = `-- name: ListDueScheduledPosts :many
+SELECT id, scheduled_at FROM posts
+WHERE status = 'scheduled' AND scheduled_at < $1::timestamptz
+ORDER BY scheduled_at
+LIMIT $2
+`
+
+type ListDueScheduledPostsParams struct {
+	Before  time.Time
+	MaxRows int32
+}
+
+type ListDueScheduledPostsRow struct {
+	ID          pgtype.UUID
+	ScheduledAt sql.NullTime
+}
+
+func (q *Queries) ListDueScheduledPosts(ctx context.Context, arg ListDueScheduledPostsParams) ([]ListDueScheduledPostsRow, error) {
+	rows, err := q.db.Query(ctx, listDueScheduledPosts, arg.Before, arg.MaxRows)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	items := []ListDueScheduledPostsRow{}
+	for rows.Next() {
+		var i ListDueScheduledPostsRow
+		if err := rows.Scan(&i.ID, &i.ScheduledAt); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
 }
 
 const listPostPublications = `-- name: ListPostPublications :many
@@ -330,11 +441,15 @@ func (q *Queries) ListPosts(ctx context.Context, arg ListPostsParams) ([]ListPos
 }
 
 const listPublicArticles = `-- name: ListPublicArticles :many
-SELECT v.slug, p.kind, v.title, v.excerpt, v.cover_image_id, pub.published_at
+SELECT v.slug, p.kind, v.title, v.excerpt, pub.published_at,
+       m.id AS cover_id, m.width AS cover_width, m.height AS cover_height,
+       m.widths AS cover_widths, m.alt AS cover_alt
 FROM post_versions v
 JOIN posts p ON p.id = v.post_id
 JOIN post_publications pub ON pub.post_id = v.post_id AND pub.channel = 'website'
-WHERE v.channel = 'website' AND pub.status = 'published' AND p.status IN ('publishing', 'published')
+LEFT JOIN media m ON m.id = v.cover_image_id
+WHERE v.channel = 'website' AND v.enabled AND pub.status = 'published'
+  AND p.status IN ('publishing', 'published')
   AND ($1::text IS NULL OR p.kind = $1)
 ORDER BY pub.published_at DESC, v.post_id DESC
 LIMIT $2
@@ -346,16 +461,21 @@ type ListPublicArticlesParams struct {
 }
 
 type ListPublicArticlesRow struct {
-	Slug         pgtype.Text
-	Kind         string
-	Title        json.RawMessage
-	Excerpt      json.RawMessage
-	CoverImageID pgtype.UUID
-	PublishedAt  sql.NullTime
+	Slug        pgtype.Text
+	Kind        string
+	Title       json.RawMessage
+	Excerpt     json.RawMessage
+	PublishedAt sql.NullTime
+	CoverID     pgtype.UUID
+	CoverWidth  pgtype.Int4
+	CoverHeight pgtype.Int4
+	CoverWidths []int32
+	CoverAlt    json.RawMessage
 }
 
-// ListPublicArticles selects the website versions that are live: published
-// on the website, of a post not archived.
+// ListPublicArticles selects the website versions that are live: enabled,
+// published on the website, of a post that is publishing or published (not
+// archived, nor back in review after an edit), with the cover image.
 func (q *Queries) ListPublicArticles(ctx context.Context, arg ListPublicArticlesParams) ([]ListPublicArticlesRow, error) {
 	rows, err := q.db.Query(ctx, listPublicArticles, arg.Kind, arg.MaxRows)
 	if err != nil {
@@ -370,8 +490,58 @@ func (q *Queries) ListPublicArticles(ctx context.Context, arg ListPublicArticles
 			&i.Kind,
 			&i.Title,
 			&i.Excerpt,
-			&i.CoverImageID,
 			&i.PublishedAt,
+			&i.CoverID,
+			&i.CoverWidth,
+			&i.CoverHeight,
+			&i.CoverWidths,
+			&i.CoverAlt,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
+const listStuckPostPublications = `-- name: ListStuckPostPublications :many
+SELECT pub.post_id, pub.channel, pub.status, pub.external_id, pub.permalink, pub.error, pub.attempts, pub.published_at, pub.updated_at FROM post_publications pub
+JOIN posts p ON p.id = pub.post_id
+WHERE p.status = 'publishing' AND pub.channel <> 'website'
+  AND pub.status IN ('pending', 'publishing') AND pub.updated_at < $1
+ORDER BY pub.updated_at
+LIMIT $2
+`
+
+type ListStuckPostPublicationsParams struct {
+	Before  time.Time
+	MaxRows int32
+}
+
+// ListStuckPostPublications finds social channels of publishing posts that
+// have waited or run since before @before: their task was lost.
+func (q *Queries) ListStuckPostPublications(ctx context.Context, arg ListStuckPostPublicationsParams) ([]PostPublication, error) {
+	rows, err := q.db.Query(ctx, listStuckPostPublications, arg.Before, arg.MaxRows)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	items := []PostPublication{}
+	for rows.Next() {
+		var i PostPublication
+		if err := rows.Scan(
+			&i.PostID,
+			&i.Channel,
+			&i.Status,
+			&i.ExternalID,
+			&i.Permalink,
+			&i.Error,
+			&i.Attempts,
+			&i.PublishedAt,
+			&i.UpdatedAt,
 		); err != nil {
 			return nil, err
 		}
@@ -436,6 +606,69 @@ func (q *Queries) MarkPublicationManual(ctx context.Context, arg MarkPublication
 		arg.PostID,
 		arg.Channel,
 	)
+	var i PostPublication
+	err := row.Scan(
+		&i.PostID,
+		&i.Channel,
+		&i.Status,
+		&i.ExternalID,
+		&i.Permalink,
+		&i.Error,
+		&i.Attempts,
+		&i.PublishedAt,
+		&i.UpdatedAt,
+	)
+	return i, err
+}
+
+const openPostPublication = `-- name: OpenPostPublication :exec
+INSERT INTO post_publications (post_id, channel, status, published_at, updated_at)
+VALUES ($1, $2, $3, $4, $5)
+ON CONFLICT (post_id, channel) DO UPDATE
+SET status = excluded.status, error = NULL,
+    published_at = coalesce(post_publications.published_at, excluded.published_at),
+    updated_at = excluded.updated_at
+WHERE post_publications.channel = 'website'
+`
+
+type OpenPostPublicationParams struct {
+	PostID      pgtype.UUID
+	Channel     string
+	Status      string
+	PublishedAt sql.NullTime
+	Now         time.Time
+}
+
+// OpenPostPublication opens a channel's publication. Publishing a post again
+// (after its website version was edited) republishes the website, keeping
+// its first publication time, and leaves every social channel as it is.
+func (q *Queries) OpenPostPublication(ctx context.Context, arg OpenPostPublicationParams) error {
+	_, err := q.db.Exec(ctx, openPostPublication,
+		arg.PostID,
+		arg.Channel,
+		arg.Status,
+		arg.PublishedAt,
+		arg.Now,
+	)
+	return err
+}
+
+const retryPostPublication = `-- name: RetryPostPublication :one
+UPDATE post_publications
+SET status = 'pending', error = NULL, attempts = 0, updated_at = $1
+WHERE post_id = $2 AND channel = $3 AND status = 'failed'
+RETURNING post_id, channel, status, external_id, permalink, error, attempts, published_at, updated_at
+`
+
+type RetryPostPublicationParams struct {
+	Now     time.Time
+	PostID  pgtype.UUID
+	Channel string
+}
+
+// RetryPostPublication gives a failed channel a fresh set of attempts.
+func (q *Queries) RetryPostPublication(ctx context.Context, arg RetryPostPublicationParams) (PostPublication, error) {
+	row := q.db.QueryRow(ctx, retryPostPublication, arg.Now, arg.PostID, arg.Channel)
 	var i PostPublication
 	err := row.Scan(
 		&i.PostID,

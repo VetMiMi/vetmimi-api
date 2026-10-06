@@ -262,9 +262,10 @@ Index: `(status, created_at)`. Transitions (`internal/content/workflow.go`): `id
 (approve), `approved|scheduled → scheduled` (schedule, future time), `scheduled → approved` (unschedule),
 `approved|scheduled → publishing|published` (publish now; the scheduler will do the same at `scheduled_at`),
 `publishing → published` (once every publication is `published` or `manual`), any → `archived`. Saving an
-`approved` or `scheduled` post moves it back to `in_review`; a post that has started publishing cannot be edited.
-Approval needs at least one enabled channel, every enabled version valid for its platform, and, for a True
-Story, consent confirmed. Only ideas and drafts may be deleted.
+`approved` or `scheduled` post moves it back to `in_review`. A `publishing` or `published` post may change only
+its title and website version; that too returns it to `in_review` (the article is off the site until published
+again, which republishes the website only). Approval needs at least one enabled channel, every enabled version
+valid for its platform, every image it names in `media`, and, for a True Story, consent confirmed. Only ideas and drafts may be deleted.
 
 **`post_versions`** — One row per post and channel. PK `(post_id, channel)`; FK posts `CASCADE`.
 
@@ -280,7 +281,8 @@ Story, consent confirmed. Only ideas and drafts may be deleted.
 | image_ids | uuid[] | no | `'{}'` | social images in order: Facebook ≤ 10, Instagram 1–10, LinkedIn ≤ 1 |
 
 `post_versions_fields_by_channel` keeps website fields on the website row and social fields on the others.
-Image ids are not foreign keys until the media library exists. Approval checks: website — slug and English
+Image ids are `media` ids, checked at approval rather than by foreign key (`image_ids` is an array).
+Approval checks: website — slug and English
 title, excerpt and body; Facebook — text; Instagram — at least one image, caption ≤ 2,200 characters and
 ≤ 30 hashtags; LinkedIn — text ≤ 3,000 characters. Drafts may exceed these.
 
@@ -291,14 +293,32 @@ title, excerpt and body; Facebook — text; Instagram — at least one image, ca
 |---|---|---|---|---|
 | channel | text | no | — | as in `post_versions` |
 | status | text | no | `'pending'` | `pending`, `publishing`, `published`, `failed`, `manual` (posted by hand: copy & open) |
-| external_id, permalink, error | text | yes | — | the platform's id and address; a readable failure reason |
-| attempts | int | no | 0 | |
+| external_id, permalink, error | text | yes | — | the platform's id and address; the failure reason (`not_connected`, `connection_failed`) |
+| attempts | int | no | 0 | worker attempts this round: a first try and three retries, reset by `retry` |
 | published_at | timestamptz | yes | — | required when `published` or `manual` |
 
 The website publication is `published` as soon as publishing starts; social ones wait as `pending` for the
 publishing worker or for Daw Mi to mark them posted. Index: `status WHERE status IN ('pending','failed')`.
-Public article reads return website versions whose publication is `published` and whose post is `publishing`
-or `published`, so archiving a post takes its article down.
+Public article reads return enabled website versions whose publication is `published` and whose post is
+`publishing` or `published`, so archiving a post takes its article down.
+
+## Media
+
+**`media`** — The media library: images for posts. Object keys derive from the id: the original, re-encoded,
+at `originals/<id>.jpg` (private) and each web size at `public/<id>/<width>.jpg`, served from `MEDIA_PUBLIC_URL`.
+
+| Column | Type | Null | Default | Notes |
+|---|---|---|---|---|
+| width, height | int | no | — | of the stored original, turned upright by its EXIF orientation |
+| widths | int[] | no | — | web sizes stored, largest first: 1600, 800, 400, never wider than the image |
+| byte_size | bigint | no | — | of the upload (≤ 20 MB) |
+| alt | localized | yes | — | alt text, EN and MY, each ≤ 300 |
+| credit | text | yes | — | ≤ 300 |
+| uploaded_by | uuid | yes | — | FK users `SET NULL` |
+| version, created_at, updated_at | | no | | |
+
+Every stored file is re-encoded as JPEG, so no camera, time or location metadata survives. An item cannot be
+deleted while any post version, whatever the post's status, uses it (`409 in_use`). Index: `created_at`.
 
 ## Settings keys
 

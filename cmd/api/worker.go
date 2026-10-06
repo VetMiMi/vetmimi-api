@@ -11,6 +11,7 @@ import (
 	"github.com/VetMiMi/vetmimi-api/internal/auth"
 	"github.com/VetMiMi/vetmimi-api/internal/booking"
 	"github.com/VetMiMi/vetmimi-api/internal/comms"
+	"github.com/VetMiMi/vetmimi-api/internal/content"
 	"github.com/VetMiMi/vetmimi-api/internal/db"
 	"github.com/VetMiMi/vetmimi-api/internal/platform"
 	"github.com/VetMiMi/vetmimi-api/internal/platform/idempotency"
@@ -46,8 +47,11 @@ func runWorker(ctx context.Context, log *slog.Logger, cfg platform.Config, pool 
 	}).Register(w)
 	(&booking.Tasks{Pool: pool, Queue: queue, Log: log, Now: time.Now, Timezone: cur.Timezone}).Register(w)
 	(&video.Tasks{Pool: pool, Log: log, Now: time.Now}).Register(w)
+	(&content.Tasks{Pool: pool, Queue: queue, SiteURL: cfg.SiteURL, RevalidateSecret: cfg.SiteRevalidateSecret,
+		Log: log, Now: time.Now}).Register(w)
 	// Rebuild at once any task Redis lost while the worker was down.
-	queue.Enqueue(ctx, platform.Task{Type: comms.TaskSweep}, platform.Task{Type: booking.TaskSweepHolds})
+	queue.Enqueue(ctx, platform.Task{Type: comms.TaskSweep}, platform.Task{Type: booking.TaskSweepHolds},
+		platform.Task{Type: content.TaskSweep})
 	return w.Run(ctx)
 }
 

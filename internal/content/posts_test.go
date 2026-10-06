@@ -72,6 +72,17 @@ func randomIDs(n int) []pgtype.UUID {
 	return ids
 }
 
+// newMedia inserts a media library row; its files are the media package's
+// business.
+func newMedia(t *testing.T) pgtype.UUID {
+	t.Helper()
+	m, err := db.New(pgtest.Pool(t)).CreateMedia(ctx, db.CreateMediaParams{Width: 1600, Height: 900,
+		Widths: []int32{1600, 800, 400}, ByteSize: 1000, Alt: localized("A blue painting", "အပြာရောင်ပန်းချီ"),
+		Now: time.Now()})
+	require.NoError(t, err)
+	return m.ID
+}
+
 // fixture is a post moved along the workflow by the test's author.
 type fixture struct {
 	t    *testing.T

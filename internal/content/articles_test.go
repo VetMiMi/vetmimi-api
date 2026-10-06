@@ -24,7 +24,9 @@ func slugs(articles []content.Article) []string {
 // never show.
 func TestPublicArticlesAreOnlyPublishedWebsiteVersions(t *testing.T) {
 	q := db.New(pgtest.Pool(t))
-	newPost(t, "insight", website("live-both-languages")).published()
+	withCover := website("live-both-languages")
+	withCover.CoverImageID = newMedia(t)
+	newPost(t, "insight", withCover).published()
 	englishOnly := website("live-english-only")
 	englishOnly.Title, englishOnly.Body = localized("Only English", ""), localized("Body", "")
 	story := newPost(t, "true_story", englishOnly)
@@ -59,12 +61,16 @@ func TestPublicArticlesAreOnlyPublishedWebsiteVersions(t *testing.T) {
 	require.Equal(t, "# ငြိမ်\n\nအသက်ရှူပါ။", burmese.Body)
 	require.Equal(t, "A short read.", burmese.Excerpt, "no Burmese excerpt, so English")
 	require.Equal(t, burmese.Title, burmese.SEOTitle)
+	require.Equal(t, &content.Cover{ID: withCover.CoverImageID, Width: 1600, Height: 900,
+		Widths: []int32{1600, 800, 400}, Alt: "အပြာရောင်ပန်းချီ"}, burmese.Cover)
 	english, err := content.GetArticle(ctx, q, "live-both-languages", "en")
 	require.NoError(t, err)
 	require.Equal(t, "Finding calm", english.Title)
+	require.Equal(t, "A blue painting", english.Cover.Alt)
 	fallback, err := content.GetArticle(ctx, q, "live-english-only", "my")
 	require.NoError(t, err)
 	require.Equal(t, "Only English", fallback.Title)
+	require.Nil(t, fallback.Cover)
 
 	for _, slug := range []string{"approved-not-live", "archived-article", "website-switched-off"} {
 		_, err := content.GetArticle(ctx, q, slug, "en")
