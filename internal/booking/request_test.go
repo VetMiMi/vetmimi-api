@@ -17,6 +17,7 @@ import (
 	"github.com/VetMiMi/vetmimi-api/internal/platform"
 	"github.com/VetMiMi/vetmimi-api/internal/platform/apperr"
 	"github.com/VetMiMi/vetmimi-api/internal/platform/pgtest"
+	"github.com/VetMiMi/vetmimi-api/internal/video"
 )
 
 // openEveryDay opens the practice 09:00-17:00 every weekday for the test.
@@ -289,8 +290,10 @@ func TestInstant_BookServiceIsConfirmed(t *testing.T) {
 	require.False(t, appt.HoldExpiresAt.Valid, "a confirmed appointment holds nothing")
 	require.Equal(t, []string{"booking_confirmed:visitor@example.com:my",
 		"practitioner_new_booking:meenaerie@gmail.com:en", "reminder:visitor@example.com:my"}, commKinds(t, appt.ID))
-	require.Equal(t, []string{comms.TaskDeliver, comms.TaskDeliver, comms.TaskDeliver}, taskTypes(got.Tasks),
-		"no hold to expire")
+	require.Equal(t, []string{comms.TaskDeliver, comms.TaskDeliver, video.TaskCloseRoom, comms.TaskDeliver},
+		taskTypes(got.Tasks), "no hold to expire")
+	_, hasRoom := roomOf(t, appt.ID)
+	require.True(t, hasRoom, "an instant online booking gets its room")
 	require.Equal(t, "pending", getAppointment(t, pending.AppointmentID).Status,
 		"switching the mode leaves earlier requests alone")
 }

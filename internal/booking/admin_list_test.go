@@ -135,7 +135,7 @@ func TestListAppointments_CursorWalksEveryRowOnce(t *testing.T) {
 
 func TestGetAppointment_HistoryAndMessages(t *testing.T) {
 	appt, now := booked(t, booking.Pending)
-	_, err := booking.Confirm(context.Background(), pgtest.Pool(t), changeOf(t, appt), now)
+	_, err := booking.Confirm(context.Background(), pgtest.Pool(t), testSecret, changeOf(t, appt), now)
 	require.NoError(t, err)
 
 	d, err := booking.GetAppointment(context.Background(), db.New(pgtest.Pool(t)), appt.ID, now)

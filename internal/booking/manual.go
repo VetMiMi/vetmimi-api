@@ -122,7 +122,7 @@ func createManual(ctx context.Context, q *db.Queries, secret []byte, m Manual, n
 	}
 
 	if m.Status == Confirmed {
-		tasks, err := afterConfirm(ctx, q, appt, cur, now, m.Notify)
+		tasks, err := afterConfirm(ctx, q, secret, appt, cur, now, m.Notify)
 		return Created{AppointmentID: appt.ID, Tasks: tasks}, err
 	}
 	tasks := []platform.Task{holdTask(appt.ID, appt.HoldExpiresAt.Time)}

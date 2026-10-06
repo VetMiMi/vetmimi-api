@@ -15,6 +15,7 @@ import (
 	"github.com/VetMiMi/vetmimi-api/internal/platform"
 	"github.com/VetMiMi/vetmimi-api/internal/platform/idempotency"
 	"github.com/VetMiMi/vetmimi-api/internal/platform/settings"
+	"github.com/VetMiMi/vetmimi-api/internal/video"
 )
 
 // Request is a visitor's appointment request from the public site.
@@ -137,7 +138,7 @@ func request(ctx context.Context, q *db.Queries, secret []byte, r Request, now t
 	if err := AppendEvent(ctx, q, Event{AppointmentID: appt.ID, Kind: "created", To: status, Actor: "visitor"}); err != nil {
 		return Requested{}, err
 	}
-	tasks, err := notifyRequested(ctx, q, appt, cur, now)
+	tasks, err := notifyRequested(ctx, q, secret, appt, cur, now)
 	if err != nil {
 		return Requested{}, err
 	}
@@ -159,9 +160,10 @@ func request(ctx context.Context, q *db.Queries, secret []byte, r Request, now t
 
 // notifyRequested queues the emails a new appointment sends and returns the
 // tasks for them and, while it is pending, for its hold's expiry.
-func notifyRequested(ctx context.Context, q db.Querier, appt db.Appointment, cur settings.Settings, now time.Time) ([]platform.Task, error) {
+func notifyRequested(ctx context.Context, q db.Querier, secret []byte, appt db.Appointment, cur settings.Settings,
+	now time.Time) ([]platform.Task, error) {
 	if Status(appt.Status) == Confirmed {
-		tasks, err := afterConfirm(ctx, q, appt, cur, now, true)
+		tasks, err := afterConfirm(ctx, q, secret, appt, cur, now, true)
 		if err != nil {
 			return nil, err
 		}
@@ -183,9 +185,15 @@ func notifyRequested(ctx context.Context, q db.Querier, appt db.Appointment, cur
 }
 
 // afterConfirm queues what confirming an appointment sends the visitor: the
-// confirmation, unless Daw Mi tells them herself, and the reminder.
-// Confirmation, instant booking and manual booking all end here.
-func afterConfirm(ctx context.Context, q db.Querier, appt db.Appointment, cur settings.Settings, now time.Time, notify bool) ([]platform.Task, error) {
+// confirmation, unless Daw Mi tells them herself, and the reminder. An
+// online appointment gets its video room first, so the emails can carry the
+// join link. Confirmation, instant booking and manual booking all end here.
+func afterConfirm(ctx context.Context, q db.Querier, secret []byte, appt db.Appointment, cur settings.Settings,
+	now time.Time, notify bool) ([]platform.Task, error) {
+	room, err := video.CreateRoom(ctx, q, secret, appt, cur.MeetingLinkMode, now)
+	if err != nil {
+		return nil, err
+	}
 	var tasks []platform.Task
 	if notify {
 		task, err := comms.Queue(ctx, q, comms.Message{AppointmentID: appt.ID,
@@ -196,7 +204,7 @@ func afterConfirm(ctx context.Context, q db.Querier, appt db.Appointment, cur se
 		tasks = append(tasks, task)
 	}
 	reminder, err := ScheduleReminder(ctx, q, appt, cur.ReminderHours, now)
-	return append(tasks, reminder...), err
+	return append(append(tasks, reminder...), room...), err
 }
 
 // holdUntil is when a request made now for start stops holding its slot:

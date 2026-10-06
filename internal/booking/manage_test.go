@@ -148,7 +148,7 @@ func TestManageReschedule_RecordsTheRequestAndKeepsTheTime(t *testing.T) {
 	require.True(t, m.RescheduleRequested)
 
 	// A later status change answers the request.
-	_, err = booking.Confirm(ctx, pgtest.Pool(t), changeOf(t, got), now)
+	_, err = booking.Confirm(ctx, pgtest.Pool(t), testSecret, changeOf(t, got), now)
 	require.NoError(t, err)
 	m, err = getManaged(t, linkOf(appt), now)
 	require.NoError(t, err)
