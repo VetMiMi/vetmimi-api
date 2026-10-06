@@ -2,6 +2,8 @@ package httpapi
 
 import (
 	"context"
+	"encoding/json"
+	"net/http"
 
 	openapi_types "github.com/oapi-codegen/runtime/types"
 
@@ -59,6 +61,74 @@ func (s *server) GetPublicAvailability(ctx context.Context, req gen.GetPublicAva
 		To:       openapi_types.Date{Time: a.Last},
 		Days:     slotDaysView(a.Days),
 	}, nil
+}
+
+// CreatePublicAppointment stores a visitor's request and, only after it has
+// committed, enqueues its emails and hold expiry; a failed enqueue is logged
+// by the queue and left to the sweepers. The receipt never carries the id or
+// the management token.
+func (s *server) CreatePublicAppointment(ctx context.Context, req gen.CreatePublicAppointmentRequestObject) (gen.CreatePublicAppointmentResponseObject, error) {
+	b := req.Body
+	// The key's hash covers the body as decoded and encoded again, so a
+	// retry that differs only in spacing or key order is the same request.
+	raw, err := json.Marshal(b)
+	if err != nil {
+		return nil, err
+	}
+	r := booking.Request{
+		IdempotencyKey:      req.Params.IdempotencyKey.String(),
+		Body:                raw,
+		Service:             b.Service,
+		StartsAt:            b.StartsAt,
+		Format:              string(b.Format),
+		Locale:              string(b.Locale),
+		VisitorName:         b.Visitor.Name,
+		VisitorEmail:        string(b.Visitor.Email),
+		PrivacyAcknowledged: bool(b.PrivacyAcknowledged),
+		PolicyAcknowledged:  bool(b.PolicyAcknowledged),
+	}
+	if b.Visitor.Phone != nil {
+		r.VisitorPhone = *b.Visitor.Phone
+	}
+	if b.Visitor.Note != nil {
+		r.VisitorNote = *b.Visitor.Note
+	}
+	res, err := booking.RequestAppointment(ctx, s.Pool, s.SigningSecret, r, s.Now())
+	if err != nil {
+		return nil, err
+	}
+	if s.Queue != nil {
+		s.Queue.Enqueue(ctx, res.Tasks...)
+	}
+	s.Log.InfoContext(ctx, "appointment requested", "request_id", RequestID(ctx),
+		"appointment_id", res.AppointmentID.String(), "replayed", res.Replayed)
+
+	rc := res.Receipt
+	receipt := gen.CreatePublicAppointment201JSONResponse{
+		Reference:       rc.Reference,
+		Status:          gen.AppointmentRequestReceiptStatus(rc.Status),
+		Service:         gen.PublicServiceRef{Slug: rc.Service.Slug, Name: rc.Service.Name},
+		StartsAt:        rc.StartsAt.UTC(),
+		EndsAt:          rc.EndsAt.UTC(),
+		DurationMinutes: rc.DurationMinutes,
+		Timezone:        rc.Timezone,
+		Format:          gen.Format(rc.Format),
+	}
+	if res.Replayed {
+		return replayedReceipt{receipt}, nil
+	}
+	return receipt, nil
+}
+
+// replayedReceipt is a stored receipt answered again, marked so the site
+// can tell a replay from a new request.
+type replayedReceipt struct {
+	gen.CreatePublicAppointment201JSONResponse
+}
+
+func (r replayedReceipt) VisitCreatePublicAppointmentResponse(w http.ResponseWriter) error {
+	w.Header().Set("Idempotent-Replayed", "true")
+	return r.CreatePublicAppointment201JSONResponse.VisitCreatePublicAppointmentResponse(w)
 }
 
 func slotDaysView(days []booking.SlotDay) []gen.SlotDay {

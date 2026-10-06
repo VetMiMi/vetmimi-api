@@ -41,3 +41,6 @@ WHERE email = @email;
 UPDATE users
 SET last_sign_in_at = @now::timestamptz
 WHERE id = @id AND disabled_at IS NULL AND password_hash = @password_hash;
+
+-- name: GetPractitionerID :one
+SELECT id FROM users WHERE is_practitioner;

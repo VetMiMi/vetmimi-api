@@ -9,9 +9,11 @@ import (
 	"github.com/redis/go-redis/v9"
 
 	"github.com/VetMiMi/vetmimi-api/internal/auth"
+	"github.com/VetMiMi/vetmimi-api/internal/booking"
 	"github.com/VetMiMi/vetmimi-api/internal/comms"
 	"github.com/VetMiMi/vetmimi-api/internal/db"
 	"github.com/VetMiMi/vetmimi-api/internal/platform"
+	"github.com/VetMiMi/vetmimi-api/internal/platform/idempotency"
 )
 
 // taskCleanup deletes what has expired (docs/architecture.md, "Background
@@ -36,8 +38,9 @@ func runWorker(ctx context.Context, log *slog.Logger, cfg platform.Config, pool 
 		Pool: pool, Queue: queue, Resend: resend, From: cfg.EmailFrom, SiteURL: cfg.SiteURL,
 		Log: log, Now: time.Now,
 	}).Register(w)
-	// Rebuild at once any delivery task Redis lost while the worker was down.
-	queue.Enqueue(ctx, platform.Task{Type: comms.TaskSweep})
+	(&booking.Tasks{Pool: pool, Queue: queue, Log: log, Now: time.Now}).Register(w)
+	// Rebuild at once any task Redis lost while the worker was down.
+	queue.Enqueue(ctx, platform.Task{Type: comms.TaskSweep}, platform.Task{Type: booking.TaskSweepHolds})
 	return w.Run(ctx)
 }
 
@@ -46,6 +49,10 @@ func cleanup(ctx context.Context, log *slog.Logger, q db.Querier, now time.Time)
 	if err != nil {
 		return err
 	}
-	log.InfoContext(ctx, "expired rows deleted", "sessions", sessions)
+	keys, err := idempotency.DeleteExpired(ctx, q, now)
+	if err != nil {
+		return err
+	}
+	log.InfoContext(ctx, "expired rows deleted", "sessions", sessions, "idempotency_keys", keys)
 	return nil
 }

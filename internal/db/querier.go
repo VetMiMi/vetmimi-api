@@ -26,12 +26,18 @@ type Querier interface {
 	DeleteAvailabilityBlock(ctx context.Context, id pgtype.UUID) (int64, error)
 	DeleteAvailabilityOverride(ctx context.Context, id pgtype.UUID) (int64, error)
 	DeleteAvailabilityRule(ctx context.Context, id pgtype.UUID) (int64, error)
+	// DeleteExpiredIdempotencyKeys deletes up to @max_rows keys created before
+	// @before, so one run never holds a long lock.
+	DeleteExpiredIdempotencyKeys(ctx context.Context, arg DeleteExpiredIdempotencyKeysParams) (int64, error)
 	DeleteExpiredSessions(ctx context.Context, arg DeleteExpiredSessionsParams) (int64, error)
 	DeleteService(ctx context.Context, id pgtype.UUID) (int64, error)
 	DeleteSession(ctx context.Context, id pgtype.UUID) error
 	DeleteUserSessions(ctx context.Context, userID pgtype.UUID) error
+	FinishIdempotencyKey(ctx context.Context, arg FinishIdempotencyKeyParams) error
 	GetAppointmentForMessage(ctx context.Context, id pgtype.UUID) (GetAppointmentForMessageRow, error)
 	GetCommunication(ctx context.Context, id pgtype.UUID) (Communication, error)
+	GetIdempotencyKey(ctx context.Context, arg GetIdempotencyKeyParams) (IdempotencyKey, error)
+	GetPractitionerID(ctx context.Context) (pgtype.UUID, error)
 	GetService(ctx context.Context, id pgtype.UUID) (Service, error)
 	GetServiceBySlug(ctx context.Context, slug string) (Service, error)
 	// GetSession returns the session a token hash names together with its user,
@@ -44,6 +50,9 @@ type Querier interface {
 	InsertAppointment(ctx context.Context, arg InsertAppointmentParams) (Appointment, error)
 	InsertAppointmentEvent(ctx context.Context, arg InsertAppointmentEventParams) error
 	InsertCommunication(ctx context.Context, arg InsertCommunicationParams) (Communication, error)
+	// InsertIdempotencyKey waits for a transaction holding the same key, then
+	// inserts nothing if that transaction committed.
+	InsertIdempotencyKey(ctx context.Context, arg InsertIdempotencyKeyParams) (int64, error)
 	ListAvailabilityBlocks(ctx context.Context, within pgtype.Range[pgtype.Timestamptz]) ([]AvailabilityBlock, error)
 	ListAvailabilityOverrides(ctx context.Context, arg ListAvailabilityOverridesParams) ([]AvailabilityOverride, error)
 	ListAvailabilityRules(ctx context.Context) ([]AvailabilityRule, error)
@@ -54,12 +63,16 @@ type Querier interface {
 	// ListDueCommunications serves comms:sweep through the partial index on
 	// queued rows.
 	ListDueCommunications(ctx context.Context, arg ListDueCommunicationsParams) ([]ListDueCommunicationsRow, error)
+	// ListOverdueHolds serves booking:sweep-holds through the partial index on
+	// pending holds.
+	ListOverdueHolds(ctx context.Context, arg ListOverdueHoldsParams) ([]pgtype.UUID, error)
 	ListOverlappingAppointments(ctx context.Context, period pgtype.Range[pgtype.Timestamptz]) ([]ListOverlappingAppointmentsRow, error)
 	// ListPublicBookableServices selects only what a visitor may see.
 	ListPublicBookableServices(ctx context.Context) ([]ListPublicBookableServicesRow, error)
 	ListQueuedReminderIDs(ctx context.Context, appointmentID pgtype.UUID) ([]pgtype.UUID, error)
 	ListServices(ctx context.Context) ([]Service, error)
 	ListSettings(ctx context.Context) ([]ListSettingsRow, error)
+	LockAppointment(ctx context.Context, id pgtype.UUID) (Appointment, error)
 	// LockCommunication skips a row another worker holds, so two workers given
 	// the same task never both send it.
 	LockCommunication(ctx context.Context, id pgtype.UUID) (Communication, error)
@@ -82,6 +95,9 @@ type Querier interface {
 	// RescheduleQueuedReminders moves every queued reminder to its start less
 	// @hours, the new reminder_hours.
 	RescheduleQueuedReminders(ctx context.Context, hours int32) ([]RescheduleQueuedRemindersRow, error)
+	// SetAppointmentStatus is the one write of a status change; the caller has
+	// checked it with booking.CanTransition.
+	SetAppointmentStatus(ctx context.Context, arg SetAppointmentStatusParams) (Appointment, error)
 	SetCommunicationStatus(ctx context.Context, arg SetCommunicationStatusParams) (int64, error)
 	TouchSession(ctx context.Context, arg TouchSessionParams) error
 	UpdateAvailabilityBlock(ctx context.Context, arg UpdateAvailabilityBlockParams) (AvailabilityBlock, error)

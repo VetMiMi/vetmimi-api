@@ -67,6 +67,17 @@ func (q *Queries) CreateUser(ctx context.Context, arg CreateUserParams) (pgtype.
 	return id, err
 }
 
+const getPractitionerID = `-- name: GetPractitionerID :one
+SELECT id FROM users WHERE is_practitioner
+`
+
+func (q *Queries) GetPractitionerID(ctx context.Context) (pgtype.UUID, error) {
+	row := q.db.QueryRow(ctx, getPractitionerID)
+	var id pgtype.UUID
+	err := row.Scan(&id)
+	return id, err
+}
+
 const getUserForSignIn = `-- name: GetUserForSignIn :one
 SELECT id, email, display_name, password_hash, roles, is_practitioner, totp_secret_enc
 FROM users

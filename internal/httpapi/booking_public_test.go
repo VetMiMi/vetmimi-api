@@ -2,10 +2,12 @@ package httpapi
 
 import (
 	"context"
+	"fmt"
 	"maps"
 	"net/http"
 	"net/http/httptest"
 	"slices"
+	"strings"
 	"testing"
 	"time"
 
@@ -116,4 +118,71 @@ func TestPublicAvailability(t *testing.T) {
 
 	pauseBooking(t)
 	refused(t, http.StatusUnprocessableEntity, "booking_paused", a.public(path))
+}
+
+// requestAppointment posts a request as the site does, each from its own
+// visitor address so the booking limit never interferes.
+func (a *authAPI) requestAppointment(key, startsAt string) *httptest.ResponseRecorder {
+	body := fmt.Sprintf(`{"service": "individual-art-therapy", "startsAt": %q, "format": "online",
+		"locale": "en", "privacyAcknowledged": true, "policyAcknowledged": true,
+		"visitor": {"name": "Thandar Visitor", "email": "thandar@example.com", "note": "Quiet room please"}}`, startsAt)
+	req := httptest.NewRequest(http.MethodPost, "/public/appointments", strings.NewReader(body))
+	req.Header.Set("Content-Type", "application/json")
+	req.Header.Set("X-Service-Key", testServiceKey)
+	a.visitors++
+	req.Header.Set("X-Visitor-IP", fmt.Sprintf("203.0.113.%d", a.visitors))
+	if key != "" {
+		req.Header.Set("Idempotency-Key", key)
+	}
+	res := httptest.NewRecorder()
+	a.handler.ServeHTTP(res, req)
+	return res
+}
+
+func TestPublicRequest(t *testing.T) {
+	ctx := context.Background()
+	pool := pgtest.Pool(t)
+	_, err := pool.Exec(ctx, `INSERT INTO users (email, display_name, password_hash, roles, is_practitioner, totp_secret_enc)
+		VALUES ('mi@example.com', 'Daw Mi', 'x', '{site_admin}', true, 'sealed') ON CONFLICT DO NOTHING`)
+	require.NoError(t, err)
+	_, err = pool.Exec(ctx, "DELETE FROM availability_rules")
+	require.NoError(t, err)
+	t.Cleanup(func() {
+		_, err := pool.Exec(ctx, "DELETE FROM availability_rules")
+		require.NoError(t, err)
+		_, err = pool.Exec(ctx, "DELETE FROM appointments WHERE visitor_email = 'thandar@example.com'")
+		require.NoError(t, err)
+	})
+	_, err = booking.CreateRule(ctx, pool, booking.Rule{Weekday: 2, Start: "10:00", End: "13:00"})
+	require.NoError(t, err)
+
+	// Tuesday 20 October 2026, 10:00 in Sydney; the clock reads 5 October.
+	a := newAuthAPI(t)
+	const key = "6f1c2c1e-4d7a-4a51-9f0e-0c6f2d9f8b11"
+	res := a.requestAppointment(key, "2026-10-19T23:00:00Z")
+	receipt := decoded(t, http.StatusCreated, res)
+	require.Empty(t, res.Header().Get("Idempotent-Replayed"))
+	require.Equal(t, []string{"durationMinutes", "endsAt", "format", "reference", "service", "startsAt", "status",
+		"timezone"}, keys(receipt), "no id or management token")
+	require.Equal(t, "pending", receipt["status"])
+	require.Equal(t, "2026-10-20T00:00:00Z", receipt["endsAt"])
+
+	replay := a.requestAppointment(key, "2026-10-19T23:00:00Z")
+	require.Equal(t, receipt, decoded(t, http.StatusCreated, replay))
+	require.Equal(t, "true", replay.Header().Get("Idempotent-Replayed"))
+	refused(t, http.StatusUnprocessableEntity, "idempotency_key_reused", a.requestAppointment(key, "2026-10-19T23:30:00Z"))
+
+	taken := refused(t, http.StatusConflict, "slot_unavailable",
+		a.requestAppointment("0b6f6a3e-5c43-4d0e-8a43-2f3b8c1e7d20", "2026-10-19T23:30:00Z"))
+	alternatives := taken["alternatives"].([]any)
+	require.Len(t, alternatives, 5)
+	require.Equal(t, map[string]any{"startsAt": "2026-10-20T00:30:00Z", "endsAt": "2026-10-20T01:30:00Z"},
+		alternatives[0], "the time left that day first, then the next Tuesday's")
+
+	refused(t, http.StatusBadRequest, "invalid_request", a.requestAppointment("", "2026-10-20T00:30:00Z"))
+	refused(t, http.StatusBadRequest, "invalid_request", a.requestAppointment("not-a-uuid", "2026-10-20T00:30:00Z"))
+
+	for _, private := range []string{"Thandar", "thandar@example.com", "Quiet room"} {
+		require.NotContains(t, a.logs.String(), private)
+	}
 }

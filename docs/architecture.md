@@ -200,7 +200,8 @@ content. Daw Mi holds all three roles.
 2. Next calls `POST /public/appointments` with `X-Service-Key`, `X-Visitor-IP`
    and `Idempotency-Key`; middleware rate-limits and validates the body.
 3. `booking.RequestAppointment` opens a transaction and inserts an
-   `idempotency_keys` row (scope `public_appointment`, SHA-256 of the body). If
+   `idempotency_keys` row (scope `public_appointment`, SHA-256 of the body as
+   decoded and re-encoded, so spacing and key order do not matter). If
    the key exists, the insert waits for the other transaction, then returns the
    stored response, or `422 idempotency_key_reused` if the hash differs. A failed
    attempt rolls back its key, so a retry is evaluated afresh.
@@ -225,7 +226,7 @@ content. Daw Mi holds all three roles.
    id `comms:<id>`) and `booking:expire-hold` at `hold_expires_at` (task id
    `hold:<appointment id>`). An enqueue failure is left to the sweepers.
 10. Response `201`: reference, status, service, start, end, duration, format and
-    `timezone`. Next shows "Appointment request received — Status: Pending".
+    `timezone`. A replay answers the stored `201` with `Idempotent-Replayed: true`. Next shows "Appointment request received — Status: Pending".
 
 ### 2. Admin confirm
 
