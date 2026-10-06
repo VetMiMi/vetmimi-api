@@ -53,9 +53,23 @@ func slots(ctx context.Context, q db.Querier, svc db.Service, cur settings.Setti
 	if !bookable(svc) {
 		return Availability{}, errNotBookable
 	}
-	loc, err := cur.Location()
+	in, err := slotInput(ctx, q, svc, time.Duration(svc.DurationMinutes.Int32)*time.Minute, cur, first, last, now,
+		pgtype.UUID{})
 	if err != nil {
 		return Availability{}, err
+	}
+	return Availability{Timezone: cur.Timezone, First: in.First, Last: in.Last, Days: FreeSlots(in)}, nil
+}
+
+// slotInput reads what FreeSlots needs for a session of duration with svc's
+// buffers on local dates first to last. A first date before today is moved
+// to today. except, when valid, is an appointment being moved: its own busy
+// time does not count against it.
+func slotInput(ctx context.Context, q db.Querier, svc db.Service, duration time.Duration, cur settings.Settings,
+	first, last, now time.Time, except pgtype.UUID) (SlotInput, error) {
+	loc, err := cur.Location()
+	if err != nil {
+		return SlotInput{}, err
 	}
 	local := now.In(loc)
 	today := time.Date(local.Year(), local.Month(), local.Day(), 0, 0, 0, 0, time.UTC)
@@ -65,20 +79,21 @@ func slots(ctx context.Context, q db.Querier, svc db.Service, cur settings.Setti
 
 	rules, err := q.ListAvailabilityRules(ctx)
 	if err != nil {
-		return Availability{}, err
+		return SlotInput{}, err
 	}
 	overrides, err := ListOverrides(ctx, q, first, last)
 	if err != nil {
-		return Availability{}, err
+		return SlotInput{}, err
 	}
-	busy, err := q.ListBusyPeriods(ctx, LocalDays(first, last, loc).tstzrange())
+	busy, err := q.ListBusyPeriods(ctx, db.ListBusyPeriodsParams{
+		Within: LocalDays(first, last, loc).tstzrange(), ExceptID: except})
 	if err != nil {
-		return Availability{}, err
+		return SlotInput{}, err
 	}
 	in := SlotInput{
 		Location: loc, First: first, Last: last, Now: now,
 		Rules: rules, Overrides: overrides, Busy: make([]Period, len(busy)),
-		Duration:       time.Duration(svc.DurationMinutes.Int32) * time.Minute,
+		Duration:       duration,
 		BufferBefore:   time.Duration(svc.BufferBeforeMinutes) * time.Minute,
 		BufferAfter:    time.Duration(svc.BufferAfterMinutes) * time.Minute,
 		Step:           time.Duration(cur.SlotStepMinutes) * time.Minute,
@@ -88,7 +103,7 @@ func slots(ctx context.Context, q db.Querier, svc db.Service, cur settings.Setti
 	for i, b := range busy {
 		in.Busy[i] = PeriodOf(b)
 	}
-	return Availability{Timezone: cur.Timezone, First: first, Last: last, Days: FreeSlots(in)}, nil
+	return in, nil
 }
 
 // bookable reports whether visitors may book or request svc.

@@ -7,6 +7,7 @@ import (
 	"time"
 
 	"github.com/jackc/pgx/v5"
+	"github.com/jackc/pgx/v5/pgtype"
 
 	"github.com/VetMiMi/vetmimi-api/internal/db"
 	"github.com/VetMiMi/vetmimi-api/internal/platform/apperr"
@@ -28,9 +29,7 @@ var (
 )
 
 // checkRequest applies the booking rules to r in the order the visitor can
-// act on them, and returns the service. The start must be one of the free
-// slots now, computed exactly as public availability computes them; the
-// exclusion constraint stays the guard against a race this check misses.
+// act on them, and returns the service.
 func checkRequest(ctx context.Context, q db.Querier, cur settings.Settings, r Request, now time.Time) (db.Service, error) {
 	if !cur.PublicBookingEnabled {
 		return db.Service{}, errBookingPaused
@@ -42,45 +41,95 @@ func checkRequest(ctx context.Context, q db.Querier, cur settings.Settings, r Re
 	if err != nil {
 		return db.Service{}, err
 	}
-	if !bookable(svc) {
-		return db.Service{}, errNotBookable
-	}
-	if !slices.Contains(svc.Formats, r.Format) {
-		e := unprocessable("/format", "is not offered for this service")
-		return db.Service{}, &e
+	if err := checkService(svc, r.Format); err != nil {
+		return db.Service{}, err
 	}
 	if !r.PrivacyAcknowledged || !r.PolicyAcknowledged {
 		return db.Service{}, errAcknowledgement
 	}
+	if err := checkWindow(cur, r.StartsAt, now); err != nil {
+		return db.Service{}, err
+	}
+	return svc, checkSlot(ctx, q, cur, slotRequest{Service: svc, Start: r.StartsAt}, now)
+}
 
+// checkService requires svc to take bookings or requests in format.
+func checkService(svc db.Service, format string) error {
+	if !bookable(svc) {
+		return errNotBookable
+	}
+	if !slices.Contains(svc.Formats, format) {
+		e := unprocessable("/format", "is not offered for this service")
+		return &e
+	}
+	return nil
+}
+
+// checkWindow requires start to fall after the minimum notice and before
+// the end of the furthest bookable day.
+func checkWindow(cur settings.Settings, start, now time.Time) error {
 	loc, err := cur.Location()
 	if err != nil {
-		return db.Service{}, err
+		return err
 	}
 	today := now.In(loc)
 	horizon := time.Date(today.Year(), today.Month(), today.Day()+cur.MaxAdvanceDays+1, 0, 0, 0, 0, loc)
-	if r.StartsAt.Before(now.Add(time.Duration(cur.MinNoticeHours)*time.Hour)) || !r.StartsAt.Before(horizon) {
-		return db.Service{}, errOutsideWindow
+	if start.Before(now.Add(time.Duration(cur.MinNoticeHours)*time.Hour)) || !start.Before(horizon) {
+		return errOutsideWindow
 	}
+	return nil
+}
 
-	local := r.StartsAt.In(loc)
-	day := time.Date(local.Year(), local.Month(), local.Day(), 0, 0, 0, 0, time.UTC)
-	free, err := slots(ctx, q, svc, cur, day, day.AddDate(0, 0, alternativeDays-1), now)
+// slotRequest is a start to check against the free slots.
+type slotRequest struct {
+	Service db.Service
+	// Duration is the session's length; zero means the service's.
+	Duration time.Duration
+	Start    time.Time
+	// Moving is an appointment being rescheduled. Its own time counts as
+	// free to it, and Daw Mi may move it inside the minimum notice or past
+	// the furthest bookable day; never onto other busy time.
+	Moving pgtype.UUID
+}
+
+// anyDay stands in for the furthest bookable day when Daw Mi moves an
+// appointment.
+const anyDay = 100 * 365
+
+// checkSlot requires r's start to be one of the free slots now, computed
+// exactly as public availability computes them, and otherwise offers up to
+// five free slots from the same day on. The exclusion constraint stays the
+// guard against a race this check misses.
+func checkSlot(ctx context.Context, q db.Querier, cur settings.Settings, r slotRequest, now time.Time) error {
+	loc, err := cur.Location()
 	if err != nil {
-		return db.Service{}, err
+		return err
+	}
+	duration := r.Duration
+	if duration == 0 {
+		duration = time.Duration(r.Service.DurationMinutes.Int32) * time.Minute
+	}
+	local := r.Start.In(loc)
+	day := time.Date(local.Year(), local.Month(), local.Day(), 0, 0, 0, 0, time.UTC)
+	in, err := slotInput(ctx, q, r.Service, duration, cur, day, day.AddDate(0, 0, alternativeDays-1), now, r.Moving)
+	if err != nil {
+		return err
+	}
+	if r.Moving.Valid {
+		in.MinNotice, in.MaxAdvanceDays = 0, anyDay
 	}
 	var alternatives []Period
-	for _, d := range free.Days {
+	for _, d := range FreeSlots(in) {
 		for _, slot := range d.Slots {
-			if slot.Start.Equal(r.StartsAt) && sameDate(d.Date, day) {
-				return svc, nil
+			if slot.Start.Equal(r.Start) && sameDate(d.Date, day) {
+				return nil
 			}
 			if len(alternatives) < maxAlternatives {
 				alternatives = append(alternatives, slot)
 			}
 		}
 	}
-	return db.Service{}, slotUnavailable(alternatives)
+	return slotUnavailable(alternatives)
 }
 
 // slotJSON is a free slot as the alternatives in a slot_unavailable problem

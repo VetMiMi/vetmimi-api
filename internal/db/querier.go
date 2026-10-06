@@ -34,6 +34,7 @@ type Querier interface {
 	DeleteSession(ctx context.Context, id pgtype.UUID) error
 	DeleteUserSessions(ctx context.Context, userID pgtype.UUID) error
 	FinishIdempotencyKey(ctx context.Context, arg FinishIdempotencyKeyParams) error
+	GetAppointmentDetail(ctx context.Context, id pgtype.UUID) (GetAppointmentDetailRow, error)
 	GetAppointmentForMessage(ctx context.Context, id pgtype.UUID) (GetAppointmentForMessageRow, error)
 	GetCommunication(ctx context.Context, id pgtype.UUID) (Communication, error)
 	GetIdempotencyKey(ctx context.Context, arg GetIdempotencyKeyParams) (IdempotencyKey, error)
@@ -53,13 +54,25 @@ type Querier interface {
 	// InsertIdempotencyKey waits for a transaction holding the same key, then
 	// inserts nothing if that transaction committed.
 	InsertIdempotencyKey(ctx context.Context, arg InsertIdempotencyKeyParams) (int64, error)
+	// ListAppointmentCommunications is an appointment's messages in the order
+	// they were written; rows of one transaction share created_at, so the time
+	// each is due orders them, and the id keeps the order stable.
+	ListAppointmentCommunications(ctx context.Context, appointmentID pgtype.UUID) ([]Communication, error)
+	ListAppointmentEvents(ctx context.Context, appointmentID pgtype.UUID) ([]ListAppointmentEventsRow, error)
+	// ListAppointments serves the admin list (booking.ListAppointments). sort_at
+	// is the hold's end for the pending view and the start otherwise; the page
+	// continues after (@after_at, @after_id) in the list's direction. @past
+	// keeps rows that started before it or are final.
+	ListAppointments(ctx context.Context, arg ListAppointmentsParams) ([]ListAppointmentsRow, error)
 	ListAvailabilityBlocks(ctx context.Context, within pgtype.Range[pgtype.Timestamptz]) ([]AvailabilityBlock, error)
 	ListAvailabilityOverrides(ctx context.Context, arg ListAvailabilityOverridesParams) ([]AvailabilityOverride, error)
 	ListAvailabilityRules(ctx context.Context) ([]AvailabilityRule, error)
 	// ListBusyPeriods is the time slot generation must keep free inside within:
 	// every block and every pending or confirmed appointment's busy range. It
 	// selects the periods alone, never a reason or anything about a visitor.
-	ListBusyPeriods(ctx context.Context, within pgtype.Range[pgtype.Timestamptz]) ([]pgtype.Range[pgtype.Timestamptz], error)
+	// @except_id, when set, is an appointment being moved, whose own time is free
+	// to it.
+	ListBusyPeriods(ctx context.Context, arg ListBusyPeriodsParams) ([]pgtype.Range[pgtype.Timestamptz], error)
 	// ListDueCommunications serves comms:sweep through the partial index on
 	// queued rows.
 	ListDueCommunications(ctx context.Context, arg ListDueCommunicationsParams) ([]ListDueCommunicationsRow, error)
@@ -80,6 +93,10 @@ type Querier interface {
 	// appointment creation share (docs/architecture.md, walkthrough 1, step 5),
 	// keyed by the one practitioner.
 	LockSchedule(ctx context.Context) error
+	// MoveAppointment is a reschedule's one write (ADR-004): the new time is
+	// taken in the same statement that releases the old, so an overlap refuses
+	// the whole move. A pending hold never outlasts the new start.
+	MoveAppointment(ctx context.Context, arg MoveAppointmentParams) (Appointment, error)
 	Ping(ctx context.Context) (int32, error)
 	// PreviousRangeOf is where the latest reschedule moved the appointment from.
 	PreviousRangeOf(ctx context.Context, appointmentID pgtype.UUID) (pgtype.Range[pgtype.Timestamptz], error)
@@ -95,8 +112,10 @@ type Querier interface {
 	// RescheduleQueuedReminders moves every queued reminder to its start less
 	// @hours, the new reminder_hours.
 	RescheduleQueuedReminders(ctx context.Context, hours int32) ([]RescheduleQueuedRemindersRow, error)
+	SetAppointmentNote(ctx context.Context, arg SetAppointmentNoteParams) (Appointment, error)
 	// SetAppointmentStatus is the one write of a status change; the caller has
-	// checked it with booking.CanTransition.
+	// checked it with booking.CanTransition. Only a pending or expired request
+	// keeps its hold.
 	SetAppointmentStatus(ctx context.Context, arg SetAppointmentStatusParams) (Appointment, error)
 	SetCommunicationStatus(ctx context.Context, arg SetCommunicationStatusParams) (int64, error)
 	TouchSession(ctx context.Context, arg TouchSessionParams) error

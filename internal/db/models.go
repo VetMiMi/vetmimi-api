@@ -108,6 +108,7 @@ type Communication struct {
 	CreatedBy         pgtype.UUID
 	Note              pgtype.Text
 	CreatedAt         time.Time
+	Message           pgtype.Text
 }
 
 type IdempotencyKey struct {

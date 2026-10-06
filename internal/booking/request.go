@@ -87,7 +87,7 @@ func RequestAppointment(ctx context.Context, pool *pgxpool.Pool, secret []byte, 
 		return idempotency.Finish(ctx, q, idempotency.PublicAppointment, r.IdempotencyKey,
 			out.AppointmentID, created, out.Receipt)
 	})
-	return out, err
+	return out, countConflict("website", err)
 }
 
 func request(ctx context.Context, q *db.Queries, secret []byte, r Request, now time.Time) (Requested, error) {
@@ -127,16 +127,13 @@ func request(ctx context.Context, q *db.Queries, secret []byte, r Request, now t
 		PolicyAckAt:    ack,
 	}
 	if status == Pending {
-		hold := now.Add(time.Duration(cur.PendingHoldHours) * time.Hour)
-		if r.StartsAt.Before(hold) {
-			hold = r.StartsAt
-		}
-		a.HoldExpiresAt = sql.NullTime{Time: hold, Valid: true}
+		a.HoldExpiresAt = holdUntil(cur, r.StartsAt, now)
 	}
 	appt, err := InsertAppointment(ctx, q, secret, a)
 	if err != nil {
 		return Requested{}, withAlternatives(err)
 	}
+	appointmentsCreated.Add(a.Source, 1)
 	if err := AppendEvent(ctx, q, Event{AppointmentID: appt.ID, Kind: "created", To: status, Actor: "visitor"}); err != nil {
 		return Requested{}, err
 	}
@@ -164,7 +161,7 @@ func request(ctx context.Context, q *db.Queries, secret []byte, r Request, now t
 // tasks for them and, while it is pending, for its hold's expiry.
 func notifyRequested(ctx context.Context, q db.Querier, appt db.Appointment, cur settings.Settings, now time.Time) ([]platform.Task, error) {
 	if Status(appt.Status) == Confirmed {
-		tasks, err := afterConfirm(ctx, q, appt, cur, now)
+		tasks, err := afterConfirm(ctx, q, appt, cur, now, true)
 		if err != nil {
 			return nil, err
 		}
@@ -186,15 +183,30 @@ func notifyRequested(ctx context.Context, q db.Querier, appt db.Appointment, cur
 }
 
 // afterConfirm queues what confirming an appointment sends the visitor: the
-// confirmation and the reminder.
-func afterConfirm(ctx context.Context, q db.Querier, appt db.Appointment, cur settings.Settings, now time.Time) ([]platform.Task, error) {
-	task, err := comms.Queue(ctx, q, comms.Message{AppointmentID: appt.ID,
-		Kind: comms.BookingConfirmed, Recipient: appt.VisitorEmail, Locale: appt.Locale})
-	if err != nil {
-		return nil, err
+// confirmation, unless Daw Mi tells them herself, and the reminder.
+// Confirmation, instant booking and manual booking all end here.
+func afterConfirm(ctx context.Context, q db.Querier, appt db.Appointment, cur settings.Settings, now time.Time, notify bool) ([]platform.Task, error) {
+	var tasks []platform.Task
+	if notify {
+		task, err := comms.Queue(ctx, q, comms.Message{AppointmentID: appt.ID,
+			Kind: comms.BookingConfirmed, Recipient: appt.VisitorEmail, Locale: appt.Locale})
+		if err != nil {
+			return nil, err
+		}
+		tasks = append(tasks, task)
 	}
 	reminder, err := ScheduleReminder(ctx, q, appt, cur.ReminderHours, now)
-	return append([]platform.Task{task}, reminder...), err
+	return append(tasks, reminder...), err
+}
+
+// holdUntil is when a request made now for start stops holding its slot:
+// after pending_hold_hours, or at the start if that comes first.
+func holdUntil(cur settings.Settings, start, now time.Time) sql.NullTime {
+	hold := now.Add(time.Duration(cur.PendingHoldHours) * time.Hour)
+	if start.Before(hold) {
+		hold = start
+	}
+	return sql.NullTime{Time: hold, Valid: true}
 }
 
 func optionalText(s string) pgtype.Text {

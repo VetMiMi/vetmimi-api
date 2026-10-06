@@ -350,6 +350,10 @@ content. Daw Mi holds all three roles.
   neighbouring buffers do not overlap. Tests cover both Sydney transition Sundays.
 - Public availability takes `from` and `to` as local dates in the practice
   timezone; the response lists slot instants in UTC.
+- Manual bookings use the same slots and window as the public site. A
+  reschedule must land on a free slot too (its own old time counting as free),
+  but Daw Mi may move an appointment inside `min_notice_hours` or past
+  `max_advance_days`; only a start in the past is refused.
 - Durations and offsets (`reminder_hours`, `pending_hold_hours`,
   `min_notice_hours`) are absolute hours, so a 24-hour reminder is 24 real hours
   even across a daylight-saving change.

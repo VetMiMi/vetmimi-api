@@ -14,17 +14,100 @@ import (
 	"github.com/jackc/pgx/v5/pgtype"
 )
 
+const getAppointmentDetail = `-- name: GetAppointmentDetail :one
+SELECT a.id, a.reference, a.practitioner_id, a.service_id, a.status, a.starts_at, a.ends_at, a.duration_minutes, a.busy_range, a.timezone, a.format, a.locale, a.source, a.visitor_name, a.visitor_email, a.visitor_phone, a.visitor_note, a.privacy_ack_at, a.policy_ack_at, a.hold_expires_at, a.management_token_seed, a.management_token_hash, a.meeting_link, a.admin_note, a.late_cancellation, a.status_changed_at, a.created_by, a.version, a.created_at, a.updated_at, s.slug AS service_slug, s.name AS service_name
+FROM appointments a
+JOIN services s ON s.id = a.service_id
+WHERE a.id = $1
+`
+
+type GetAppointmentDetailRow struct {
+	ID                  pgtype.UUID
+	Reference           string
+	PractitionerID      pgtype.UUID
+	ServiceID           pgtype.UUID
+	Status              string
+	StartsAt            time.Time
+	EndsAt              time.Time
+	DurationMinutes     int32
+	BusyRange           pgtype.Range[pgtype.Timestamptz]
+	Timezone            string
+	Format              string
+	Locale              string
+	Source              string
+	VisitorName         string
+	VisitorEmail        string
+	VisitorPhone        pgtype.Text
+	VisitorNote         pgtype.Text
+	PrivacyAckAt        sql.NullTime
+	PolicyAckAt         sql.NullTime
+	HoldExpiresAt       sql.NullTime
+	ManagementTokenSeed []byte
+	ManagementTokenHash []byte
+	MeetingLink         pgtype.Text
+	AdminNote           pgtype.Text
+	LateCancellation    bool
+	StatusChangedAt     time.Time
+	CreatedBy           pgtype.UUID
+	Version             int32
+	CreatedAt           time.Time
+	UpdatedAt           time.Time
+	ServiceSlug         string
+	ServiceName         json.RawMessage
+}
+
+func (q *Queries) GetAppointmentDetail(ctx context.Context, id pgtype.UUID) (GetAppointmentDetailRow, error) {
+	row := q.db.QueryRow(ctx, getAppointmentDetail, id)
+	var i GetAppointmentDetailRow
+	err := row.Scan(
+		&i.ID,
+		&i.Reference,
+		&i.PractitionerID,
+		&i.ServiceID,
+		&i.Status,
+		&i.StartsAt,
+		&i.EndsAt,
+		&i.DurationMinutes,
+		&i.BusyRange,
+		&i.Timezone,
+		&i.Format,
+		&i.Locale,
+		&i.Source,
+		&i.VisitorName,
+		&i.VisitorEmail,
+		&i.VisitorPhone,
+		&i.VisitorNote,
+		&i.PrivacyAckAt,
+		&i.PolicyAckAt,
+		&i.HoldExpiresAt,
+		&i.ManagementTokenSeed,
+		&i.ManagementTokenHash,
+		&i.MeetingLink,
+		&i.AdminNote,
+		&i.LateCancellation,
+		&i.StatusChangedAt,
+		&i.CreatedBy,
+		&i.Version,
+		&i.CreatedAt,
+		&i.UpdatedAt,
+		&i.ServiceSlug,
+		&i.ServiceName,
+	)
+	return i, err
+}
+
 const insertAppointment = `-- name: InsertAppointment :one
 INSERT INTO appointments (
     reference, practitioner_id, service_id, status, starts_at, ends_at, duration_minutes,
     busy_range, timezone, format, locale, source, visitor_name, visitor_email, visitor_phone,
     visitor_note, privacy_ack_at, policy_ack_at, hold_expires_at, management_token_seed,
-    management_token_hash, created_by
+    management_token_hash, created_by, admin_note
 ) VALUES (
     $1, $2, $3, $4, $5, $6, $7,
     $8, $9, $10, $11, $12, $13, $14,
     $15, $16, $17, $18,
-    $19, $20, $21, $22
+    $19, $20, $21, $22,
+    $23
 )
 ON CONFLICT (reference) DO NOTHING
 RETURNING id, reference, practitioner_id, service_id, status, starts_at, ends_at, duration_minutes, busy_range, timezone, format, locale, source, visitor_name, visitor_email, visitor_phone, visitor_note, privacy_ack_at, policy_ack_at, hold_expires_at, management_token_seed, management_token_hash, meeting_link, admin_note, late_cancellation, status_changed_at, created_by, version, created_at, updated_at
@@ -53,6 +136,7 @@ type InsertAppointmentParams struct {
 	ManagementTokenSeed []byte
 	ManagementTokenHash []byte
 	CreatedBy           pgtype.UUID
+	AdminNote           pgtype.Text
 }
 
 // InsertAppointment does nothing on a reference collision, so the caller can
@@ -82,6 +166,7 @@ func (q *Queries) InsertAppointment(ctx context.Context, arg InsertAppointmentPa
 		arg.ManagementTokenSeed,
 		arg.ManagementTokenHash,
 		arg.CreatedBy,
+		arg.AdminNote,
 	)
 	var i Appointment
 	err := row.Scan(
@@ -117,6 +202,130 @@ func (q *Queries) InsertAppointment(ctx context.Context, arg InsertAppointmentPa
 		&i.UpdatedAt,
 	)
 	return i, err
+}
+
+const listAppointments = `-- name: ListAppointments :many
+WITH listed AS (
+    SELECT a.id, a.reference, a.status, a.starts_at, a.ends_at, a.duration_minutes, a.timezone,
+           a.format, a.source, a.visitor_name, a.hold_expires_at, a.created_at, a.updated_at,
+           a.service_id,
+           CASE WHEN $5::bool THEN coalesce(a.hold_expires_at, a.starts_at)
+                ELSE a.starts_at END AS sort_at
+    FROM appointments a
+    WHERE a.status = ANY($6::text[])
+      AND ($7::timestamptz IS NULL OR a.starts_at >= $7)
+      AND ($8::timestamptz IS NULL OR a.starts_at < $8)
+      AND ($9::timestamptz IS NULL OR a.starts_at < $9
+           OR a.status NOT IN ('pending', 'confirmed'))
+      AND ($10::uuid IS NULL OR a.service_id = $10)
+      AND ($11::text IS NULL OR a.format = $11)
+      AND ($12::text IS NULL OR a.reference ILIKE $12
+           OR a.visitor_name ILIKE $12 OR a.visitor_email ILIKE $12)
+)
+SELECT l.id, l.reference, l.status, l.starts_at, l.ends_at, l.duration_minutes, l.timezone,
+       l.format, l.source, l.visitor_name, l.hold_expires_at, l.created_at, l.updated_at,
+       l.sort_at::timestamptz AS sort_at,
+       s.id AS service_id, s.slug AS service_slug, s.name AS service_name
+FROM listed l
+JOIN services s ON s.id = l.service_id
+WHERE $1::timestamptz IS NULL
+   OR ($2::bool AND (l.sort_at, l.id) > ($1, $3::uuid))
+   OR (NOT $2::bool AND (l.sort_at, l.id) < ($1, $3::uuid))
+ORDER BY CASE WHEN $2::bool THEN l.sort_at END,
+         CASE WHEN $2::bool THEN l.id END,
+         CASE WHEN NOT $2::bool THEN l.sort_at END DESC,
+         CASE WHEN NOT $2::bool THEN l.id END DESC
+LIMIT $4
+`
+
+type ListAppointmentsParams struct {
+	AfterAt      sql.NullTime
+	Ascending    bool
+	AfterID      pgtype.UUID
+	MaxRows      int32
+	ByHold       bool
+	Statuses     []string
+	StartsFrom   sql.NullTime
+	StartsBefore sql.NullTime
+	Past         sql.NullTime
+	ServiceID    pgtype.UUID
+	Format       pgtype.Text
+	Search       pgtype.Text
+}
+
+type ListAppointmentsRow struct {
+	ID              pgtype.UUID
+	Reference       string
+	Status          string
+	StartsAt        time.Time
+	EndsAt          time.Time
+	DurationMinutes int32
+	Timezone        string
+	Format          string
+	Source          string
+	VisitorName     string
+	HoldExpiresAt   sql.NullTime
+	CreatedAt       time.Time
+	UpdatedAt       time.Time
+	SortAt          time.Time
+	ServiceID       pgtype.UUID
+	ServiceSlug     string
+	ServiceName     json.RawMessage
+}
+
+// ListAppointments serves the admin list (booking.ListAppointments). sort_at
+// is the hold's end for the pending view and the start otherwise; the page
+// continues after (@after_at, @after_id) in the list's direction. @past
+// keeps rows that started before it or are final.
+func (q *Queries) ListAppointments(ctx context.Context, arg ListAppointmentsParams) ([]ListAppointmentsRow, error) {
+	rows, err := q.db.Query(ctx, listAppointments,
+		arg.AfterAt,
+		arg.Ascending,
+		arg.AfterID,
+		arg.MaxRows,
+		arg.ByHold,
+		arg.Statuses,
+		arg.StartsFrom,
+		arg.StartsBefore,
+		arg.Past,
+		arg.ServiceID,
+		arg.Format,
+		arg.Search,
+	)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	items := []ListAppointmentsRow{}
+	for rows.Next() {
+		var i ListAppointmentsRow
+		if err := rows.Scan(
+			&i.ID,
+			&i.Reference,
+			&i.Status,
+			&i.StartsAt,
+			&i.EndsAt,
+			&i.DurationMinutes,
+			&i.Timezone,
+			&i.Format,
+			&i.Source,
+			&i.VisitorName,
+			&i.HoldExpiresAt,
+			&i.CreatedAt,
+			&i.UpdatedAt,
+			&i.SortAt,
+			&i.ServiceID,
+			&i.ServiceSlug,
+			&i.ServiceName,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
 }
 
 const listOverdueHolds = `-- name: ListOverdueHolds :many
@@ -274,9 +483,125 @@ func (q *Queries) LockSchedule(ctx context.Context) error {
 	return err
 }
 
+const moveAppointment = `-- name: MoveAppointment :one
+UPDATE appointments
+SET starts_at = $1, ends_at = $2, busy_range = $3,
+    hold_expires_at = CASE WHEN status = 'pending' THEN least(hold_expires_at, $1) END,
+    updated_at = $4, version = version + 1
+WHERE id = $5
+RETURNING id, reference, practitioner_id, service_id, status, starts_at, ends_at, duration_minutes, busy_range, timezone, format, locale, source, visitor_name, visitor_email, visitor_phone, visitor_note, privacy_ack_at, policy_ack_at, hold_expires_at, management_token_seed, management_token_hash, meeting_link, admin_note, late_cancellation, status_changed_at, created_by, version, created_at, updated_at
+`
+
+type MoveAppointmentParams struct {
+	StartsAt  time.Time
+	EndsAt    time.Time
+	BusyRange pgtype.Range[pgtype.Timestamptz]
+	Now       time.Time
+	ID        pgtype.UUID
+}
+
+// MoveAppointment is a reschedule's one write (ADR-004): the new time is
+// taken in the same statement that releases the old, so an overlap refuses
+// the whole move. A pending hold never outlasts the new start.
+func (q *Queries) MoveAppointment(ctx context.Context, arg MoveAppointmentParams) (Appointment, error) {
+	row := q.db.QueryRow(ctx, moveAppointment,
+		arg.StartsAt,
+		arg.EndsAt,
+		arg.BusyRange,
+		arg.Now,
+		arg.ID,
+	)
+	var i Appointment
+	err := row.Scan(
+		&i.ID,
+		&i.Reference,
+		&i.PractitionerID,
+		&i.ServiceID,
+		&i.Status,
+		&i.StartsAt,
+		&i.EndsAt,
+		&i.DurationMinutes,
+		&i.BusyRange,
+		&i.Timezone,
+		&i.Format,
+		&i.Locale,
+		&i.Source,
+		&i.VisitorName,
+		&i.VisitorEmail,
+		&i.VisitorPhone,
+		&i.VisitorNote,
+		&i.PrivacyAckAt,
+		&i.PolicyAckAt,
+		&i.HoldExpiresAt,
+		&i.ManagementTokenSeed,
+		&i.ManagementTokenHash,
+		&i.MeetingLink,
+		&i.AdminNote,
+		&i.LateCancellation,
+		&i.StatusChangedAt,
+		&i.CreatedBy,
+		&i.Version,
+		&i.CreatedAt,
+		&i.UpdatedAt,
+	)
+	return i, err
+}
+
+const setAppointmentNote = `-- name: SetAppointmentNote :one
+UPDATE appointments
+SET admin_note = $1, updated_at = $2, version = version + 1
+WHERE id = $3
+RETURNING id, reference, practitioner_id, service_id, status, starts_at, ends_at, duration_minutes, busy_range, timezone, format, locale, source, visitor_name, visitor_email, visitor_phone, visitor_note, privacy_ack_at, policy_ack_at, hold_expires_at, management_token_seed, management_token_hash, meeting_link, admin_note, late_cancellation, status_changed_at, created_by, version, created_at, updated_at
+`
+
+type SetAppointmentNoteParams struct {
+	AdminNote pgtype.Text
+	Now       time.Time
+	ID        pgtype.UUID
+}
+
+func (q *Queries) SetAppointmentNote(ctx context.Context, arg SetAppointmentNoteParams) (Appointment, error) {
+	row := q.db.QueryRow(ctx, setAppointmentNote, arg.AdminNote, arg.Now, arg.ID)
+	var i Appointment
+	err := row.Scan(
+		&i.ID,
+		&i.Reference,
+		&i.PractitionerID,
+		&i.ServiceID,
+		&i.Status,
+		&i.StartsAt,
+		&i.EndsAt,
+		&i.DurationMinutes,
+		&i.BusyRange,
+		&i.Timezone,
+		&i.Format,
+		&i.Locale,
+		&i.Source,
+		&i.VisitorName,
+		&i.VisitorEmail,
+		&i.VisitorPhone,
+		&i.VisitorNote,
+		&i.PrivacyAckAt,
+		&i.PolicyAckAt,
+		&i.HoldExpiresAt,
+		&i.ManagementTokenSeed,
+		&i.ManagementTokenHash,
+		&i.MeetingLink,
+		&i.AdminNote,
+		&i.LateCancellation,
+		&i.StatusChangedAt,
+		&i.CreatedBy,
+		&i.Version,
+		&i.CreatedAt,
+		&i.UpdatedAt,
+	)
+	return i, err
+}
+
 const setAppointmentStatus = `-- name: SetAppointmentStatus :one
 UPDATE appointments
-SET status = $1, status_changed_at = $2, updated_at = $2, version = version + 1
+SET status = $1, status_changed_at = $2, updated_at = $2, version = version + 1,
+    hold_expires_at = CASE WHEN $1 IN ('pending', 'expired') THEN hold_expires_at END
 WHERE id = $3
 RETURNING id, reference, practitioner_id, service_id, status, starts_at, ends_at, duration_minutes, busy_range, timezone, format, locale, source, visitor_name, visitor_email, visitor_phone, visitor_note, privacy_ack_at, policy_ack_at, hold_expires_at, management_token_seed, management_token_hash, meeting_link, admin_note, late_cancellation, status_changed_at, created_by, version, created_at, updated_at
 `
@@ -288,7 +613,8 @@ type SetAppointmentStatusParams struct {
 }
 
 // SetAppointmentStatus is the one write of a status change; the caller has
-// checked it with booking.CanTransition.
+// checked it with booking.CanTransition. Only a pending or expired request
+// keeps its hold.
 func (q *Queries) SetAppointmentStatus(ctx context.Context, arg SetAppointmentStatusParams) (Appointment, error) {
 	row := q.db.QueryRow(ctx, setAppointmentStatus, arg.Status, arg.Now, arg.ID)
 	var i Appointment

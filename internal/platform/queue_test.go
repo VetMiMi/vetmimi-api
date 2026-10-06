@@ -98,7 +98,20 @@ func TestReplaceMovesAWaitingTask(t *testing.T) {
 	require.NoError(t, err)
 	require.Equal(t, first.Add(time.Hour), info.NextProcessAt.Truncate(time.Second))
 	require.Equal(t, 2, tw.queueInfo(t, QueueCritical).Scheduled, "a task with no old copy is added")
-	require.Empty(t, tw.logs.entries("replace_failed"))
+	require.Empty(t, tw.logs.entries("remove_failed"))
+}
+
+// A confirmed request's hold expiry is taken off the queue; one already gone
+// is no failure.
+func TestRemoveDeletesAWaitingTask(t *testing.T) {
+	tw := newTestWorker(t)
+	task := Task{Type: "test:hold", ID: "hold:7", ProcessAt: time.Now().Add(time.Hour)}
+	tw.queue.Enqueue(context.Background(), task)
+	require.Equal(t, 1, tw.queueInfo(t, QueueDefault).Scheduled)
+
+	tw.queue.Remove(task, Task{Type: "test:hold", ID: "hold:8"})
+	require.Equal(t, 0, tw.queueInfo(t, QueueDefault).Scheduled)
+	require.Empty(t, tw.logs.entries("remove_failed"))
 }
 
 func TestEnqueueFailureIsLoggedNotReturned(t *testing.T) {

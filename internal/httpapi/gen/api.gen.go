@@ -23,6 +23,135 @@ import (
 	openapi_types "github.com/oapi-codegen/runtime/types"
 )
 
+// Defines values for AppointmentAction.
+const (
+	AppointmentActionCancel           AppointmentAction = "cancel"
+	AppointmentActionComplete         AppointmentAction = "complete"
+	AppointmentActionConfirm          AppointmentAction = "confirm"
+	AppointmentActionDecline          AppointmentAction = "decline"
+	AppointmentActionEndVideo         AppointmentAction = "end_video"
+	AppointmentActionMarkCommunicated AppointmentAction = "mark_communicated"
+	AppointmentActionNoShow           AppointmentAction = "no_show"
+	AppointmentActionReschedule       AppointmentAction = "reschedule"
+	AppointmentActionSetMeetingLink   AppointmentAction = "set_meeting_link"
+	AppointmentActionSetNote          AppointmentAction = "set_note"
+	AppointmentActionStartVideo       AppointmentAction = "start_video"
+)
+
+// Valid indicates whether the value is a known member of the AppointmentAction enum.
+func (e AppointmentAction) Valid() bool {
+	switch e {
+	case AppointmentActionCancel:
+		return true
+	case AppointmentActionComplete:
+		return true
+	case AppointmentActionConfirm:
+		return true
+	case AppointmentActionDecline:
+		return true
+	case AppointmentActionEndVideo:
+		return true
+	case AppointmentActionMarkCommunicated:
+		return true
+	case AppointmentActionNoShow:
+		return true
+	case AppointmentActionReschedule:
+		return true
+	case AppointmentActionSetMeetingLink:
+		return true
+	case AppointmentActionSetNote:
+		return true
+	case AppointmentActionStartVideo:
+		return true
+	default:
+		return false
+	}
+}
+
+// Defines values for AppointmentDetailSource.
+const (
+	AppointmentDetailSourceManual  AppointmentDetailSource = "manual"
+	AppointmentDetailSourceWebsite AppointmentDetailSource = "website"
+)
+
+// Valid indicates whether the value is a known member of the AppointmentDetailSource enum.
+func (e AppointmentDetailSource) Valid() bool {
+	switch e {
+	case AppointmentDetailSourceManual:
+		return true
+	case AppointmentDetailSourceWebsite:
+		return true
+	default:
+		return false
+	}
+}
+
+// Defines values for AppointmentEventActor.
+const (
+	AppointmentEventActorAdmin   AppointmentEventActor = "admin"
+	AppointmentEventActorSystem  AppointmentEventActor = "system"
+	AppointmentEventActorVisitor AppointmentEventActor = "visitor"
+)
+
+// Valid indicates whether the value is a known member of the AppointmentEventActor enum.
+func (e AppointmentEventActor) Valid() bool {
+	switch e {
+	case AppointmentEventActorAdmin:
+		return true
+	case AppointmentEventActorSystem:
+		return true
+	case AppointmentEventActorVisitor:
+		return true
+	default:
+		return false
+	}
+}
+
+// Defines values for AppointmentEventKind.
+const (
+	AppointmentEventKindCancelled           AppointmentEventKind = "cancelled"
+	AppointmentEventKindCompleted           AppointmentEventKind = "completed"
+	AppointmentEventKindConfirmed           AppointmentEventKind = "confirmed"
+	AppointmentEventKindCreated             AppointmentEventKind = "created"
+	AppointmentEventKindDeclined            AppointmentEventKind = "declined"
+	AppointmentEventKindExpired             AppointmentEventKind = "expired"
+	AppointmentEventKindMeetingLinkSet      AppointmentEventKind = "meeting_link_set"
+	AppointmentEventKindNoShow              AppointmentEventKind = "no_show"
+	AppointmentEventKindNoteUpdated         AppointmentEventKind = "note_updated"
+	AppointmentEventKindRescheduleRequested AppointmentEventKind = "reschedule_requested"
+	AppointmentEventKindRescheduled         AppointmentEventKind = "rescheduled"
+)
+
+// Valid indicates whether the value is a known member of the AppointmentEventKind enum.
+func (e AppointmentEventKind) Valid() bool {
+	switch e {
+	case AppointmentEventKindCancelled:
+		return true
+	case AppointmentEventKindCompleted:
+		return true
+	case AppointmentEventKindConfirmed:
+		return true
+	case AppointmentEventKindCreated:
+		return true
+	case AppointmentEventKindDeclined:
+		return true
+	case AppointmentEventKindExpired:
+		return true
+	case AppointmentEventKindMeetingLinkSet:
+		return true
+	case AppointmentEventKindNoShow:
+		return true
+	case AppointmentEventKindNoteUpdated:
+		return true
+	case AppointmentEventKindRescheduleRequested:
+		return true
+	case AppointmentEventKindRescheduled:
+		return true
+	default:
+		return false
+	}
+}
+
 // Defines values for AppointmentRequestCreatePolicyAcknowledged.
 const (
 	AppointmentRequestCreatePolicyAcknowledgedTrue AppointmentRequestCreatePolicyAcknowledged = true
@@ -109,16 +238,16 @@ func (e AppointmentStatus) Valid() bool {
 
 // Defines values for AppointmentSummarySource.
 const (
-	Manual  AppointmentSummarySource = "manual"
-	Website AppointmentSummarySource = "website"
+	AppointmentSummarySourceManual  AppointmentSummarySource = "manual"
+	AppointmentSummarySourceWebsite AppointmentSummarySource = "website"
 )
 
 // Valid indicates whether the value is a known member of the AppointmentSummarySource enum.
 func (e AppointmentSummarySource) Valid() bool {
 	switch e {
-	case Manual:
+	case AppointmentSummarySourceManual:
 		return true
-	case Website:
+	case AppointmentSummarySourceWebsite:
 		return true
 	default:
 		return false
@@ -185,6 +314,114 @@ func (e BookingAction) Valid() bool {
 	}
 }
 
+// Defines values for CommunicationAudience.
+const (
+	CommunicationAudiencePractitioner CommunicationAudience = "practitioner"
+	CommunicationAudienceVisitor      CommunicationAudience = "visitor"
+)
+
+// Valid indicates whether the value is a known member of the CommunicationAudience enum.
+func (e CommunicationAudience) Valid() bool {
+	switch e {
+	case CommunicationAudiencePractitioner:
+		return true
+	case CommunicationAudienceVisitor:
+		return true
+	default:
+		return false
+	}
+}
+
+// Defines values for CommunicationChannel.
+const (
+	CommunicationChannelEmail  CommunicationChannel = "email"
+	CommunicationChannelManual CommunicationChannel = "manual"
+)
+
+// Valid indicates whether the value is a known member of the CommunicationChannel enum.
+func (e CommunicationChannel) Valid() bool {
+	switch e {
+	case CommunicationChannelEmail:
+		return true
+	case CommunicationChannelManual:
+		return true
+	default:
+		return false
+	}
+}
+
+// Defines values for CommunicationKind.
+const (
+	CommunicationKindBookingConfirmed                CommunicationKind = "booking_confirmed"
+	CommunicationKindCancelled                       CommunicationKind = "cancelled"
+	CommunicationKindPractitionerClientCancelled     CommunicationKind = "practitioner_client_cancelled"
+	CommunicationKindPractitionerNewBooking          CommunicationKind = "practitioner_new_booking"
+	CommunicationKindPractitionerNewEnquiry          CommunicationKind = "practitioner_new_enquiry"
+	CommunicationKindPractitionerNewRequest          CommunicationKind = "practitioner_new_request"
+	CommunicationKindPractitionerRescheduleRequested CommunicationKind = "practitioner_reschedule_requested"
+	CommunicationKindReminder                        CommunicationKind = "reminder"
+	CommunicationKindRequestDeclined                 CommunicationKind = "request_declined"
+	CommunicationKindRequestExpired                  CommunicationKind = "request_expired"
+	CommunicationKindRequestReceived                 CommunicationKind = "request_received"
+	CommunicationKindRescheduled                     CommunicationKind = "rescheduled"
+)
+
+// Valid indicates whether the value is a known member of the CommunicationKind enum.
+func (e CommunicationKind) Valid() bool {
+	switch e {
+	case CommunicationKindBookingConfirmed:
+		return true
+	case CommunicationKindCancelled:
+		return true
+	case CommunicationKindPractitionerClientCancelled:
+		return true
+	case CommunicationKindPractitionerNewBooking:
+		return true
+	case CommunicationKindPractitionerNewEnquiry:
+		return true
+	case CommunicationKindPractitionerNewRequest:
+		return true
+	case CommunicationKindPractitionerRescheduleRequested:
+		return true
+	case CommunicationKindReminder:
+		return true
+	case CommunicationKindRequestDeclined:
+		return true
+	case CommunicationKindRequestExpired:
+		return true
+	case CommunicationKindRequestReceived:
+		return true
+	case CommunicationKindRescheduled:
+		return true
+	default:
+		return false
+	}
+}
+
+// Defines values for CommunicationStatus.
+const (
+	CommunicationStatusCancelled CommunicationStatus = "cancelled"
+	CommunicationStatusFailed    CommunicationStatus = "failed"
+	CommunicationStatusQueued    CommunicationStatus = "queued"
+	CommunicationStatusSent      CommunicationStatus = "sent"
+)
+
+// Valid indicates whether the value is a known member of the CommunicationStatus enum.
+func (e CommunicationStatus) Valid() bool {
+	switch e {
+	case CommunicationStatusCancelled:
+		return true
+	case CommunicationStatusFailed:
+		return true
+	case CommunicationStatusQueued:
+		return true
+	case CommunicationStatusSent:
+		return true
+	default:
+		return false
+	}
+}
+
 // Defines values for Format.
 const (
 	InPerson Format = "in_person"
@@ -230,6 +467,24 @@ func (e Locale) Valid() bool {
 	case En:
 		return true
 	case My:
+		return true
+	default:
+		return false
+	}
+}
+
+// Defines values for ManualAppointmentCreateStatus.
+const (
+	ManualAppointmentCreateStatusConfirmed ManualAppointmentCreateStatus = "confirmed"
+	ManualAppointmentCreateStatusPending   ManualAppointmentCreateStatus = "pending"
+)
+
+// Valid indicates whether the value is a known member of the ManualAppointmentCreateStatus enum.
+func (e ManualAppointmentCreateStatus) Valid() bool {
+	switch e {
+	case ManualAppointmentCreateStatusConfirmed:
+		return true
+	case ManualAppointmentCreateStatusPending:
 		return true
 	default:
 		return false
@@ -506,6 +761,170 @@ func (e SettingsPatchPaymentMethods) Valid() bool {
 	}
 }
 
+// Defines values for VideoRoomSummaryState.
+const (
+	Ended     VideoRoomSummaryState = "ended"
+	InSession VideoRoomSummaryState = "in_session"
+	Waiting   VideoRoomSummaryState = "waiting"
+)
+
+// Valid indicates whether the value is a known member of the VideoRoomSummaryState enum.
+func (e VideoRoomSummaryState) Valid() bool {
+	switch e {
+	case Ended:
+		return true
+	case InSession:
+		return true
+	case Waiting:
+		return true
+	default:
+		return false
+	}
+}
+
+// Defines values for ListAppointmentsParamsView.
+const (
+	ListAppointmentsParamsViewAll       ListAppointmentsParamsView = "all"
+	ListAppointmentsParamsViewCancelled ListAppointmentsParamsView = "cancelled"
+	ListAppointmentsParamsViewPast      ListAppointmentsParamsView = "past"
+	ListAppointmentsParamsViewPending   ListAppointmentsParamsView = "pending"
+	ListAppointmentsParamsViewUpcoming  ListAppointmentsParamsView = "upcoming"
+)
+
+// Valid indicates whether the value is a known member of the ListAppointmentsParamsView enum.
+func (e ListAppointmentsParamsView) Valid() bool {
+	switch e {
+	case ListAppointmentsParamsViewAll:
+		return true
+	case ListAppointmentsParamsViewCancelled:
+		return true
+	case ListAppointmentsParamsViewPast:
+		return true
+	case ListAppointmentsParamsViewPending:
+		return true
+	case ListAppointmentsParamsViewUpcoming:
+		return true
+	default:
+		return false
+	}
+}
+
+// AppointmentAction defines model for AppointmentAction.
+type AppointmentAction string
+
+// AppointmentDetail defines model for AppointmentDetail.
+type AppointmentDetail struct {
+	// AdminNote Private scheduling note.
+	AdminNote      *string             `json:"adminNote,omitempty"`
+	AllowedActions []AppointmentAction `json:"allowedActions"`
+	Communications []Communication     `json:"communications"`
+
+	// CreatedAt UTC timestamp (RFC 3339).
+	CreatedAt       time.Time `json:"createdAt"`
+	DurationMinutes int       `json:"durationMinutes"`
+
+	// EndsAt UTC timestamp (RFC 3339).
+	EndsAt time.Time          `json:"endsAt"`
+	Events []AppointmentEvent `json:"events"`
+
+	// Format Appointment format. Online only at launch.
+	Format Format `json:"format"`
+
+	// HoldExpiresAt Set while pending.
+	HoldExpiresAt    *time.Time         `json:"holdExpiresAt,omitempty"`
+	Id               openapi_types.UUID `json:"id"`
+	LateCancellation bool               `json:"lateCancellation"`
+
+	// Locale Site language: English or Burmese.
+	Locale      Locale  `json:"locale"`
+	MeetingLink *string `json:"meetingLink,omitempty"`
+
+	// PolicyAcknowledgedAt UTC timestamp (RFC 3339).
+	PolicyAcknowledgedAt *time.Time `json:"policyAcknowledgedAt,omitempty"`
+
+	// PrivacyAcknowledgedAt UTC timestamp (RFC 3339).
+	PrivacyAcknowledgedAt *time.Time              `json:"privacyAcknowledgedAt,omitempty"`
+	Reference             string                  `json:"reference"`
+	Service               ServiceRef              `json:"service"`
+	Source                AppointmentDetailSource `json:"source"`
+
+	// StartsAt UTC timestamp (RFC 3339).
+	StartsAt time.Time         `json:"startsAt"`
+	Status   AppointmentStatus `json:"status"`
+
+	// Timezone IANA timezone name of the practice.
+	//
+	// Examples: Australia/Sydney
+	Timezone Timezone `json:"timezone"`
+
+	// UpdatedAt UTC timestamp (RFC 3339).
+	UpdatedAt time.Time `json:"updatedAt"`
+
+	// Version Row version for optimistic concurrency.
+	Version      Version             `json:"version"`
+	VideoRoom    *VideoRoomSummary   `json:"videoRoom,omitempty"`
+	VisitorEmail openapi_types.Email `json:"visitorEmail"`
+	VisitorName  string              `json:"visitorName"`
+	VisitorNote  *string             `json:"visitorNote,omitempty"`
+	VisitorPhone *string             `json:"visitorPhone,omitempty"`
+}
+
+// AppointmentDetailSource defines model for AppointmentDetail.Source.
+type AppointmentDetailSource string
+
+// AppointmentEvent defines model for AppointmentEvent.
+type AppointmentEvent struct {
+	Actor     AppointmentEventActor `json:"actor"`
+	ActorName *string               `json:"actorName,omitempty"`
+
+	// CreatedAt UTC timestamp (RFC 3339).
+	CreatedAt time.Time `json:"createdAt"`
+
+	// Detail Non-personal facts about the event.
+	Detail     map[string]interface{} `json:"detail"`
+	FromStatus *AppointmentStatus     `json:"fromStatus,omitempty"`
+	Id         int64                  `json:"id"`
+	Kind       AppointmentEventKind   `json:"kind"`
+
+	// NewEndsAt UTC timestamp (RFC 3339).
+	NewEndsAt *time.Time `json:"newEndsAt,omitempty"`
+
+	// NewStartsAt UTC timestamp (RFC 3339).
+	NewStartsAt *time.Time `json:"newStartsAt,omitempty"`
+
+	// PreviousEndsAt UTC timestamp (RFC 3339).
+	PreviousEndsAt *time.Time `json:"previousEndsAt,omitempty"`
+
+	// PreviousStartsAt UTC timestamp (RFC 3339).
+	PreviousStartsAt *time.Time         `json:"previousStartsAt,omitempty"`
+	ToStatus         *AppointmentStatus `json:"toStatus,omitempty"`
+}
+
+// AppointmentEventActor defines model for AppointmentEvent.Actor.
+type AppointmentEventActor string
+
+// AppointmentEventKind defines model for AppointmentEvent.Kind.
+type AppointmentEventKind string
+
+// AppointmentList defines model for AppointmentList.
+type AppointmentList struct {
+	Items      []AppointmentSummary `json:"items"`
+	NextCursor *string              `json:"nextCursor,omitempty"`
+
+	// Timezone IANA timezone name of the practice.
+	//
+	// Examples: Australia/Sydney
+	Timezone Timezone `json:"timezone"`
+}
+
+// AppointmentNote defines model for AppointmentNote.
+type AppointmentNote struct {
+	Note string `json:"note"`
+
+	// Version Row version for optimistic concurrency.
+	Version Version `json:"version"`
+}
+
 // AppointmentRequestCreate defines model for AppointmentRequestCreate.
 type AppointmentRequestCreate struct {
 	// Format Appointment format. Online only at launch.
@@ -761,6 +1180,66 @@ type AvailabilityRuleList struct {
 // BookingAction defines model for BookingAction.
 type BookingAction string
 
+// CancelAppointment defines model for CancelAppointment.
+type CancelAppointment struct {
+	MessageToVisitor *string `json:"messageToVisitor,omitempty"`
+	NotifyVisitor    *bool   `json:"notifyVisitor,omitempty"`
+
+	// Version Row version for optimistic concurrency.
+	Version Version `json:"version"`
+}
+
+// Communication defines model for Communication.
+type Communication struct {
+	AppointmentId    *openapi_types.UUID   `json:"appointmentId,omitempty"`
+	Attempts         int                   `json:"attempts"`
+	Audience         CommunicationAudience `json:"audience"`
+	Channel          CommunicationChannel  `json:"channel"`
+	ContactEnquiryId *openapi_types.UUID   `json:"contactEnquiryId,omitempty"`
+
+	// CreatedAt UTC timestamp (RFC 3339).
+	CreatedAt time.Time          `json:"createdAt"`
+	Error     *string            `json:"error,omitempty"`
+	Id        openapi_types.UUID `json:"id"`
+	Kind      CommunicationKind  `json:"kind"`
+
+	// Locale Site language: English or Burmese.
+	Locale Locale `json:"locale"`
+
+	// Note Manual records only; private.
+	Note      *string             `json:"note,omitempty"`
+	Recipient *string             `json:"recipient,omitempty"`
+	ResendOf  *openapi_types.UUID `json:"resendOf,omitempty"`
+
+	// ScheduledFor UTC timestamp (RFC 3339).
+	ScheduledFor time.Time `json:"scheduledFor"`
+
+	// SentAt UTC timestamp (RFC 3339).
+	SentAt *time.Time          `json:"sentAt,omitempty"`
+	Status CommunicationStatus `json:"status"`
+}
+
+// CommunicationAudience defines model for Communication.Audience.
+type CommunicationAudience string
+
+// CommunicationChannel defines model for Communication.Channel.
+type CommunicationChannel string
+
+// CommunicationKind defines model for CommunicationKind.
+type CommunicationKind string
+
+// CommunicationStatus defines model for CommunicationStatus.
+type CommunicationStatus string
+
+// ConfirmAppointment defines model for ConfirmAppointment.
+type ConfirmAppointment struct {
+	// MeetingLink Manual meeting-link mode only.
+	MeetingLink *string `json:"meetingLink,omitempty"`
+
+	// Version Row version for optimistic concurrency.
+	Version Version `json:"version"`
+}
+
 // CurrentUser defines model for CurrentUser.
 type CurrentUser struct {
 	DisplayName    string              `json:"displayName"`
@@ -768,6 +1247,15 @@ type CurrentUser struct {
 	Id             openapi_types.UUID  `json:"id"`
 	IsPractitioner bool                `json:"isPractitioner"`
 	Roles          []Role              `json:"roles"`
+}
+
+// DeclineAppointment defines model for DeclineAppointment.
+type DeclineAppointment struct {
+	// MessageToVisitor Optional; internal reasons are never sent.
+	MessageToVisitor *string `json:"messageToVisitor,omitempty"`
+
+	// Version Row version for optimistic concurrency.
+	Version Version `json:"version"`
 }
 
 // Format Appointment format. Online only at launch.
@@ -789,6 +1277,27 @@ type LocalizedText struct {
 	En *string `json:"en,omitempty"`
 	My *string `json:"my,omitempty"`
 }
+
+// ManualAppointmentCreate Phone or email bookings; the same records, availability and conflict rules as website bookings.
+type ManualAppointmentCreate struct {
+	AdminNote *string `json:"adminNote,omitempty"`
+
+	// Format Appointment format. Online only at launch.
+	Format Format `json:"format"`
+
+	// Locale Site language: English or Burmese.
+	Locale        Locale             `json:"locale"`
+	NotifyVisitor *bool              `json:"notifyVisitor,omitempty"`
+	ServiceId     openapi_types.UUID `json:"serviceId"`
+
+	// StartsAt UTC timestamp (RFC 3339).
+	StartsAt time.Time                      `json:"startsAt"`
+	Status   *ManualAppointmentCreateStatus `json:"status,omitempty"`
+	Visitor  VisitorDetails                 `json:"visitor"`
+}
+
+// ManualAppointmentCreateStatus defines model for ManualAppointmentCreate.Status.
+type ManualAppointmentCreateStatus string
 
 // Problem RFC 9457 problem details, returned by every 4xx and 5xx response.
 type Problem struct {
@@ -888,6 +1397,17 @@ type ReadinessChecksRedis string
 
 // ReadinessStatus defines model for Readiness.Status.
 type ReadinessStatus string
+
+// RescheduleAppointment defines model for RescheduleAppointment.
+type RescheduleAppointment struct {
+	NotifyVisitor *bool `json:"notifyVisitor,omitempty"`
+
+	// StartsAt New start; must be a free slot.
+	StartsAt time.Time `json:"startsAt"`
+
+	// Version Row version for optimistic concurrency.
+	Version Version `json:"version"`
+}
 
 // Role defines model for Role.
 type Role string
@@ -1155,6 +1675,26 @@ type VersionedAction struct {
 	Version Version `json:"version"`
 }
 
+// VideoRoomSummary defines model for VideoRoomSummary.
+type VideoRoomSummary struct {
+	// ClosesAt UTC timestamp (RFC 3339).
+	ClosesAt time.Time `json:"closesAt"`
+
+	// EndedAt UTC timestamp (RFC 3339).
+	EndedAt *time.Time         `json:"endedAt,omitempty"`
+	Id      openapi_types.UUID `json:"id"`
+
+	// OpensAt UTC timestamp (RFC 3339).
+	OpensAt time.Time `json:"opensAt"`
+
+	// StartedAt UTC timestamp (RFC 3339).
+	StartedAt *time.Time            `json:"startedAt,omitempty"`
+	State     VideoRoomSummaryState `json:"state"`
+}
+
+// VideoRoomSummaryState defines model for VideoRoomSummary.State.
+type VideoRoomSummaryState string
+
 // VisitorDetails defines model for VisitorDetails.
 type VisitorDetails struct {
 	Email openapi_types.Email `json:"email"`
@@ -1165,17 +1705,29 @@ type VisitorDetails struct {
 	Phone *string `json:"phone,omitempty"`
 }
 
+// AppointmentId defines model for AppointmentId.
+type AppointmentId = openapi_types.UUID
+
 // BlockId defines model for BlockId.
 type BlockId = openapi_types.UUID
 
+// Cursor defines model for Cursor.
+type Cursor = string
+
 // IdempotencyKeyRequired defines model for IdempotencyKeyRequired.
 type IdempotencyKeyRequired = openapi_types.UUID
+
+// Limit defines model for Limit.
+type Limit = int
 
 // OverrideId defines model for OverrideId.
 type OverrideId = openapi_types.UUID
 
 // RuleId defines model for RuleId.
 type RuleId = openapi_types.UUID
+
+// Search defines model for Search.
+type Search = string
 
 // ServiceId defines model for ServiceId.
 type ServiceId = openapi_types.UUID
@@ -1206,6 +1758,45 @@ type Unauthorized = Problem
 
 // UnprocessableEntity RFC 9457 problem details, returned by every 4xx and 5xx response.
 type UnprocessableEntity = Problem
+
+// ListAppointmentsParams defines parameters for ListAppointments.
+type ListAppointmentsParams struct {
+	// View Preset: upcoming (default), pending, past, cancelled or all.
+	View *ListAppointmentsParamsView `form:"view,omitempty" json:"view,omitempty"`
+
+	// Status Filter by status (repeatable).
+	Status *[]AppointmentStatus `form:"status,omitempty" json:"status,omitempty"`
+
+	// ServiceId Filter by service.
+	ServiceId *openapi_types.UUID `form:"serviceId,omitempty" json:"serviceId,omitempty"`
+
+	// From Starts at or after (UTC).
+	From *time.Time `form:"from,omitempty" json:"from,omitempty"`
+
+	// To Starts before (UTC).
+	To *time.Time `form:"to,omitempty" json:"to,omitempty"`
+
+	// Format Filter by format.
+	Format *Format `form:"format,omitempty" json:"format,omitempty"`
+
+	// Q Case-insensitive search text.
+	Q *Search `form:"q,omitempty" json:"q,omitempty"`
+
+	// Cursor Opaque cursor from a previous page's `nextCursor`.
+	Cursor *Cursor `form:"cursor,omitempty" json:"cursor,omitempty"`
+
+	// Limit Page size.
+	Limit *Limit `form:"limit,omitempty" json:"limit,omitempty"`
+}
+
+// ListAppointmentsParamsView defines parameters for ListAppointments.
+type ListAppointmentsParamsView string
+
+// CreateManualAppointmentParams defines parameters for CreateManualAppointment.
+type CreateManualAppointmentParams struct {
+	// IdempotencyKey Client-generated UUID, reused for retries of the same submission. A repeat with the same body within 24 hours returns the stored response; with a different body it returns `422 idempotency_key_reused`.
+	IdempotencyKey IdempotencyKeyRequired `json:"Idempotency-Key"`
+}
 
 // ListAvailabilityBlocksParams defines parameters for ListAvailabilityBlocks.
 type ListAvailabilityBlocksParams struct {
@@ -1261,6 +1852,30 @@ type ListPublicBookableServicesParams struct {
 	Locale *Locale `form:"locale,omitempty" json:"locale,omitempty"`
 }
 
+// CreateManualAppointmentJSONRequestBody defines body for CreateManualAppointment for application/json ContentType.
+type CreateManualAppointmentJSONRequestBody = ManualAppointmentCreate
+
+// CancelAppointmentJSONRequestBody defines body for CancelAppointment for application/json ContentType.
+type CancelAppointmentJSONRequestBody = CancelAppointment
+
+// CompleteAppointmentJSONRequestBody defines body for CompleteAppointment for application/json ContentType.
+type CompleteAppointmentJSONRequestBody = VersionedAction
+
+// ConfirmAppointmentJSONRequestBody defines body for ConfirmAppointment for application/json ContentType.
+type ConfirmAppointmentJSONRequestBody = ConfirmAppointment
+
+// DeclineAppointmentJSONRequestBody defines body for DeclineAppointment for application/json ContentType.
+type DeclineAppointmentJSONRequestBody = DeclineAppointment
+
+// MarkAppointmentNoShowJSONRequestBody defines body for MarkAppointmentNoShow for application/json ContentType.
+type MarkAppointmentNoShowJSONRequestBody = VersionedAction
+
+// SetAppointmentNoteJSONRequestBody defines body for SetAppointmentNote for application/json ContentType.
+type SetAppointmentNoteJSONRequestBody = AppointmentNote
+
+// RescheduleAppointmentJSONRequestBody defines body for RescheduleAppointment for application/json ContentType.
+type RescheduleAppointmentJSONRequestBody = RescheduleAppointment
+
 // CreateAvailabilityBlockJSONRequestBody defines body for CreateAvailabilityBlock for application/json ContentType.
 type CreateAvailabilityBlockJSONRequestBody = AvailabilityBlockInput
 
@@ -1302,6 +1917,36 @@ type CreatePublicAppointmentJSONRequestBody = AppointmentRequestCreate
 
 // ServerInterface represents all server handlers.
 type ServerInterface interface {
+	// ListAppointments List appointments
+	// (GET /admin/appointments)
+	ListAppointments(w http.ResponseWriter, r *http.Request, params ListAppointmentsParams)
+	// CreateManualAppointment Create an appointment by hand
+	// (POST /admin/appointments)
+	CreateManualAppointment(w http.ResponseWriter, r *http.Request, params CreateManualAppointmentParams)
+	// GetAppointment Get an appointment with its history and communications
+	// (GET /admin/appointments/{appointmentId})
+	GetAppointment(w http.ResponseWriter, r *http.Request, appointmentId AppointmentId)
+	// CancelAppointment Cancel a confirmed appointment
+	// (POST /admin/appointments/{appointmentId}/cancel)
+	CancelAppointment(w http.ResponseWriter, r *http.Request, appointmentId AppointmentId)
+	// CompleteAppointment Mark an appointment completed
+	// (POST /admin/appointments/{appointmentId}/complete)
+	CompleteAppointment(w http.ResponseWriter, r *http.Request, appointmentId AppointmentId)
+	// ConfirmAppointment Confirm a pending request
+	// (POST /admin/appointments/{appointmentId}/confirm)
+	ConfirmAppointment(w http.ResponseWriter, r *http.Request, appointmentId AppointmentId)
+	// DeclineAppointment Decline a pending request
+	// (POST /admin/appointments/{appointmentId}/decline)
+	DeclineAppointment(w http.ResponseWriter, r *http.Request, appointmentId AppointmentId)
+	// MarkAppointmentNoShow Mark an appointment as a no-show
+	// (POST /admin/appointments/{appointmentId}/no-show)
+	MarkAppointmentNoShow(w http.ResponseWriter, r *http.Request, appointmentId AppointmentId)
+	// SetAppointmentNote Set the private scheduling note
+	// (PUT /admin/appointments/{appointmentId}/note)
+	SetAppointmentNote(w http.ResponseWriter, r *http.Request, appointmentId AppointmentId)
+	// RescheduleAppointment Move an appointment to a new time
+	// (POST /admin/appointments/{appointmentId}/reschedule)
+	RescheduleAppointment(w http.ResponseWriter, r *http.Request, appointmentId AppointmentId)
 	// ListAvailabilityBlocks List blocked time
 	// (GET /admin/availability/blocks)
 	ListAvailabilityBlocks(w http.ResponseWriter, r *http.Request, params ListAvailabilityBlocksParams)
@@ -1397,6 +2042,66 @@ type ServerInterface interface {
 // Unimplemented server implementation that returns http.StatusNotImplemented for each endpoint.
 
 type Unimplemented struct{}
+
+// ListAppointments List appointments
+// (GET /admin/appointments)
+func (_ Unimplemented) ListAppointments(w http.ResponseWriter, r *http.Request, params ListAppointmentsParams) {
+	w.WriteHeader(http.StatusNotImplemented)
+}
+
+// CreateManualAppointment Create an appointment by hand
+// (POST /admin/appointments)
+func (_ Unimplemented) CreateManualAppointment(w http.ResponseWriter, r *http.Request, params CreateManualAppointmentParams) {
+	w.WriteHeader(http.StatusNotImplemented)
+}
+
+// GetAppointment Get an appointment with its history and communications
+// (GET /admin/appointments/{appointmentId})
+func (_ Unimplemented) GetAppointment(w http.ResponseWriter, r *http.Request, appointmentId AppointmentId) {
+	w.WriteHeader(http.StatusNotImplemented)
+}
+
+// CancelAppointment Cancel a confirmed appointment
+// (POST /admin/appointments/{appointmentId}/cancel)
+func (_ Unimplemented) CancelAppointment(w http.ResponseWriter, r *http.Request, appointmentId AppointmentId) {
+	w.WriteHeader(http.StatusNotImplemented)
+}
+
+// CompleteAppointment Mark an appointment completed
+// (POST /admin/appointments/{appointmentId}/complete)
+func (_ Unimplemented) CompleteAppointment(w http.ResponseWriter, r *http.Request, appointmentId AppointmentId) {
+	w.WriteHeader(http.StatusNotImplemented)
+}
+
+// ConfirmAppointment Confirm a pending request
+// (POST /admin/appointments/{appointmentId}/confirm)
+func (_ Unimplemented) ConfirmAppointment(w http.ResponseWriter, r *http.Request, appointmentId AppointmentId) {
+	w.WriteHeader(http.StatusNotImplemented)
+}
+
+// DeclineAppointment Decline a pending request
+// (POST /admin/appointments/{appointmentId}/decline)
+func (_ Unimplemented) DeclineAppointment(w http.ResponseWriter, r *http.Request, appointmentId AppointmentId) {
+	w.WriteHeader(http.StatusNotImplemented)
+}
+
+// MarkAppointmentNoShow Mark an appointment as a no-show
+// (POST /admin/appointments/{appointmentId}/no-show)
+func (_ Unimplemented) MarkAppointmentNoShow(w http.ResponseWriter, r *http.Request, appointmentId AppointmentId) {
+	w.WriteHeader(http.StatusNotImplemented)
+}
+
+// SetAppointmentNote Set the private scheduling note
+// (PUT /admin/appointments/{appointmentId}/note)
+func (_ Unimplemented) SetAppointmentNote(w http.ResponseWriter, r *http.Request, appointmentId AppointmentId) {
+	w.WriteHeader(http.StatusNotImplemented)
+}
+
+// RescheduleAppointment Move an appointment to a new time
+// (POST /admin/appointments/{appointmentId}/reschedule)
+func (_ Unimplemented) RescheduleAppointment(w http.ResponseWriter, r *http.Request, appointmentId AppointmentId) {
+	w.WriteHeader(http.StatusNotImplemented)
+}
 
 // ListAvailabilityBlocks List blocked time
 // (GET /admin/availability/blocks)
@@ -1586,6 +2291,396 @@ type ServerInterfaceWrapper struct {
 }
 
 type MiddlewareFunc func(http.Handler) http.Handler
+
+// ListAppointments operation middleware
+func (siw *ServerInterfaceWrapper) ListAppointments(w http.ResponseWriter, r *http.Request) {
+
+	var err error
+	_ = err
+
+	// Parameter object where we will unmarshal all parameters from the context
+	var params ListAppointmentsParams
+
+	// ------------- Optional query parameter "view" -------------
+
+	err = runtime.BindQueryParameterWithOptions("form", true, false, "view", r.URL.Query(), &params.View, runtime.BindQueryParameterOptions{Type: "string", Format: ""})
+	if err != nil {
+		var requiredError *runtime.RequiredParameterError
+		if errors.As(err, &requiredError) {
+			siw.ErrorHandlerFunc(w, r, &RequiredParamError{ParamName: "view"})
+		} else {
+			siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "view", Err: err})
+		}
+		return
+	}
+
+	// ------------- Optional query parameter "status" -------------
+
+	err = runtime.BindQueryParameterWithOptions("form", true, false, "status", r.URL.Query(), &params.Status, runtime.BindQueryParameterOptions{Type: "array", Format: ""})
+	if err != nil {
+		var requiredError *runtime.RequiredParameterError
+		if errors.As(err, &requiredError) {
+			siw.ErrorHandlerFunc(w, r, &RequiredParamError{ParamName: "status"})
+		} else {
+			siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "status", Err: err})
+		}
+		return
+	}
+
+	// ------------- Optional query parameter "serviceId" -------------
+
+	err = runtime.BindQueryParameterWithOptions("form", true, false, "serviceId", r.URL.Query(), &params.ServiceId, runtime.BindQueryParameterOptions{Type: "string", Format: "uuid"})
+	if err != nil {
+		var requiredError *runtime.RequiredParameterError
+		if errors.As(err, &requiredError) {
+			siw.ErrorHandlerFunc(w, r, &RequiredParamError{ParamName: "serviceId"})
+		} else {
+			siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "serviceId", Err: err})
+		}
+		return
+	}
+
+	// ------------- Optional query parameter "from" -------------
+
+	err = runtime.BindQueryParameterWithOptions("form", true, false, "from", r.URL.Query(), &params.From, runtime.BindQueryParameterOptions{Type: "string", Format: "date-time"})
+	if err != nil {
+		var requiredError *runtime.RequiredParameterError
+		if errors.As(err, &requiredError) {
+			siw.ErrorHandlerFunc(w, r, &RequiredParamError{ParamName: "from"})
+		} else {
+			siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "from", Err: err})
+		}
+		return
+	}
+
+	// ------------- Optional query parameter "to" -------------
+
+	err = runtime.BindQueryParameterWithOptions("form", true, false, "to", r.URL.Query(), &params.To, runtime.BindQueryParameterOptions{Type: "string", Format: "date-time"})
+	if err != nil {
+		var requiredError *runtime.RequiredParameterError
+		if errors.As(err, &requiredError) {
+			siw.ErrorHandlerFunc(w, r, &RequiredParamError{ParamName: "to"})
+		} else {
+			siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "to", Err: err})
+		}
+		return
+	}
+
+	// ------------- Optional query parameter "format" -------------
+
+	err = runtime.BindQueryParameterWithOptions("form", true, false, "format", r.URL.Query(), &params.Format, runtime.BindQueryParameterOptions{Type: "string", Format: ""})
+	if err != nil {
+		var requiredError *runtime.RequiredParameterError
+		if errors.As(err, &requiredError) {
+			siw.ErrorHandlerFunc(w, r, &RequiredParamError{ParamName: "format"})
+		} else {
+			siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "format", Err: err})
+		}
+		return
+	}
+
+	// ------------- Optional query parameter "q" -------------
+
+	err = runtime.BindQueryParameterWithOptions("form", true, false, "q", r.URL.Query(), &params.Q, runtime.BindQueryParameterOptions{Type: "string", Format: ""})
+	if err != nil {
+		var requiredError *runtime.RequiredParameterError
+		if errors.As(err, &requiredError) {
+			siw.ErrorHandlerFunc(w, r, &RequiredParamError{ParamName: "q"})
+		} else {
+			siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "q", Err: err})
+		}
+		return
+	}
+
+	// ------------- Optional query parameter "cursor" -------------
+
+	err = runtime.BindQueryParameterWithOptions("form", true, false, "cursor", r.URL.Query(), &params.Cursor, runtime.BindQueryParameterOptions{Type: "string", Format: ""})
+	if err != nil {
+		var requiredError *runtime.RequiredParameterError
+		if errors.As(err, &requiredError) {
+			siw.ErrorHandlerFunc(w, r, &RequiredParamError{ParamName: "cursor"})
+		} else {
+			siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "cursor", Err: err})
+		}
+		return
+	}
+
+	// ------------- Optional query parameter "limit" -------------
+
+	err = runtime.BindQueryParameterWithOptions("form", true, false, "limit", r.URL.Query(), &params.Limit, runtime.BindQueryParameterOptions{Type: "integer", Format: ""})
+	if err != nil {
+		var requiredError *runtime.RequiredParameterError
+		if errors.As(err, &requiredError) {
+			siw.ErrorHandlerFunc(w, r, &RequiredParamError{ParamName: "limit"})
+		} else {
+			siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "limit", Err: err})
+		}
+		return
+	}
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.ListAppointments(w, r, params)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
+// CreateManualAppointment operation middleware
+func (siw *ServerInterfaceWrapper) CreateManualAppointment(w http.ResponseWriter, r *http.Request) {
+
+	var err error
+	_ = err
+
+	// Parameter object where we will unmarshal all parameters from the context
+	var params CreateManualAppointmentParams
+
+	headers := r.Header
+
+	// ------------- Required header parameter "Idempotency-Key" -------------
+	if valueList, found := headers[http.CanonicalHeaderKey("Idempotency-Key")]; found {
+		var IdempotencyKey IdempotencyKeyRequired
+		n := len(valueList)
+		if n != 1 {
+			siw.ErrorHandlerFunc(w, r, &TooManyValuesForParamError{ParamName: "Idempotency-Key", Count: n})
+			return
+		}
+
+		err = runtime.BindStyledParameterWithOptions("simple", "Idempotency-Key", valueList[0], &IdempotencyKey, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationHeader, Explode: false, Required: true, Type: "string", Format: "uuid"})
+		if err != nil {
+			siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "Idempotency-Key", Err: err})
+			return
+		}
+
+		params.IdempotencyKey = IdempotencyKey
+
+	} else {
+		err := fmt.Errorf("Header parameter Idempotency-Key is required, but not found")
+		siw.ErrorHandlerFunc(w, r, &RequiredHeaderError{ParamName: "Idempotency-Key", Err: err})
+		return
+	}
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.CreateManualAppointment(w, r, params)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
+// GetAppointment operation middleware
+func (siw *ServerInterfaceWrapper) GetAppointment(w http.ResponseWriter, r *http.Request) {
+
+	var err error
+	_ = err
+
+	// ------------- Path parameter "appointmentId" -------------
+	var appointmentId AppointmentId
+
+	err = runtime.BindStyledParameterWithOptions("simple", "appointmentId", chi.URLParam(r, "appointmentId"), &appointmentId, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "string", Format: "uuid", ValueIsUnescaped: r.URL.RawPath == ""})
+	if err != nil {
+		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "appointmentId", Err: err})
+		return
+	}
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.GetAppointment(w, r, appointmentId)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
+// CancelAppointment operation middleware
+func (siw *ServerInterfaceWrapper) CancelAppointment(w http.ResponseWriter, r *http.Request) {
+
+	var err error
+	_ = err
+
+	// ------------- Path parameter "appointmentId" -------------
+	var appointmentId AppointmentId
+
+	err = runtime.BindStyledParameterWithOptions("simple", "appointmentId", chi.URLParam(r, "appointmentId"), &appointmentId, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "string", Format: "uuid", ValueIsUnescaped: r.URL.RawPath == ""})
+	if err != nil {
+		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "appointmentId", Err: err})
+		return
+	}
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.CancelAppointment(w, r, appointmentId)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
+// CompleteAppointment operation middleware
+func (siw *ServerInterfaceWrapper) CompleteAppointment(w http.ResponseWriter, r *http.Request) {
+
+	var err error
+	_ = err
+
+	// ------------- Path parameter "appointmentId" -------------
+	var appointmentId AppointmentId
+
+	err = runtime.BindStyledParameterWithOptions("simple", "appointmentId", chi.URLParam(r, "appointmentId"), &appointmentId, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "string", Format: "uuid", ValueIsUnescaped: r.URL.RawPath == ""})
+	if err != nil {
+		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "appointmentId", Err: err})
+		return
+	}
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.CompleteAppointment(w, r, appointmentId)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
+// ConfirmAppointment operation middleware
+func (siw *ServerInterfaceWrapper) ConfirmAppointment(w http.ResponseWriter, r *http.Request) {
+
+	var err error
+	_ = err
+
+	// ------------- Path parameter "appointmentId" -------------
+	var appointmentId AppointmentId
+
+	err = runtime.BindStyledParameterWithOptions("simple", "appointmentId", chi.URLParam(r, "appointmentId"), &appointmentId, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "string", Format: "uuid", ValueIsUnescaped: r.URL.RawPath == ""})
+	if err != nil {
+		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "appointmentId", Err: err})
+		return
+	}
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.ConfirmAppointment(w, r, appointmentId)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
+// DeclineAppointment operation middleware
+func (siw *ServerInterfaceWrapper) DeclineAppointment(w http.ResponseWriter, r *http.Request) {
+
+	var err error
+	_ = err
+
+	// ------------- Path parameter "appointmentId" -------------
+	var appointmentId AppointmentId
+
+	err = runtime.BindStyledParameterWithOptions("simple", "appointmentId", chi.URLParam(r, "appointmentId"), &appointmentId, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "string", Format: "uuid", ValueIsUnescaped: r.URL.RawPath == ""})
+	if err != nil {
+		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "appointmentId", Err: err})
+		return
+	}
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.DeclineAppointment(w, r, appointmentId)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
+// MarkAppointmentNoShow operation middleware
+func (siw *ServerInterfaceWrapper) MarkAppointmentNoShow(w http.ResponseWriter, r *http.Request) {
+
+	var err error
+	_ = err
+
+	// ------------- Path parameter "appointmentId" -------------
+	var appointmentId AppointmentId
+
+	err = runtime.BindStyledParameterWithOptions("simple", "appointmentId", chi.URLParam(r, "appointmentId"), &appointmentId, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "string", Format: "uuid", ValueIsUnescaped: r.URL.RawPath == ""})
+	if err != nil {
+		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "appointmentId", Err: err})
+		return
+	}
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.MarkAppointmentNoShow(w, r, appointmentId)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
+// SetAppointmentNote operation middleware
+func (siw *ServerInterfaceWrapper) SetAppointmentNote(w http.ResponseWriter, r *http.Request) {
+
+	var err error
+	_ = err
+
+	// ------------- Path parameter "appointmentId" -------------
+	var appointmentId AppointmentId
+
+	err = runtime.BindStyledParameterWithOptions("simple", "appointmentId", chi.URLParam(r, "appointmentId"), &appointmentId, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "string", Format: "uuid", ValueIsUnescaped: r.URL.RawPath == ""})
+	if err != nil {
+		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "appointmentId", Err: err})
+		return
+	}
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.SetAppointmentNote(w, r, appointmentId)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
+// RescheduleAppointment operation middleware
+func (siw *ServerInterfaceWrapper) RescheduleAppointment(w http.ResponseWriter, r *http.Request) {
+
+	var err error
+	_ = err
+
+	// ------------- Path parameter "appointmentId" -------------
+	var appointmentId AppointmentId
+
+	err = runtime.BindStyledParameterWithOptions("simple", "appointmentId", chi.URLParam(r, "appointmentId"), &appointmentId, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "string", Format: "uuid", ValueIsUnescaped: r.URL.RawPath == ""})
+	if err != nil {
+		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "appointmentId", Err: err})
+		return
+	}
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.RescheduleAppointment(w, r, appointmentId)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
 
 // ListAvailabilityBlocks operation middleware
 func (siw *ServerInterfaceWrapper) ListAvailabilityBlocks(w http.ResponseWriter, r *http.Request) {
@@ -2546,6 +3641,36 @@ func HandlerWithOptions(si ServerInterface, options ChiServerOptions) http.Handl
 	r.Group(func(r chi.Router) {
 		r.Post(options.BaseURL+"/public/appointments", wrapper.CreatePublicAppointment)
 	})
+	r.Group(func(r chi.Router) {
+		r.Get(options.BaseURL+"/admin/appointments", wrapper.ListAppointments)
+	})
+	r.Group(func(r chi.Router) {
+		r.Post(options.BaseURL+"/admin/appointments", wrapper.CreateManualAppointment)
+	})
+	r.Group(func(r chi.Router) {
+		r.Get(options.BaseURL+"/admin/appointments/{appointmentId}", wrapper.GetAppointment)
+	})
+	r.Group(func(r chi.Router) {
+		r.Post(options.BaseURL+"/admin/appointments/{appointmentId}/confirm", wrapper.ConfirmAppointment)
+	})
+	r.Group(func(r chi.Router) {
+		r.Post(options.BaseURL+"/admin/appointments/{appointmentId}/decline", wrapper.DeclineAppointment)
+	})
+	r.Group(func(r chi.Router) {
+		r.Post(options.BaseURL+"/admin/appointments/{appointmentId}/reschedule", wrapper.RescheduleAppointment)
+	})
+	r.Group(func(r chi.Router) {
+		r.Post(options.BaseURL+"/admin/appointments/{appointmentId}/cancel", wrapper.CancelAppointment)
+	})
+	r.Group(func(r chi.Router) {
+		r.Post(options.BaseURL+"/admin/appointments/{appointmentId}/complete", wrapper.CompleteAppointment)
+	})
+	r.Group(func(r chi.Router) {
+		r.Post(options.BaseURL+"/admin/appointments/{appointmentId}/no-show", wrapper.MarkAppointmentNoShow)
+	})
+	r.Group(func(r chi.Router) {
+		r.Put(options.BaseURL+"/admin/appointments/{appointmentId}/note", wrapper.SetAppointmentNote)
+	})
 
 	return r
 }
@@ -2574,6 +3699,1448 @@ type TooManyRequestsApplicationProblemPlusJSONResponse struct {
 type UnauthorizedApplicationProblemPlusJSONResponse Problem
 
 type UnprocessableEntityApplicationProblemPlusJSONResponse Problem
+
+type ListAppointmentsRequestObject struct {
+	Params ListAppointmentsParams
+}
+
+type ListAppointmentsResponseObject interface {
+	VisitListAppointmentsResponse(w http.ResponseWriter) error
+}
+
+type ListAppointments200JSONResponse AppointmentList
+
+func (response ListAppointments200JSONResponse) VisitListAppointmentsResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(200)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type ListAppointments400ApplicationProblemPlusJSONResponse struct {
+	BadRequestApplicationProblemPlusJSONResponse
+}
+
+func (response ListAppointments400ApplicationProblemPlusJSONResponse) VisitListAppointmentsResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/problem+json")
+	w.WriteHeader(400)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type ListAppointments401ApplicationProblemPlusJSONResponse struct {
+	UnauthorizedApplicationProblemPlusJSONResponse
+}
+
+func (response ListAppointments401ApplicationProblemPlusJSONResponse) VisitListAppointmentsResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/problem+json")
+	w.WriteHeader(401)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type ListAppointments403ApplicationProblemPlusJSONResponse struct {
+	ForbiddenApplicationProblemPlusJSONResponse
+}
+
+func (response ListAppointments403ApplicationProblemPlusJSONResponse) VisitListAppointmentsResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/problem+json")
+	w.WriteHeader(403)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type ListAppointments429ApplicationProblemPlusJSONResponse struct {
+	TooManyRequestsApplicationProblemPlusJSONResponse
+}
+
+func (response ListAppointments429ApplicationProblemPlusJSONResponse) VisitListAppointmentsResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response.Body); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/problem+json")
+	if response.Headers.RetryAfter != nil {
+		w.Header().Set("Retry-After", fmt.Sprint(*response.Headers.RetryAfter))
+	}
+	w.WriteHeader(429)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type ListAppointments500ApplicationProblemPlusJSONResponse struct {
+	InternalErrorApplicationProblemPlusJSONResponse
+}
+
+func (response ListAppointments500ApplicationProblemPlusJSONResponse) VisitListAppointmentsResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/problem+json")
+	w.WriteHeader(500)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type CreateManualAppointmentRequestObject struct {
+	Params CreateManualAppointmentParams
+	Body   *CreateManualAppointmentJSONRequestBody
+}
+
+type CreateManualAppointmentResponseObject interface {
+	VisitCreateManualAppointmentResponse(w http.ResponseWriter) error
+}
+
+type CreateManualAppointment201JSONResponse AppointmentDetail
+
+func (response CreateManualAppointment201JSONResponse) VisitCreateManualAppointmentResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(201)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type CreateManualAppointment400ApplicationProblemPlusJSONResponse struct {
+	BadRequestApplicationProblemPlusJSONResponse
+}
+
+func (response CreateManualAppointment400ApplicationProblemPlusJSONResponse) VisitCreateManualAppointmentResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/problem+json")
+	w.WriteHeader(400)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type CreateManualAppointment401ApplicationProblemPlusJSONResponse struct {
+	UnauthorizedApplicationProblemPlusJSONResponse
+}
+
+func (response CreateManualAppointment401ApplicationProblemPlusJSONResponse) VisitCreateManualAppointmentResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/problem+json")
+	w.WriteHeader(401)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type CreateManualAppointment403ApplicationProblemPlusJSONResponse struct {
+	ForbiddenApplicationProblemPlusJSONResponse
+}
+
+func (response CreateManualAppointment403ApplicationProblemPlusJSONResponse) VisitCreateManualAppointmentResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/problem+json")
+	w.WriteHeader(403)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type CreateManualAppointment404ApplicationProblemPlusJSONResponse struct {
+	NotFoundApplicationProblemPlusJSONResponse
+}
+
+func (response CreateManualAppointment404ApplicationProblemPlusJSONResponse) VisitCreateManualAppointmentResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/problem+json")
+	w.WriteHeader(404)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type CreateManualAppointment409ApplicationProblemPlusJSONResponse struct {
+	SlotUnavailableApplicationProblemPlusJSONResponse
+}
+
+func (response CreateManualAppointment409ApplicationProblemPlusJSONResponse) VisitCreateManualAppointmentResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/problem+json")
+	w.WriteHeader(409)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type CreateManualAppointment422ApplicationProblemPlusJSONResponse struct {
+	UnprocessableEntityApplicationProblemPlusJSONResponse
+}
+
+func (response CreateManualAppointment422ApplicationProblemPlusJSONResponse) VisitCreateManualAppointmentResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/problem+json")
+	w.WriteHeader(422)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type CreateManualAppointment429ApplicationProblemPlusJSONResponse struct {
+	TooManyRequestsApplicationProblemPlusJSONResponse
+}
+
+func (response CreateManualAppointment429ApplicationProblemPlusJSONResponse) VisitCreateManualAppointmentResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response.Body); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/problem+json")
+	if response.Headers.RetryAfter != nil {
+		w.Header().Set("Retry-After", fmt.Sprint(*response.Headers.RetryAfter))
+	}
+	w.WriteHeader(429)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type CreateManualAppointment500ApplicationProblemPlusJSONResponse struct {
+	InternalErrorApplicationProblemPlusJSONResponse
+}
+
+func (response CreateManualAppointment500ApplicationProblemPlusJSONResponse) VisitCreateManualAppointmentResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/problem+json")
+	w.WriteHeader(500)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type GetAppointmentRequestObject struct {
+	AppointmentId AppointmentId `json:"appointmentId"`
+}
+
+type GetAppointmentResponseObject interface {
+	VisitGetAppointmentResponse(w http.ResponseWriter) error
+}
+
+type GetAppointment200JSONResponse AppointmentDetail
+
+func (response GetAppointment200JSONResponse) VisitGetAppointmentResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(200)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type GetAppointment400ApplicationProblemPlusJSONResponse struct {
+	BadRequestApplicationProblemPlusJSONResponse
+}
+
+func (response GetAppointment400ApplicationProblemPlusJSONResponse) VisitGetAppointmentResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/problem+json")
+	w.WriteHeader(400)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type GetAppointment401ApplicationProblemPlusJSONResponse struct {
+	UnauthorizedApplicationProblemPlusJSONResponse
+}
+
+func (response GetAppointment401ApplicationProblemPlusJSONResponse) VisitGetAppointmentResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/problem+json")
+	w.WriteHeader(401)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type GetAppointment403ApplicationProblemPlusJSONResponse struct {
+	ForbiddenApplicationProblemPlusJSONResponse
+}
+
+func (response GetAppointment403ApplicationProblemPlusJSONResponse) VisitGetAppointmentResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/problem+json")
+	w.WriteHeader(403)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type GetAppointment404ApplicationProblemPlusJSONResponse struct {
+	NotFoundApplicationProblemPlusJSONResponse
+}
+
+func (response GetAppointment404ApplicationProblemPlusJSONResponse) VisitGetAppointmentResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/problem+json")
+	w.WriteHeader(404)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type GetAppointment429ApplicationProblemPlusJSONResponse struct {
+	TooManyRequestsApplicationProblemPlusJSONResponse
+}
+
+func (response GetAppointment429ApplicationProblemPlusJSONResponse) VisitGetAppointmentResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response.Body); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/problem+json")
+	if response.Headers.RetryAfter != nil {
+		w.Header().Set("Retry-After", fmt.Sprint(*response.Headers.RetryAfter))
+	}
+	w.WriteHeader(429)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type GetAppointment500ApplicationProblemPlusJSONResponse struct {
+	InternalErrorApplicationProblemPlusJSONResponse
+}
+
+func (response GetAppointment500ApplicationProblemPlusJSONResponse) VisitGetAppointmentResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/problem+json")
+	w.WriteHeader(500)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type CancelAppointmentRequestObject struct {
+	AppointmentId AppointmentId `json:"appointmentId"`
+	Body          *CancelAppointmentJSONRequestBody
+}
+
+type CancelAppointmentResponseObject interface {
+	VisitCancelAppointmentResponse(w http.ResponseWriter) error
+}
+
+type CancelAppointment200JSONResponse AppointmentDetail
+
+func (response CancelAppointment200JSONResponse) VisitCancelAppointmentResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(200)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type CancelAppointment400ApplicationProblemPlusJSONResponse struct {
+	BadRequestApplicationProblemPlusJSONResponse
+}
+
+func (response CancelAppointment400ApplicationProblemPlusJSONResponse) VisitCancelAppointmentResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/problem+json")
+	w.WriteHeader(400)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type CancelAppointment401ApplicationProblemPlusJSONResponse struct {
+	UnauthorizedApplicationProblemPlusJSONResponse
+}
+
+func (response CancelAppointment401ApplicationProblemPlusJSONResponse) VisitCancelAppointmentResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/problem+json")
+	w.WriteHeader(401)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type CancelAppointment403ApplicationProblemPlusJSONResponse struct {
+	ForbiddenApplicationProblemPlusJSONResponse
+}
+
+func (response CancelAppointment403ApplicationProblemPlusJSONResponse) VisitCancelAppointmentResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/problem+json")
+	w.WriteHeader(403)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type CancelAppointment404ApplicationProblemPlusJSONResponse struct {
+	NotFoundApplicationProblemPlusJSONResponse
+}
+
+func (response CancelAppointment404ApplicationProblemPlusJSONResponse) VisitCancelAppointmentResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/problem+json")
+	w.WriteHeader(404)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type CancelAppointment409ApplicationProblemPlusJSONResponse struct {
+	ConflictApplicationProblemPlusJSONResponse
+}
+
+func (response CancelAppointment409ApplicationProblemPlusJSONResponse) VisitCancelAppointmentResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/problem+json")
+	w.WriteHeader(409)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type CancelAppointment422ApplicationProblemPlusJSONResponse struct {
+	UnprocessableEntityApplicationProblemPlusJSONResponse
+}
+
+func (response CancelAppointment422ApplicationProblemPlusJSONResponse) VisitCancelAppointmentResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/problem+json")
+	w.WriteHeader(422)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type CancelAppointment429ApplicationProblemPlusJSONResponse struct {
+	TooManyRequestsApplicationProblemPlusJSONResponse
+}
+
+func (response CancelAppointment429ApplicationProblemPlusJSONResponse) VisitCancelAppointmentResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response.Body); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/problem+json")
+	if response.Headers.RetryAfter != nil {
+		w.Header().Set("Retry-After", fmt.Sprint(*response.Headers.RetryAfter))
+	}
+	w.WriteHeader(429)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type CancelAppointment500ApplicationProblemPlusJSONResponse struct {
+	InternalErrorApplicationProblemPlusJSONResponse
+}
+
+func (response CancelAppointment500ApplicationProblemPlusJSONResponse) VisitCancelAppointmentResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/problem+json")
+	w.WriteHeader(500)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type CompleteAppointmentRequestObject struct {
+	AppointmentId AppointmentId `json:"appointmentId"`
+	Body          *CompleteAppointmentJSONRequestBody
+}
+
+type CompleteAppointmentResponseObject interface {
+	VisitCompleteAppointmentResponse(w http.ResponseWriter) error
+}
+
+type CompleteAppointment200JSONResponse AppointmentDetail
+
+func (response CompleteAppointment200JSONResponse) VisitCompleteAppointmentResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(200)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type CompleteAppointment400ApplicationProblemPlusJSONResponse struct {
+	BadRequestApplicationProblemPlusJSONResponse
+}
+
+func (response CompleteAppointment400ApplicationProblemPlusJSONResponse) VisitCompleteAppointmentResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/problem+json")
+	w.WriteHeader(400)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type CompleteAppointment401ApplicationProblemPlusJSONResponse struct {
+	UnauthorizedApplicationProblemPlusJSONResponse
+}
+
+func (response CompleteAppointment401ApplicationProblemPlusJSONResponse) VisitCompleteAppointmentResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/problem+json")
+	w.WriteHeader(401)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type CompleteAppointment403ApplicationProblemPlusJSONResponse struct {
+	ForbiddenApplicationProblemPlusJSONResponse
+}
+
+func (response CompleteAppointment403ApplicationProblemPlusJSONResponse) VisitCompleteAppointmentResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/problem+json")
+	w.WriteHeader(403)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type CompleteAppointment404ApplicationProblemPlusJSONResponse struct {
+	NotFoundApplicationProblemPlusJSONResponse
+}
+
+func (response CompleteAppointment404ApplicationProblemPlusJSONResponse) VisitCompleteAppointmentResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/problem+json")
+	w.WriteHeader(404)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type CompleteAppointment409ApplicationProblemPlusJSONResponse struct {
+	ConflictApplicationProblemPlusJSONResponse
+}
+
+func (response CompleteAppointment409ApplicationProblemPlusJSONResponse) VisitCompleteAppointmentResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/problem+json")
+	w.WriteHeader(409)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type CompleteAppointment422ApplicationProblemPlusJSONResponse struct {
+	UnprocessableEntityApplicationProblemPlusJSONResponse
+}
+
+func (response CompleteAppointment422ApplicationProblemPlusJSONResponse) VisitCompleteAppointmentResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/problem+json")
+	w.WriteHeader(422)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type CompleteAppointment429ApplicationProblemPlusJSONResponse struct {
+	TooManyRequestsApplicationProblemPlusJSONResponse
+}
+
+func (response CompleteAppointment429ApplicationProblemPlusJSONResponse) VisitCompleteAppointmentResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response.Body); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/problem+json")
+	if response.Headers.RetryAfter != nil {
+		w.Header().Set("Retry-After", fmt.Sprint(*response.Headers.RetryAfter))
+	}
+	w.WriteHeader(429)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type CompleteAppointment500ApplicationProblemPlusJSONResponse struct {
+	InternalErrorApplicationProblemPlusJSONResponse
+}
+
+func (response CompleteAppointment500ApplicationProblemPlusJSONResponse) VisitCompleteAppointmentResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/problem+json")
+	w.WriteHeader(500)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type ConfirmAppointmentRequestObject struct {
+	AppointmentId AppointmentId `json:"appointmentId"`
+	Body          *ConfirmAppointmentJSONRequestBody
+}
+
+type ConfirmAppointmentResponseObject interface {
+	VisitConfirmAppointmentResponse(w http.ResponseWriter) error
+}
+
+type ConfirmAppointment200JSONResponse AppointmentDetail
+
+func (response ConfirmAppointment200JSONResponse) VisitConfirmAppointmentResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(200)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type ConfirmAppointment400ApplicationProblemPlusJSONResponse struct {
+	BadRequestApplicationProblemPlusJSONResponse
+}
+
+func (response ConfirmAppointment400ApplicationProblemPlusJSONResponse) VisitConfirmAppointmentResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/problem+json")
+	w.WriteHeader(400)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type ConfirmAppointment401ApplicationProblemPlusJSONResponse struct {
+	UnauthorizedApplicationProblemPlusJSONResponse
+}
+
+func (response ConfirmAppointment401ApplicationProblemPlusJSONResponse) VisitConfirmAppointmentResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/problem+json")
+	w.WriteHeader(401)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type ConfirmAppointment403ApplicationProblemPlusJSONResponse struct {
+	ForbiddenApplicationProblemPlusJSONResponse
+}
+
+func (response ConfirmAppointment403ApplicationProblemPlusJSONResponse) VisitConfirmAppointmentResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/problem+json")
+	w.WriteHeader(403)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type ConfirmAppointment404ApplicationProblemPlusJSONResponse struct {
+	NotFoundApplicationProblemPlusJSONResponse
+}
+
+func (response ConfirmAppointment404ApplicationProblemPlusJSONResponse) VisitConfirmAppointmentResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/problem+json")
+	w.WriteHeader(404)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type ConfirmAppointment409ApplicationProblemPlusJSONResponse struct {
+	ConflictApplicationProblemPlusJSONResponse
+}
+
+func (response ConfirmAppointment409ApplicationProblemPlusJSONResponse) VisitConfirmAppointmentResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/problem+json")
+	w.WriteHeader(409)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type ConfirmAppointment422ApplicationProblemPlusJSONResponse struct {
+	UnprocessableEntityApplicationProblemPlusJSONResponse
+}
+
+func (response ConfirmAppointment422ApplicationProblemPlusJSONResponse) VisitConfirmAppointmentResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/problem+json")
+	w.WriteHeader(422)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type ConfirmAppointment429ApplicationProblemPlusJSONResponse struct {
+	TooManyRequestsApplicationProblemPlusJSONResponse
+}
+
+func (response ConfirmAppointment429ApplicationProblemPlusJSONResponse) VisitConfirmAppointmentResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response.Body); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/problem+json")
+	if response.Headers.RetryAfter != nil {
+		w.Header().Set("Retry-After", fmt.Sprint(*response.Headers.RetryAfter))
+	}
+	w.WriteHeader(429)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type ConfirmAppointment500ApplicationProblemPlusJSONResponse struct {
+	InternalErrorApplicationProblemPlusJSONResponse
+}
+
+func (response ConfirmAppointment500ApplicationProblemPlusJSONResponse) VisitConfirmAppointmentResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/problem+json")
+	w.WriteHeader(500)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type DeclineAppointmentRequestObject struct {
+	AppointmentId AppointmentId `json:"appointmentId"`
+	Body          *DeclineAppointmentJSONRequestBody
+}
+
+type DeclineAppointmentResponseObject interface {
+	VisitDeclineAppointmentResponse(w http.ResponseWriter) error
+}
+
+type DeclineAppointment200JSONResponse AppointmentDetail
+
+func (response DeclineAppointment200JSONResponse) VisitDeclineAppointmentResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(200)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type DeclineAppointment400ApplicationProblemPlusJSONResponse struct {
+	BadRequestApplicationProblemPlusJSONResponse
+}
+
+func (response DeclineAppointment400ApplicationProblemPlusJSONResponse) VisitDeclineAppointmentResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/problem+json")
+	w.WriteHeader(400)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type DeclineAppointment401ApplicationProblemPlusJSONResponse struct {
+	UnauthorizedApplicationProblemPlusJSONResponse
+}
+
+func (response DeclineAppointment401ApplicationProblemPlusJSONResponse) VisitDeclineAppointmentResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/problem+json")
+	w.WriteHeader(401)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type DeclineAppointment403ApplicationProblemPlusJSONResponse struct {
+	ForbiddenApplicationProblemPlusJSONResponse
+}
+
+func (response DeclineAppointment403ApplicationProblemPlusJSONResponse) VisitDeclineAppointmentResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/problem+json")
+	w.WriteHeader(403)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type DeclineAppointment404ApplicationProblemPlusJSONResponse struct {
+	NotFoundApplicationProblemPlusJSONResponse
+}
+
+func (response DeclineAppointment404ApplicationProblemPlusJSONResponse) VisitDeclineAppointmentResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/problem+json")
+	w.WriteHeader(404)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type DeclineAppointment409ApplicationProblemPlusJSONResponse struct {
+	ConflictApplicationProblemPlusJSONResponse
+}
+
+func (response DeclineAppointment409ApplicationProblemPlusJSONResponse) VisitDeclineAppointmentResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/problem+json")
+	w.WriteHeader(409)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type DeclineAppointment422ApplicationProblemPlusJSONResponse struct {
+	UnprocessableEntityApplicationProblemPlusJSONResponse
+}
+
+func (response DeclineAppointment422ApplicationProblemPlusJSONResponse) VisitDeclineAppointmentResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/problem+json")
+	w.WriteHeader(422)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type DeclineAppointment429ApplicationProblemPlusJSONResponse struct {
+	TooManyRequestsApplicationProblemPlusJSONResponse
+}
+
+func (response DeclineAppointment429ApplicationProblemPlusJSONResponse) VisitDeclineAppointmentResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response.Body); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/problem+json")
+	if response.Headers.RetryAfter != nil {
+		w.Header().Set("Retry-After", fmt.Sprint(*response.Headers.RetryAfter))
+	}
+	w.WriteHeader(429)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type DeclineAppointment500ApplicationProblemPlusJSONResponse struct {
+	InternalErrorApplicationProblemPlusJSONResponse
+}
+
+func (response DeclineAppointment500ApplicationProblemPlusJSONResponse) VisitDeclineAppointmentResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/problem+json")
+	w.WriteHeader(500)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type MarkAppointmentNoShowRequestObject struct {
+	AppointmentId AppointmentId `json:"appointmentId"`
+	Body          *MarkAppointmentNoShowJSONRequestBody
+}
+
+type MarkAppointmentNoShowResponseObject interface {
+	VisitMarkAppointmentNoShowResponse(w http.ResponseWriter) error
+}
+
+type MarkAppointmentNoShow200JSONResponse AppointmentDetail
+
+func (response MarkAppointmentNoShow200JSONResponse) VisitMarkAppointmentNoShowResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(200)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type MarkAppointmentNoShow400ApplicationProblemPlusJSONResponse struct {
+	BadRequestApplicationProblemPlusJSONResponse
+}
+
+func (response MarkAppointmentNoShow400ApplicationProblemPlusJSONResponse) VisitMarkAppointmentNoShowResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/problem+json")
+	w.WriteHeader(400)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type MarkAppointmentNoShow401ApplicationProblemPlusJSONResponse struct {
+	UnauthorizedApplicationProblemPlusJSONResponse
+}
+
+func (response MarkAppointmentNoShow401ApplicationProblemPlusJSONResponse) VisitMarkAppointmentNoShowResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/problem+json")
+	w.WriteHeader(401)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type MarkAppointmentNoShow403ApplicationProblemPlusJSONResponse struct {
+	ForbiddenApplicationProblemPlusJSONResponse
+}
+
+func (response MarkAppointmentNoShow403ApplicationProblemPlusJSONResponse) VisitMarkAppointmentNoShowResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/problem+json")
+	w.WriteHeader(403)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type MarkAppointmentNoShow404ApplicationProblemPlusJSONResponse struct {
+	NotFoundApplicationProblemPlusJSONResponse
+}
+
+func (response MarkAppointmentNoShow404ApplicationProblemPlusJSONResponse) VisitMarkAppointmentNoShowResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/problem+json")
+	w.WriteHeader(404)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type MarkAppointmentNoShow409ApplicationProblemPlusJSONResponse struct {
+	ConflictApplicationProblemPlusJSONResponse
+}
+
+func (response MarkAppointmentNoShow409ApplicationProblemPlusJSONResponse) VisitMarkAppointmentNoShowResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/problem+json")
+	w.WriteHeader(409)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type MarkAppointmentNoShow422ApplicationProblemPlusJSONResponse struct {
+	UnprocessableEntityApplicationProblemPlusJSONResponse
+}
+
+func (response MarkAppointmentNoShow422ApplicationProblemPlusJSONResponse) VisitMarkAppointmentNoShowResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/problem+json")
+	w.WriteHeader(422)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type MarkAppointmentNoShow429ApplicationProblemPlusJSONResponse struct {
+	TooManyRequestsApplicationProblemPlusJSONResponse
+}
+
+func (response MarkAppointmentNoShow429ApplicationProblemPlusJSONResponse) VisitMarkAppointmentNoShowResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response.Body); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/problem+json")
+	if response.Headers.RetryAfter != nil {
+		w.Header().Set("Retry-After", fmt.Sprint(*response.Headers.RetryAfter))
+	}
+	w.WriteHeader(429)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type MarkAppointmentNoShow500ApplicationProblemPlusJSONResponse struct {
+	InternalErrorApplicationProblemPlusJSONResponse
+}
+
+func (response MarkAppointmentNoShow500ApplicationProblemPlusJSONResponse) VisitMarkAppointmentNoShowResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/problem+json")
+	w.WriteHeader(500)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type SetAppointmentNoteRequestObject struct {
+	AppointmentId AppointmentId `json:"appointmentId"`
+	Body          *SetAppointmentNoteJSONRequestBody
+}
+
+type SetAppointmentNoteResponseObject interface {
+	VisitSetAppointmentNoteResponse(w http.ResponseWriter) error
+}
+
+type SetAppointmentNote200JSONResponse AppointmentDetail
+
+func (response SetAppointmentNote200JSONResponse) VisitSetAppointmentNoteResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(200)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type SetAppointmentNote400ApplicationProblemPlusJSONResponse struct {
+	BadRequestApplicationProblemPlusJSONResponse
+}
+
+func (response SetAppointmentNote400ApplicationProblemPlusJSONResponse) VisitSetAppointmentNoteResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/problem+json")
+	w.WriteHeader(400)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type SetAppointmentNote401ApplicationProblemPlusJSONResponse struct {
+	UnauthorizedApplicationProblemPlusJSONResponse
+}
+
+func (response SetAppointmentNote401ApplicationProblemPlusJSONResponse) VisitSetAppointmentNoteResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/problem+json")
+	w.WriteHeader(401)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type SetAppointmentNote403ApplicationProblemPlusJSONResponse struct {
+	ForbiddenApplicationProblemPlusJSONResponse
+}
+
+func (response SetAppointmentNote403ApplicationProblemPlusJSONResponse) VisitSetAppointmentNoteResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/problem+json")
+	w.WriteHeader(403)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type SetAppointmentNote404ApplicationProblemPlusJSONResponse struct {
+	NotFoundApplicationProblemPlusJSONResponse
+}
+
+func (response SetAppointmentNote404ApplicationProblemPlusJSONResponse) VisitSetAppointmentNoteResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/problem+json")
+	w.WriteHeader(404)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type SetAppointmentNote409ApplicationProblemPlusJSONResponse struct {
+	ConflictApplicationProblemPlusJSONResponse
+}
+
+func (response SetAppointmentNote409ApplicationProblemPlusJSONResponse) VisitSetAppointmentNoteResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/problem+json")
+	w.WriteHeader(409)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type SetAppointmentNote429ApplicationProblemPlusJSONResponse struct {
+	TooManyRequestsApplicationProblemPlusJSONResponse
+}
+
+func (response SetAppointmentNote429ApplicationProblemPlusJSONResponse) VisitSetAppointmentNoteResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response.Body); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/problem+json")
+	if response.Headers.RetryAfter != nil {
+		w.Header().Set("Retry-After", fmt.Sprint(*response.Headers.RetryAfter))
+	}
+	w.WriteHeader(429)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type SetAppointmentNote500ApplicationProblemPlusJSONResponse struct {
+	InternalErrorApplicationProblemPlusJSONResponse
+}
+
+func (response SetAppointmentNote500ApplicationProblemPlusJSONResponse) VisitSetAppointmentNoteResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/problem+json")
+	w.WriteHeader(500)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type RescheduleAppointmentRequestObject struct {
+	AppointmentId AppointmentId `json:"appointmentId"`
+	Body          *RescheduleAppointmentJSONRequestBody
+}
+
+type RescheduleAppointmentResponseObject interface {
+	VisitRescheduleAppointmentResponse(w http.ResponseWriter) error
+}
+
+type RescheduleAppointment200JSONResponse AppointmentDetail
+
+func (response RescheduleAppointment200JSONResponse) VisitRescheduleAppointmentResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(200)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type RescheduleAppointment400ApplicationProblemPlusJSONResponse struct {
+	BadRequestApplicationProblemPlusJSONResponse
+}
+
+func (response RescheduleAppointment400ApplicationProblemPlusJSONResponse) VisitRescheduleAppointmentResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/problem+json")
+	w.WriteHeader(400)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type RescheduleAppointment401ApplicationProblemPlusJSONResponse struct {
+	UnauthorizedApplicationProblemPlusJSONResponse
+}
+
+func (response RescheduleAppointment401ApplicationProblemPlusJSONResponse) VisitRescheduleAppointmentResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/problem+json")
+	w.WriteHeader(401)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type RescheduleAppointment403ApplicationProblemPlusJSONResponse struct {
+	ForbiddenApplicationProblemPlusJSONResponse
+}
+
+func (response RescheduleAppointment403ApplicationProblemPlusJSONResponse) VisitRescheduleAppointmentResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/problem+json")
+	w.WriteHeader(403)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type RescheduleAppointment404ApplicationProblemPlusJSONResponse struct {
+	NotFoundApplicationProblemPlusJSONResponse
+}
+
+func (response RescheduleAppointment404ApplicationProblemPlusJSONResponse) VisitRescheduleAppointmentResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/problem+json")
+	w.WriteHeader(404)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type RescheduleAppointment409ApplicationProblemPlusJSONResponse struct {
+	SlotUnavailableApplicationProblemPlusJSONResponse
+}
+
+func (response RescheduleAppointment409ApplicationProblemPlusJSONResponse) VisitRescheduleAppointmentResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/problem+json")
+	w.WriteHeader(409)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type RescheduleAppointment422ApplicationProblemPlusJSONResponse struct {
+	UnprocessableEntityApplicationProblemPlusJSONResponse
+}
+
+func (response RescheduleAppointment422ApplicationProblemPlusJSONResponse) VisitRescheduleAppointmentResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/problem+json")
+	w.WriteHeader(422)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type RescheduleAppointment429ApplicationProblemPlusJSONResponse struct {
+	TooManyRequestsApplicationProblemPlusJSONResponse
+}
+
+func (response RescheduleAppointment429ApplicationProblemPlusJSONResponse) VisitRescheduleAppointmentResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response.Body); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/problem+json")
+	if response.Headers.RetryAfter != nil {
+		w.Header().Set("Retry-After", fmt.Sprint(*response.Headers.RetryAfter))
+	}
+	w.WriteHeader(429)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type RescheduleAppointment500ApplicationProblemPlusJSONResponse struct {
+	InternalErrorApplicationProblemPlusJSONResponse
+}
+
+func (response RescheduleAppointment500ApplicationProblemPlusJSONResponse) VisitRescheduleAppointmentResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/problem+json")
+	w.WriteHeader(500)
+	_, err := buf.WriteTo(w)
+	return err
+}
 
 type ListAvailabilityBlocksRequestObject struct {
 	Params ListAvailabilityBlocksParams
@@ -5961,6 +8528,36 @@ func (response GetReadyz503JSONResponse) VisitGetReadyzResponse(w http.ResponseW
 
 // StrictServerInterface represents all server handlers.
 type StrictServerInterface interface {
+	// ListAppointments List appointments
+	// (GET /admin/appointments)
+	ListAppointments(ctx context.Context, request ListAppointmentsRequestObject) (ListAppointmentsResponseObject, error)
+	// CreateManualAppointment Create an appointment by hand
+	// (POST /admin/appointments)
+	CreateManualAppointment(ctx context.Context, request CreateManualAppointmentRequestObject) (CreateManualAppointmentResponseObject, error)
+	// GetAppointment Get an appointment with its history and communications
+	// (GET /admin/appointments/{appointmentId})
+	GetAppointment(ctx context.Context, request GetAppointmentRequestObject) (GetAppointmentResponseObject, error)
+	// CancelAppointment Cancel a confirmed appointment
+	// (POST /admin/appointments/{appointmentId}/cancel)
+	CancelAppointment(ctx context.Context, request CancelAppointmentRequestObject) (CancelAppointmentResponseObject, error)
+	// CompleteAppointment Mark an appointment completed
+	// (POST /admin/appointments/{appointmentId}/complete)
+	CompleteAppointment(ctx context.Context, request CompleteAppointmentRequestObject) (CompleteAppointmentResponseObject, error)
+	// ConfirmAppointment Confirm a pending request
+	// (POST /admin/appointments/{appointmentId}/confirm)
+	ConfirmAppointment(ctx context.Context, request ConfirmAppointmentRequestObject) (ConfirmAppointmentResponseObject, error)
+	// DeclineAppointment Decline a pending request
+	// (POST /admin/appointments/{appointmentId}/decline)
+	DeclineAppointment(ctx context.Context, request DeclineAppointmentRequestObject) (DeclineAppointmentResponseObject, error)
+	// MarkAppointmentNoShow Mark an appointment as a no-show
+	// (POST /admin/appointments/{appointmentId}/no-show)
+	MarkAppointmentNoShow(ctx context.Context, request MarkAppointmentNoShowRequestObject) (MarkAppointmentNoShowResponseObject, error)
+	// SetAppointmentNote Set the private scheduling note
+	// (PUT /admin/appointments/{appointmentId}/note)
+	SetAppointmentNote(ctx context.Context, request SetAppointmentNoteRequestObject) (SetAppointmentNoteResponseObject, error)
+	// RescheduleAppointment Move an appointment to a new time
+	// (POST /admin/appointments/{appointmentId}/reschedule)
+	RescheduleAppointment(ctx context.Context, request RescheduleAppointmentRequestObject) (RescheduleAppointmentResponseObject, error)
 	// ListAvailabilityBlocks List blocked time
 	// (GET /admin/availability/blocks)
 	ListAvailabilityBlocks(ctx context.Context, request ListAvailabilityBlocksRequestObject) (ListAvailabilityBlocksResponseObject, error)
@@ -6090,6 +8687,322 @@ type strictHandler struct {
 	ssi         StrictServerInterface
 	middlewares []StrictMiddlewareFunc
 	options     StrictHTTPServerOptions
+}
+
+// ListAppointments operation middleware
+func (sh *strictHandler) ListAppointments(w http.ResponseWriter, r *http.Request, params ListAppointmentsParams) {
+	var request ListAppointmentsRequestObject
+
+	request.Params = params
+
+	handler := func(ctx context.Context, w http.ResponseWriter, r *http.Request, request interface{}) (interface{}, error) {
+		return sh.ssi.ListAppointments(ctx, request.(ListAppointmentsRequestObject))
+	}
+	for _, middleware := range sh.middlewares {
+		handler = middleware(handler, "ListAppointments")
+	}
+
+	response, err := handler(r.Context(), w, r, request)
+
+	if err != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, err)
+	} else if validResponse, ok := response.(ListAppointmentsResponseObject); ok {
+		if err := validResponse.VisitListAppointmentsResponse(w); err != nil {
+			sh.options.ResponseErrorHandlerFunc(w, r, err)
+		}
+	} else if response != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, fmt.Errorf("unexpected response type: %T", response))
+	}
+}
+
+// CreateManualAppointment operation middleware
+func (sh *strictHandler) CreateManualAppointment(w http.ResponseWriter, r *http.Request, params CreateManualAppointmentParams) {
+	var request CreateManualAppointmentRequestObject
+
+	request.Params = params
+
+	var body CreateManualAppointmentJSONRequestBody
+	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
+		sh.options.RequestErrorHandlerFunc(w, r, fmt.Errorf("can't decode JSON body: %w", err))
+		return
+	}
+	request.Body = &body
+
+	handler := func(ctx context.Context, w http.ResponseWriter, r *http.Request, request interface{}) (interface{}, error) {
+		return sh.ssi.CreateManualAppointment(ctx, request.(CreateManualAppointmentRequestObject))
+	}
+	for _, middleware := range sh.middlewares {
+		handler = middleware(handler, "CreateManualAppointment")
+	}
+
+	response, err := handler(r.Context(), w, r, request)
+
+	if err != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, err)
+	} else if validResponse, ok := response.(CreateManualAppointmentResponseObject); ok {
+		if err := validResponse.VisitCreateManualAppointmentResponse(w); err != nil {
+			sh.options.ResponseErrorHandlerFunc(w, r, err)
+		}
+	} else if response != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, fmt.Errorf("unexpected response type: %T", response))
+	}
+}
+
+// GetAppointment operation middleware
+func (sh *strictHandler) GetAppointment(w http.ResponseWriter, r *http.Request, appointmentId AppointmentId) {
+	var request GetAppointmentRequestObject
+
+	request.AppointmentId = appointmentId
+
+	handler := func(ctx context.Context, w http.ResponseWriter, r *http.Request, request interface{}) (interface{}, error) {
+		return sh.ssi.GetAppointment(ctx, request.(GetAppointmentRequestObject))
+	}
+	for _, middleware := range sh.middlewares {
+		handler = middleware(handler, "GetAppointment")
+	}
+
+	response, err := handler(r.Context(), w, r, request)
+
+	if err != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, err)
+	} else if validResponse, ok := response.(GetAppointmentResponseObject); ok {
+		if err := validResponse.VisitGetAppointmentResponse(w); err != nil {
+			sh.options.ResponseErrorHandlerFunc(w, r, err)
+		}
+	} else if response != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, fmt.Errorf("unexpected response type: %T", response))
+	}
+}
+
+// CancelAppointment operation middleware
+func (sh *strictHandler) CancelAppointment(w http.ResponseWriter, r *http.Request, appointmentId AppointmentId) {
+	var request CancelAppointmentRequestObject
+
+	request.AppointmentId = appointmentId
+
+	var body CancelAppointmentJSONRequestBody
+	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
+		sh.options.RequestErrorHandlerFunc(w, r, fmt.Errorf("can't decode JSON body: %w", err))
+		return
+	}
+	request.Body = &body
+
+	handler := func(ctx context.Context, w http.ResponseWriter, r *http.Request, request interface{}) (interface{}, error) {
+		return sh.ssi.CancelAppointment(ctx, request.(CancelAppointmentRequestObject))
+	}
+	for _, middleware := range sh.middlewares {
+		handler = middleware(handler, "CancelAppointment")
+	}
+
+	response, err := handler(r.Context(), w, r, request)
+
+	if err != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, err)
+	} else if validResponse, ok := response.(CancelAppointmentResponseObject); ok {
+		if err := validResponse.VisitCancelAppointmentResponse(w); err != nil {
+			sh.options.ResponseErrorHandlerFunc(w, r, err)
+		}
+	} else if response != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, fmt.Errorf("unexpected response type: %T", response))
+	}
+}
+
+// CompleteAppointment operation middleware
+func (sh *strictHandler) CompleteAppointment(w http.ResponseWriter, r *http.Request, appointmentId AppointmentId) {
+	var request CompleteAppointmentRequestObject
+
+	request.AppointmentId = appointmentId
+
+	var body CompleteAppointmentJSONRequestBody
+	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
+		sh.options.RequestErrorHandlerFunc(w, r, fmt.Errorf("can't decode JSON body: %w", err))
+		return
+	}
+	request.Body = &body
+
+	handler := func(ctx context.Context, w http.ResponseWriter, r *http.Request, request interface{}) (interface{}, error) {
+		return sh.ssi.CompleteAppointment(ctx, request.(CompleteAppointmentRequestObject))
+	}
+	for _, middleware := range sh.middlewares {
+		handler = middleware(handler, "CompleteAppointment")
+	}
+
+	response, err := handler(r.Context(), w, r, request)
+
+	if err != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, err)
+	} else if validResponse, ok := response.(CompleteAppointmentResponseObject); ok {
+		if err := validResponse.VisitCompleteAppointmentResponse(w); err != nil {
+			sh.options.ResponseErrorHandlerFunc(w, r, err)
+		}
+	} else if response != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, fmt.Errorf("unexpected response type: %T", response))
+	}
+}
+
+// ConfirmAppointment operation middleware
+func (sh *strictHandler) ConfirmAppointment(w http.ResponseWriter, r *http.Request, appointmentId AppointmentId) {
+	var request ConfirmAppointmentRequestObject
+
+	request.AppointmentId = appointmentId
+
+	var body ConfirmAppointmentJSONRequestBody
+	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
+		sh.options.RequestErrorHandlerFunc(w, r, fmt.Errorf("can't decode JSON body: %w", err))
+		return
+	}
+	request.Body = &body
+
+	handler := func(ctx context.Context, w http.ResponseWriter, r *http.Request, request interface{}) (interface{}, error) {
+		return sh.ssi.ConfirmAppointment(ctx, request.(ConfirmAppointmentRequestObject))
+	}
+	for _, middleware := range sh.middlewares {
+		handler = middleware(handler, "ConfirmAppointment")
+	}
+
+	response, err := handler(r.Context(), w, r, request)
+
+	if err != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, err)
+	} else if validResponse, ok := response.(ConfirmAppointmentResponseObject); ok {
+		if err := validResponse.VisitConfirmAppointmentResponse(w); err != nil {
+			sh.options.ResponseErrorHandlerFunc(w, r, err)
+		}
+	} else if response != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, fmt.Errorf("unexpected response type: %T", response))
+	}
+}
+
+// DeclineAppointment operation middleware
+func (sh *strictHandler) DeclineAppointment(w http.ResponseWriter, r *http.Request, appointmentId AppointmentId) {
+	var request DeclineAppointmentRequestObject
+
+	request.AppointmentId = appointmentId
+
+	var body DeclineAppointmentJSONRequestBody
+	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
+		sh.options.RequestErrorHandlerFunc(w, r, fmt.Errorf("can't decode JSON body: %w", err))
+		return
+	}
+	request.Body = &body
+
+	handler := func(ctx context.Context, w http.ResponseWriter, r *http.Request, request interface{}) (interface{}, error) {
+		return sh.ssi.DeclineAppointment(ctx, request.(DeclineAppointmentRequestObject))
+	}
+	for _, middleware := range sh.middlewares {
+		handler = middleware(handler, "DeclineAppointment")
+	}
+
+	response, err := handler(r.Context(), w, r, request)
+
+	if err != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, err)
+	} else if validResponse, ok := response.(DeclineAppointmentResponseObject); ok {
+		if err := validResponse.VisitDeclineAppointmentResponse(w); err != nil {
+			sh.options.ResponseErrorHandlerFunc(w, r, err)
+		}
+	} else if response != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, fmt.Errorf("unexpected response type: %T", response))
+	}
+}
+
+// MarkAppointmentNoShow operation middleware
+func (sh *strictHandler) MarkAppointmentNoShow(w http.ResponseWriter, r *http.Request, appointmentId AppointmentId) {
+	var request MarkAppointmentNoShowRequestObject
+
+	request.AppointmentId = appointmentId
+
+	var body MarkAppointmentNoShowJSONRequestBody
+	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
+		sh.options.RequestErrorHandlerFunc(w, r, fmt.Errorf("can't decode JSON body: %w", err))
+		return
+	}
+	request.Body = &body
+
+	handler := func(ctx context.Context, w http.ResponseWriter, r *http.Request, request interface{}) (interface{}, error) {
+		return sh.ssi.MarkAppointmentNoShow(ctx, request.(MarkAppointmentNoShowRequestObject))
+	}
+	for _, middleware := range sh.middlewares {
+		handler = middleware(handler, "MarkAppointmentNoShow")
+	}
+
+	response, err := handler(r.Context(), w, r, request)
+
+	if err != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, err)
+	} else if validResponse, ok := response.(MarkAppointmentNoShowResponseObject); ok {
+		if err := validResponse.VisitMarkAppointmentNoShowResponse(w); err != nil {
+			sh.options.ResponseErrorHandlerFunc(w, r, err)
+		}
+	} else if response != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, fmt.Errorf("unexpected response type: %T", response))
+	}
+}
+
+// SetAppointmentNote operation middleware
+func (sh *strictHandler) SetAppointmentNote(w http.ResponseWriter, r *http.Request, appointmentId AppointmentId) {
+	var request SetAppointmentNoteRequestObject
+
+	request.AppointmentId = appointmentId
+
+	var body SetAppointmentNoteJSONRequestBody
+	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
+		sh.options.RequestErrorHandlerFunc(w, r, fmt.Errorf("can't decode JSON body: %w", err))
+		return
+	}
+	request.Body = &body
+
+	handler := func(ctx context.Context, w http.ResponseWriter, r *http.Request, request interface{}) (interface{}, error) {
+		return sh.ssi.SetAppointmentNote(ctx, request.(SetAppointmentNoteRequestObject))
+	}
+	for _, middleware := range sh.middlewares {
+		handler = middleware(handler, "SetAppointmentNote")
+	}
+
+	response, err := handler(r.Context(), w, r, request)
+
+	if err != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, err)
+	} else if validResponse, ok := response.(SetAppointmentNoteResponseObject); ok {
+		if err := validResponse.VisitSetAppointmentNoteResponse(w); err != nil {
+			sh.options.ResponseErrorHandlerFunc(w, r, err)
+		}
+	} else if response != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, fmt.Errorf("unexpected response type: %T", response))
+	}
+}
+
+// RescheduleAppointment operation middleware
+func (sh *strictHandler) RescheduleAppointment(w http.ResponseWriter, r *http.Request, appointmentId AppointmentId) {
+	var request RescheduleAppointmentRequestObject
+
+	request.AppointmentId = appointmentId
+
+	var body RescheduleAppointmentJSONRequestBody
+	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
+		sh.options.RequestErrorHandlerFunc(w, r, fmt.Errorf("can't decode JSON body: %w", err))
+		return
+	}
+	request.Body = &body
+
+	handler := func(ctx context.Context, w http.ResponseWriter, r *http.Request, request interface{}) (interface{}, error) {
+		return sh.ssi.RescheduleAppointment(ctx, request.(RescheduleAppointmentRequestObject))
+	}
+	for _, middleware := range sh.middlewares {
+		handler = middleware(handler, "RescheduleAppointment")
+	}
+
+	response, err := handler(r.Context(), w, r, request)
+
+	if err != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, err)
+	} else if validResponse, ok := response.(RescheduleAppointmentResponseObject); ok {
+		if err := validResponse.VisitRescheduleAppointmentResponse(w); err != nil {
+			sh.options.ResponseErrorHandlerFunc(w, r, err)
+		}
+	} else if response != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, fmt.Errorf("unexpected response type: %T", response))
+	}
 }
 
 // ListAvailabilityBlocks operation middleware
@@ -6942,136 +9855,166 @@ func (sh *strictHandler) GetReadyz(w http.ResponseWriter, r *http.Request) {
 // const string: with thousands of chunks the chained `+` fold is several
 // times slower for the Go compiler than parsing a slice literal.
 var swaggerSpec = []string{
-	"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",
-	"RVKj/qxAP/PO06v0mSI8ZMHCa10d8776cPXfAwA=",
+	"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",
 }
 
 // decodeSpec returns the embedded OpenAPI spec as raw JSON bytes,

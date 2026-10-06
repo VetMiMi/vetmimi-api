@@ -25,6 +25,12 @@ type Event struct {
 // not a map, so a name, email or note has nowhere to go.
 type EventDetail struct {
 	LateCancellation *bool `json:"late_cancellation,omitempty"`
+	// By is who cancelled: practitioner or client.
+	By string `json:"by,omitempty"`
+	// Source is manual for an appointment Daw Mi made by hand.
+	Source string `json:"source,omitempty"`
+	// NoteLength is the private note's length; its text is never recorded.
+	NoteLength *int `json:"length,omitempty"`
 }
 
 // AppendEvent records e in the caller's transaction.

@@ -173,6 +173,7 @@ func (t *Tasks) compose(ctx context.Context, q *db.Queries, row db.Communication
 	if err != nil {
 		return Email{}, "", err
 	}
+	data.MessageToVisitor = row.Message.String
 	email, err := Render(Kind(row.Kind), row.Locale, data)
 	email.ReplyTo = s.ContactEmail
 	return email, "", err

@@ -14,16 +14,24 @@ import (
 const listBusyPeriods = `-- name: ListBusyPeriods :many
 SELECT busy_range AS period FROM appointments
 WHERE status IN ('pending', 'confirmed') AND busy_range && $1::tstzrange
+  AND ($2::uuid IS NULL OR id <> $2::uuid)
 UNION ALL
 SELECT period FROM availability_blocks
 WHERE period && $1::tstzrange
 `
 
+type ListBusyPeriodsParams struct {
+	Within   pgtype.Range[pgtype.Timestamptz]
+	ExceptID pgtype.UUID
+}
+
 // ListBusyPeriods is the time slot generation must keep free inside within:
 // every block and every pending or confirmed appointment's busy range. It
 // selects the periods alone, never a reason or anything about a visitor.
-func (q *Queries) ListBusyPeriods(ctx context.Context, within pgtype.Range[pgtype.Timestamptz]) ([]pgtype.Range[pgtype.Timestamptz], error) {
-	rows, err := q.db.Query(ctx, listBusyPeriods, within)
+// @except_id, when set, is an appointment being moved, whose own time is free
+// to it.
+func (q *Queries) ListBusyPeriods(ctx context.Context, arg ListBusyPeriodsParams) ([]pgtype.Range[pgtype.Timestamptz], error) {
+	rows, err := q.db.Query(ctx, listBusyPeriods, arg.Within, arg.ExceptID)
 	if err != nil {
 		return nil, err
 	}

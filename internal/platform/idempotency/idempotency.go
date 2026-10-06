@@ -17,9 +17,12 @@ import (
 	"github.com/VetMiMi/vetmimi-api/internal/platform/apperr"
 )
 
-// PublicAppointment is the scope of a visitor's appointment request; the
-// table also allows admin_appointment and contact_enquiry.
-const PublicAppointment = "public_appointment"
+// The scopes of the keys: a visitor's appointment request and an
+// appointment Daw Mi makes by hand. The table also allows contact_enquiry.
+const (
+	PublicAppointment = "public_appointment"
+	AdminAppointment  = "admin_appointment"
+)
 
 // Lifetime is how long a key is kept.
 const Lifetime = 24 * time.Hour
