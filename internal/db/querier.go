@@ -22,10 +22,13 @@ type Querier interface {
 	DeleteExpiredSessions(ctx context.Context, arg DeleteExpiredSessionsParams) (int64, error)
 	DeleteSession(ctx context.Context, id pgtype.UUID) error
 	DeleteUserSessions(ctx context.Context, userID pgtype.UUID) error
+	GetServiceBySlug(ctx context.Context, slug string) (Service, error)
 	// GetSession returns the session a token hash names together with its user,
 	// so authenticating a request is one query.
 	GetSession(ctx context.Context, tokenHash []byte) (GetSessionRow, error)
 	GetUserForSignIn(ctx context.Context, email string) (GetUserForSignInRow, error)
+	ListServices(ctx context.Context) ([]Service, error)
+	ListSettings(ctx context.Context) ([]ListSettingsRow, error)
 	Ping(ctx context.Context) (int32, error)
 	// RecordSignIn succeeds only while the user is enabled and still has the
 	// password hash sign-in verified. Its row lock orders it against a
@@ -37,6 +40,10 @@ type Querier interface {
 	// --practitioner must not leave the practice without its practitioner.
 	ReplaceUserCredentials(ctx context.Context, arg ReplaceUserCredentialsParams) (pgtype.UUID, error)
 	TouchSession(ctx context.Context, arg TouchSessionParams) error
+	// UpdateSettings writes every key of patch, a JSON object of key to value, in
+	// one statement, so a patch lands whole or not at all. Keys with no row are
+	// ignored; platform/settings only passes known keys.
+	UpdateSettings(ctx context.Context, arg UpdateSettingsParams) error
 }
 
 var _ Querier = (*Queries)(nil)

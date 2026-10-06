@@ -28,6 +28,9 @@ func NewRouter(deps Deps) http.Handler {
 		panic(fmt.Sprintf("httpapi: decode the embedded OpenAPI spec: %v", err))
 	}
 	deps.Log = log
+	if deps.Now == nil {
+		deps.Now = time.Now
+	}
 	if deps.RateLimits == nil {
 		deps.RateLimits = NewRateLimits(nil, log, time.Now)
 	}

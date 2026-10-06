@@ -6,10 +6,30 @@ package db
 
 import (
 	"database/sql"
+	"encoding/json"
 	"time"
 
 	"github.com/jackc/pgx/v5/pgtype"
 )
+
+type Service struct {
+	ID                  pgtype.UUID
+	Slug                string
+	Name                json.RawMessage
+	Description         json.RawMessage
+	BookingAction       string
+	State               string
+	DurationMinutes     pgtype.Int4
+	BufferBeforeMinutes int32
+	BufferAfterMinutes  int32
+	Formats             []string
+	FeeText             json.RawMessage
+	PreparationText     json.RawMessage
+	SortOrder           int32
+	Version             int32
+	CreatedAt           time.Time
+	UpdatedAt           time.Time
+}
 
 type Session struct {
 	ID         pgtype.UUID
@@ -18,6 +38,13 @@ type Session struct {
 	LastSeenAt time.Time
 	ExpiresAt  time.Time
 	CreatedAt  time.Time
+}
+
+type Setting struct {
+	Key       string
+	Value     []byte
+	UpdatedBy pgtype.UUID
+	UpdatedAt time.Time
 }
 
 type User struct {

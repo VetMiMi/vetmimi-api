@@ -111,6 +111,144 @@ func (e Role) Valid() bool {
 	}
 }
 
+// Defines values for SettingsBookingMode.
+const (
+	SettingsBookingModeInstant         SettingsBookingMode = "instant"
+	SettingsBookingModeRequestApproval SettingsBookingMode = "request_approval"
+)
+
+// Valid indicates whether the value is a known member of the SettingsBookingMode enum.
+func (e SettingsBookingMode) Valid() bool {
+	switch e {
+	case SettingsBookingModeInstant:
+		return true
+	case SettingsBookingModeRequestApproval:
+		return true
+	default:
+		return false
+	}
+}
+
+// Defines values for SettingsInvoiceTiming.
+const (
+	SettingsInvoiceTimingAfterSession SettingsInvoiceTiming = "after_session"
+)
+
+// Valid indicates whether the value is a known member of the SettingsInvoiceTiming enum.
+func (e SettingsInvoiceTiming) Valid() bool {
+	switch e {
+	case SettingsInvoiceTimingAfterSession:
+		return true
+	default:
+		return false
+	}
+}
+
+// Defines values for SettingsMeetingLinkMode.
+const (
+	SettingsMeetingLinkModeManualLink  SettingsMeetingLinkMode = "manual_link"
+	SettingsMeetingLinkModeVetmimiRoom SettingsMeetingLinkMode = "vetmimi_room"
+)
+
+// Valid indicates whether the value is a known member of the SettingsMeetingLinkMode enum.
+func (e SettingsMeetingLinkMode) Valid() bool {
+	switch e {
+	case SettingsMeetingLinkModeManualLink:
+		return true
+	case SettingsMeetingLinkModeVetmimiRoom:
+		return true
+	default:
+		return false
+	}
+}
+
+// Defines values for SettingsPaymentMethods.
+const (
+	SettingsPaymentMethodsBankTransfer SettingsPaymentMethods = "bank_transfer"
+	SettingsPaymentMethodsCard         SettingsPaymentMethods = "card"
+)
+
+// Valid indicates whether the value is a known member of the SettingsPaymentMethods enum.
+func (e SettingsPaymentMethods) Valid() bool {
+	switch e {
+	case SettingsPaymentMethodsBankTransfer:
+		return true
+	case SettingsPaymentMethodsCard:
+		return true
+	default:
+		return false
+	}
+}
+
+// Defines values for SettingsPatchBookingMode.
+const (
+	SettingsPatchBookingModeInstant         SettingsPatchBookingMode = "instant"
+	SettingsPatchBookingModeRequestApproval SettingsPatchBookingMode = "request_approval"
+)
+
+// Valid indicates whether the value is a known member of the SettingsPatchBookingMode enum.
+func (e SettingsPatchBookingMode) Valid() bool {
+	switch e {
+	case SettingsPatchBookingModeInstant:
+		return true
+	case SettingsPatchBookingModeRequestApproval:
+		return true
+	default:
+		return false
+	}
+}
+
+// Defines values for SettingsPatchInvoiceTiming.
+const (
+	SettingsPatchInvoiceTimingAfterSession SettingsPatchInvoiceTiming = "after_session"
+)
+
+// Valid indicates whether the value is a known member of the SettingsPatchInvoiceTiming enum.
+func (e SettingsPatchInvoiceTiming) Valid() bool {
+	switch e {
+	case SettingsPatchInvoiceTimingAfterSession:
+		return true
+	default:
+		return false
+	}
+}
+
+// Defines values for SettingsPatchMeetingLinkMode.
+const (
+	SettingsPatchMeetingLinkModeManualLink  SettingsPatchMeetingLinkMode = "manual_link"
+	SettingsPatchMeetingLinkModeVetmimiRoom SettingsPatchMeetingLinkMode = "vetmimi_room"
+)
+
+// Valid indicates whether the value is a known member of the SettingsPatchMeetingLinkMode enum.
+func (e SettingsPatchMeetingLinkMode) Valid() bool {
+	switch e {
+	case SettingsPatchMeetingLinkModeManualLink:
+		return true
+	case SettingsPatchMeetingLinkModeVetmimiRoom:
+		return true
+	default:
+		return false
+	}
+}
+
+// Defines values for SettingsPatchPaymentMethods.
+const (
+	SettingsPatchPaymentMethodsBankTransfer SettingsPatchPaymentMethods = "bank_transfer"
+	SettingsPatchPaymentMethodsCard         SettingsPatchPaymentMethods = "card"
+)
+
+// Valid indicates whether the value is a known member of the SettingsPatchPaymentMethods enum.
+func (e SettingsPatchPaymentMethods) Valid() bool {
+	switch e {
+	case SettingsPatchPaymentMethodsBankTransfer:
+		return true
+	case SettingsPatchPaymentMethodsCard:
+		return true
+	default:
+		return false
+	}
+}
+
 // CurrentUser defines model for CurrentUser.
 type CurrentUser struct {
 	DisplayName    string              `json:"displayName"`
@@ -127,6 +265,12 @@ type Health struct {
 
 // HealthStatus defines model for Health.Status.
 type HealthStatus string
+
+// LocalizedText Text per locale. Required fields need `en`.
+type LocalizedText struct {
+	En *string `json:"en,omitempty"`
+	My *string `json:"my,omitempty"`
+}
 
 // Problem RFC 9457 problem details, returned by every 4xx and 5xx response.
 type Problem struct {
@@ -191,6 +335,98 @@ type SessionCreated struct {
 	User  CurrentUser `json:"user"`
 }
 
+// Settings All settings; keys are the camelCase form of the `settings` table keys. A content editor receives only the `site` group (timezone, retentionMonths, contactEmail, responseTime); booking and site administrators receive every key. `updatedAt` is the newest change among the keys returned.
+type Settings struct {
+	BookingMode                 *SettingsBookingMode      `json:"bookingMode,omitempty"`
+	CancellationNoticeHours     *int                      `json:"cancellationNoticeHours,omitempty"`
+	ContactEmail                openapi_types.Email       `json:"contactEmail"`
+	InvoiceTiming               *SettingsInvoiceTiming    `json:"invoiceTiming,omitempty"`
+	LateCancellationFeePercent  *int                      `json:"lateCancellationFeePercent,omitempty"`
+	LateCancellationFirstWaived *bool                     `json:"lateCancellationFirstWaived,omitempty"`
+	MaxAdvanceDays              *int                      `json:"maxAdvanceDays,omitempty"`
+	MeetingLinkMode             *SettingsMeetingLinkMode  `json:"meetingLinkMode,omitempty"`
+	MinNoticeHours              *int                      `json:"minNoticeHours,omitempty"`
+	NoShowFeePercent            *int                      `json:"noShowFeePercent,omitempty"`
+	PaymentMethods              *[]SettingsPaymentMethods `json:"paymentMethods,omitempty"`
+	PendingHoldHours            *int                      `json:"pendingHoldHours,omitempty"`
+
+	// PublicBookingEnabled False pauses public booking without touching availability.
+	PublicBookingEnabled *bool `json:"publicBookingEnabled,omitempty"`
+	ReminderHours        *int  `json:"reminderHours,omitempty"`
+
+	// ResponseTime Text per locale. Required fields need `en`.
+	ResponseTime    LocalizedText `json:"responseTime"`
+	RetentionMonths int           `json:"retentionMonths"`
+	SlotStepMinutes *int          `json:"slotStepMinutes,omitempty"`
+
+	// Timezone IANA timezone name of the practice.
+	//
+	// Examples: Australia/Sydney
+	Timezone Timezone `json:"timezone"`
+
+	// UpdatedAt UTC timestamp (RFC 3339).
+	UpdatedAt *time.Time `json:"updatedAt,omitempty"`
+}
+
+// SettingsBookingMode defines model for Settings.BookingMode.
+type SettingsBookingMode string
+
+// SettingsInvoiceTiming defines model for Settings.InvoiceTiming.
+type SettingsInvoiceTiming string
+
+// SettingsMeetingLinkMode defines model for Settings.MeetingLinkMode.
+type SettingsMeetingLinkMode string
+
+// SettingsPaymentMethods defines model for Settings.PaymentMethods.
+type SettingsPaymentMethods string
+
+// SettingsPatch Keys to change, applied together or not at all. `booking` keys need booking_admin; `site` keys need site_admin.
+type SettingsPatch struct {
+	BookingMode                 *SettingsPatchBookingMode      `json:"bookingMode,omitempty"`
+	CancellationNoticeHours     *int                           `json:"cancellationNoticeHours,omitempty"`
+	ContactEmail                *openapi_types.Email           `json:"contactEmail,omitempty"`
+	InvoiceTiming               *SettingsPatchInvoiceTiming    `json:"invoiceTiming,omitempty"`
+	LateCancellationFeePercent  *int                           `json:"lateCancellationFeePercent,omitempty"`
+	LateCancellationFirstWaived *bool                          `json:"lateCancellationFirstWaived,omitempty"`
+	MaxAdvanceDays              *int                           `json:"maxAdvanceDays,omitempty"`
+	MeetingLinkMode             *SettingsPatchMeetingLinkMode  `json:"meetingLinkMode,omitempty"`
+	MinNoticeHours              *int                           `json:"minNoticeHours,omitempty"`
+	NoShowFeePercent            *int                           `json:"noShowFeePercent,omitempty"`
+	PaymentMethods              *[]SettingsPatchPaymentMethods `json:"paymentMethods,omitempty"`
+	PendingHoldHours            *int                           `json:"pendingHoldHours,omitempty"`
+
+	// PublicBookingEnabled False pauses public booking without touching availability.
+	PublicBookingEnabled *bool `json:"publicBookingEnabled,omitempty"`
+	ReminderHours        *int  `json:"reminderHours,omitempty"`
+
+	// ResponseTime Text per locale. Required fields need `en`.
+	ResponseTime    *LocalizedText `json:"responseTime,omitempty"`
+	RetentionMonths *int           `json:"retentionMonths,omitempty"`
+	SlotStepMinutes *int           `json:"slotStepMinutes,omitempty"`
+
+	// Timezone IANA timezone name of the practice.
+	//
+	// Examples: Australia/Sydney
+	Timezone *Timezone `json:"timezone,omitempty"`
+}
+
+// SettingsPatchBookingMode defines model for SettingsPatch.BookingMode.
+type SettingsPatchBookingMode string
+
+// SettingsPatchInvoiceTiming defines model for SettingsPatch.InvoiceTiming.
+type SettingsPatchInvoiceTiming string
+
+// SettingsPatchMeetingLinkMode defines model for SettingsPatch.MeetingLinkMode.
+type SettingsPatchMeetingLinkMode string
+
+// SettingsPatchPaymentMethods defines model for SettingsPatch.PaymentMethods.
+type SettingsPatchPaymentMethods string
+
+// Timezone IANA timezone name of the practice.
+//
+// Examples: Australia/Sydney
+type Timezone = string
+
 // BadRequest RFC 9457 problem details, returned by every 4xx and 5xx response.
 type BadRequest = Problem
 
@@ -206,11 +442,23 @@ type TooManyRequests = Problem
 // Unauthorized RFC 9457 problem details, returned by every 4xx and 5xx response.
 type Unauthorized = Problem
 
+// UnprocessableEntity RFC 9457 problem details, returned by every 4xx and 5xx response.
+type UnprocessableEntity = Problem
+
+// UpdateSettingsJSONRequestBody defines body for UpdateSettings for application/json ContentType.
+type UpdateSettingsJSONRequestBody = SettingsPatch
+
 // CreateSessionJSONRequestBody defines body for CreateSession for application/json ContentType.
 type CreateSessionJSONRequestBody = SessionCreate
 
 // ServerInterface represents all server handlers.
 type ServerInterface interface {
+	// GetSettings Get settings
+	// (GET /admin/settings)
+	GetSettings(w http.ResponseWriter, r *http.Request)
+	// UpdateSettings Change settings
+	// (PATCH /admin/settings)
+	UpdateSettings(w http.ResponseWriter, r *http.Request)
 	// GetCurrentUser Get the signed-in user
 	// (GET /auth/me)
 	GetCurrentUser(w http.ResponseWriter, r *http.Request)
@@ -231,6 +479,18 @@ type ServerInterface interface {
 // Unimplemented server implementation that returns http.StatusNotImplemented for each endpoint.
 
 type Unimplemented struct{}
+
+// GetSettings Get settings
+// (GET /admin/settings)
+func (_ Unimplemented) GetSettings(w http.ResponseWriter, r *http.Request) {
+	w.WriteHeader(http.StatusNotImplemented)
+}
+
+// UpdateSettings Change settings
+// (PATCH /admin/settings)
+func (_ Unimplemented) UpdateSettings(w http.ResponseWriter, r *http.Request) {
+	w.WriteHeader(http.StatusNotImplemented)
+}
 
 // GetCurrentUser Get the signed-in user
 // (GET /auth/me)
@@ -270,6 +530,34 @@ type ServerInterfaceWrapper struct {
 }
 
 type MiddlewareFunc func(http.Handler) http.Handler
+
+// GetSettings operation middleware
+func (siw *ServerInterfaceWrapper) GetSettings(w http.ResponseWriter, r *http.Request) {
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.GetSettings(w, r)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
+// UpdateSettings operation middleware
+func (siw *ServerInterfaceWrapper) UpdateSettings(w http.ResponseWriter, r *http.Request) {
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.UpdateSettings(w, r)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
 
 // GetCurrentUser operation middleware
 func (siw *ServerInterfaceWrapper) GetCurrentUser(w http.ResponseWriter, r *http.Request) {
@@ -469,6 +757,12 @@ func HandlerWithOptions(si ServerInterface, options ChiServerOptions) http.Handl
 	r.Group(func(r chi.Router) {
 		r.Get(options.BaseURL+"/auth/me", wrapper.GetCurrentUser)
 	})
+	r.Group(func(r chi.Router) {
+		r.Get(options.BaseURL+"/admin/settings", wrapper.GetSettings)
+	})
+	r.Group(func(r chi.Router) {
+		r.Patch(options.BaseURL+"/admin/settings", wrapper.UpdateSettings)
+	})
 
 	return r
 }
@@ -489,6 +783,217 @@ type TooManyRequestsApplicationProblemPlusJSONResponse struct {
 }
 
 type UnauthorizedApplicationProblemPlusJSONResponse Problem
+
+type UnprocessableEntityApplicationProblemPlusJSONResponse Problem
+
+type GetSettingsRequestObject struct {
+}
+
+type GetSettingsResponseObject interface {
+	VisitGetSettingsResponse(w http.ResponseWriter) error
+}
+
+type GetSettings200JSONResponse Settings
+
+func (response GetSettings200JSONResponse) VisitGetSettingsResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(200)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type GetSettings401ApplicationProblemPlusJSONResponse struct {
+	UnauthorizedApplicationProblemPlusJSONResponse
+}
+
+func (response GetSettings401ApplicationProblemPlusJSONResponse) VisitGetSettingsResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/problem+json")
+	w.WriteHeader(401)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type GetSettings403ApplicationProblemPlusJSONResponse struct {
+	ForbiddenApplicationProblemPlusJSONResponse
+}
+
+func (response GetSettings403ApplicationProblemPlusJSONResponse) VisitGetSettingsResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/problem+json")
+	w.WriteHeader(403)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type GetSettings429ApplicationProblemPlusJSONResponse struct {
+	TooManyRequestsApplicationProblemPlusJSONResponse
+}
+
+func (response GetSettings429ApplicationProblemPlusJSONResponse) VisitGetSettingsResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response.Body); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/problem+json")
+	if response.Headers.RetryAfter != nil {
+		w.Header().Set("Retry-After", fmt.Sprint(*response.Headers.RetryAfter))
+	}
+	w.WriteHeader(429)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type GetSettings500ApplicationProblemPlusJSONResponse struct {
+	InternalErrorApplicationProblemPlusJSONResponse
+}
+
+func (response GetSettings500ApplicationProblemPlusJSONResponse) VisitGetSettingsResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/problem+json")
+	w.WriteHeader(500)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type UpdateSettingsRequestObject struct {
+	Body *UpdateSettingsJSONRequestBody
+}
+
+type UpdateSettingsResponseObject interface {
+	VisitUpdateSettingsResponse(w http.ResponseWriter) error
+}
+
+type UpdateSettings200JSONResponse Settings
+
+func (response UpdateSettings200JSONResponse) VisitUpdateSettingsResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(200)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type UpdateSettings400ApplicationProblemPlusJSONResponse struct {
+	BadRequestApplicationProblemPlusJSONResponse
+}
+
+func (response UpdateSettings400ApplicationProblemPlusJSONResponse) VisitUpdateSettingsResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/problem+json")
+	w.WriteHeader(400)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type UpdateSettings401ApplicationProblemPlusJSONResponse struct {
+	UnauthorizedApplicationProblemPlusJSONResponse
+}
+
+func (response UpdateSettings401ApplicationProblemPlusJSONResponse) VisitUpdateSettingsResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/problem+json")
+	w.WriteHeader(401)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type UpdateSettings403ApplicationProblemPlusJSONResponse struct {
+	ForbiddenApplicationProblemPlusJSONResponse
+}
+
+func (response UpdateSettings403ApplicationProblemPlusJSONResponse) VisitUpdateSettingsResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/problem+json")
+	w.WriteHeader(403)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type UpdateSettings422ApplicationProblemPlusJSONResponse struct {
+	UnprocessableEntityApplicationProblemPlusJSONResponse
+}
+
+func (response UpdateSettings422ApplicationProblemPlusJSONResponse) VisitUpdateSettingsResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/problem+json")
+	w.WriteHeader(422)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type UpdateSettings429ApplicationProblemPlusJSONResponse struct {
+	TooManyRequestsApplicationProblemPlusJSONResponse
+}
+
+func (response UpdateSettings429ApplicationProblemPlusJSONResponse) VisitUpdateSettingsResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response.Body); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/problem+json")
+	if response.Headers.RetryAfter != nil {
+		w.Header().Set("Retry-After", fmt.Sprint(*response.Headers.RetryAfter))
+	}
+	w.WriteHeader(429)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type UpdateSettings500ApplicationProblemPlusJSONResponse struct {
+	InternalErrorApplicationProblemPlusJSONResponse
+}
+
+func (response UpdateSettings500ApplicationProblemPlusJSONResponse) VisitUpdateSettingsResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/problem+json")
+	w.WriteHeader(500)
+	_, err := buf.WriteTo(w)
+	return err
+}
 
 type GetCurrentUserRequestObject struct {
 }
@@ -839,6 +1344,12 @@ func (response GetReadyz503JSONResponse) VisitGetReadyzResponse(w http.ResponseW
 
 // StrictServerInterface represents all server handlers.
 type StrictServerInterface interface {
+	// GetSettings Get settings
+	// (GET /admin/settings)
+	GetSettings(ctx context.Context, request GetSettingsRequestObject) (GetSettingsResponseObject, error)
+	// UpdateSettings Change settings
+	// (PATCH /admin/settings)
+	UpdateSettings(ctx context.Context, request UpdateSettingsRequestObject) (UpdateSettingsResponseObject, error)
 	// GetCurrentUser Get the signed-in user
 	// (GET /auth/me)
 	GetCurrentUser(ctx context.Context, request GetCurrentUserRequestObject) (GetCurrentUserResponseObject, error)
@@ -893,6 +1404,61 @@ type strictHandler struct {
 	ssi         StrictServerInterface
 	middlewares []StrictMiddlewareFunc
 	options     StrictHTTPServerOptions
+}
+
+// GetSettings operation middleware
+func (sh *strictHandler) GetSettings(w http.ResponseWriter, r *http.Request) {
+	var request GetSettingsRequestObject
+
+	handler := func(ctx context.Context, w http.ResponseWriter, r *http.Request, request interface{}) (interface{}, error) {
+		return sh.ssi.GetSettings(ctx, request.(GetSettingsRequestObject))
+	}
+	for _, middleware := range sh.middlewares {
+		handler = middleware(handler, "GetSettings")
+	}
+
+	response, err := handler(r.Context(), w, r, request)
+
+	if err != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, err)
+	} else if validResponse, ok := response.(GetSettingsResponseObject); ok {
+		if err := validResponse.VisitGetSettingsResponse(w); err != nil {
+			sh.options.ResponseErrorHandlerFunc(w, r, err)
+		}
+	} else if response != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, fmt.Errorf("unexpected response type: %T", response))
+	}
+}
+
+// UpdateSettings operation middleware
+func (sh *strictHandler) UpdateSettings(w http.ResponseWriter, r *http.Request) {
+	var request UpdateSettingsRequestObject
+
+	var body UpdateSettingsJSONRequestBody
+	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
+		sh.options.RequestErrorHandlerFunc(w, r, fmt.Errorf("can't decode JSON body: %w", err))
+		return
+	}
+	request.Body = &body
+
+	handler := func(ctx context.Context, w http.ResponseWriter, r *http.Request, request interface{}) (interface{}, error) {
+		return sh.ssi.UpdateSettings(ctx, request.(UpdateSettingsRequestObject))
+	}
+	for _, middleware := range sh.middlewares {
+		handler = middleware(handler, "UpdateSettings")
+	}
+
+	response, err := handler(r.Context(), w, r, request)
+
+	if err != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, err)
+	} else if validResponse, ok := response.(UpdateSettingsResponseObject); ok {
+		if err := validResponse.VisitUpdateSettingsResponse(w); err != nil {
+			sh.options.ResponseErrorHandlerFunc(w, r, err)
+		}
+	} else if response != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, fmt.Errorf("unexpected response type: %T", response))
+	}
 }
 
 // GetCurrentUser operation middleware
@@ -1027,64 +1593,78 @@ func (sh *strictHandler) GetReadyz(w http.ResponseWriter, r *http.Request) {
 // const string: with thousands of chunks the chained `+` fold is several
 // times slower for the Go compiler than parsing a slice literal.
 var swaggerSpec = []string{
-	"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",
+	"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",
+	"x5vH/x0A",
 }
 
 // decodeSpec returns the embedded OpenAPI spec as raw JSON bytes,

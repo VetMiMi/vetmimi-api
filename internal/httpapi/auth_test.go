@@ -101,6 +101,13 @@ func (a *limitedAPI) newSession(t *testing.T) string {
 func insertSession(t *testing.T, now time.Time, roles ...string) string {
 	t.Helper()
 	userID, _ := createUser(t, []byte("sealed"), roles...)
+	return sessionFor(t, userID, now)
+}
+
+// sessionFor inserts a session for an existing user, signed in at now, and
+// returns its token.
+func sessionFor(t *testing.T, userID pgtype.UUID, now time.Time) string {
+	t.Helper()
 	token, err := platform.NewSessionToken()
 	require.NoError(t, err)
 	_, err = db.New(pgtest.Pool(t)).CreateSession(context.Background(), db.CreateSessionParams{
@@ -151,6 +158,8 @@ func newAuthAPI(t *testing.T) *authAPI {
 		ServiceKey:   testServiceKey,
 		RateLimits:   NewRateLimits(platform.NewLimiter(rdb, prefix, a.clock.now), log, a.clock.now),
 		Sessions:     sessions,
+		Pool:         pgtest.Pool(t),
+		Now:          a.clock.now,
 	})
 	return a
 }
