@@ -14,9 +14,13 @@ import (
 	"github.com/VetMiMi/vetmimi-api/internal/platform/clock"
 )
 
-// TaskCloseRoom ends a room when its window closes (docs/architecture.md,
-// "Background jobs").
-const TaskCloseRoom = "video:close-room"
+// TaskCloseRoom ends a room when its window closes, and TaskSweepRooms ends
+// any room whose close task Redis lost (docs/architecture.md, "Background
+// jobs"). The api's Hub closes the sockets of rooms either one ends.
+const (
+	TaskCloseRoom  = "video:close-room"
+	TaskSweepRooms = "video:sweep-rooms"
+)
 
 type closePayload struct {
 	RoomID string `json:"room_id"`
@@ -43,6 +47,8 @@ type Tasks struct {
 // Register adds the video handlers to w.
 func (t *Tasks) Register(w *platform.Worker) {
 	w.Handle(TaskCloseRoom, t.closeRoom)
+	w.Handle(TaskSweepRooms, t.sweepRooms)
+	w.Every("@every 5m", TaskSweepRooms)
 }
 
 // closeRoom ends the room if it is still open and its window has passed; a
@@ -61,5 +67,16 @@ func (t *Tasks) closeRoom(ctx context.Context, payload []byte) error {
 		return err
 	}
 	t.Log.InfoContext(ctx, "video room close checked", "room_id", p.RoomID)
+	return nil
+}
+
+// sweepRooms ends every room still open past its window; ending twice is a
+// no-op.
+func (t *Tasks) sweepRooms(ctx context.Context, _ []byte) error {
+	n, err := db.New(t.Pool).CloseOverdueVideoRooms(ctx, t.Now())
+	if err != nil {
+		return err
+	}
+	t.Log.InfoContext(ctx, "video rooms swept", "ended", n)
 	return nil
 }

@@ -22,6 +22,7 @@ import (
 	"github.com/VetMiMi/vetmimi-api/internal/auth"
 	"github.com/VetMiMi/vetmimi-api/internal/httpapi"
 	"github.com/VetMiMi/vetmimi-api/internal/platform"
+	"github.com/VetMiMi/vetmimi-api/internal/video"
 )
 
 func main() {
@@ -87,6 +88,7 @@ func runAPI(ctx context.Context, log *slog.Logger, cfg platform.Config, pool *pg
 	if err != nil {
 		return err
 	}
+	hub := video.NewHub(pool, log, time.Now)
 	srv := newServer(cfg.Port, httpapi.NewRouter(httpapi.Deps{
 		PingPostgres:  pool.Ping,
 		PingRedis:     func(ctx context.Context) error { return rdb.Ping(ctx).Err() },
@@ -100,6 +102,8 @@ func runAPI(ctx context.Context, log *slog.Logger, cfg platform.Config, pool *pg
 		PublicAPIURL:  cfg.PublicAPIURL,
 		TURNHost:      cfg.TURNHost,
 		TURNSecret:    cfg.TURNSecret,
+		SiteURL:       cfg.SiteURL,
+		Hub:           hub,
 		Now:           time.Now,
 	}))
 	if cfg.TURNHost == "" {
@@ -107,6 +111,11 @@ func runAPI(ctx context.Context, log *slog.Logger, cfg platform.Config, pool *pg
 		log.Warn("turn_disabled", "detail", "TURN_HOST is empty; room tickets offer STUN only")
 	}
 
+	hubDone := make(chan struct{})
+	go func() {
+		hub.Run(ctx)
+		close(hubDone)
+	}()
 	errc := make(chan error, 1)
 	go func() {
 		log.Info("api listening", "addr", srv.Addr)
@@ -120,6 +129,9 @@ func runAPI(ctx context.Context, log *slog.Logger, cfg platform.Config, pool *pg
 		}
 		return err
 	case <-ctx.Done():
+		// Shutdown does not wait for hijacked connections, so the hub first
+		// tells every video participant to reconnect.
+		<-hubDone
 		shutdown, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 		defer cancel()
 		return srv.Shutdown(shutdown)

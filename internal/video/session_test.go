@@ -105,7 +105,8 @@ func TestJoinAsClient_OnlyWhileReadyAndConfirmed(t *testing.T) {
 	requireNotAllowed(t, err)
 
 	cancelled, token := withRoom(t)
-	require.NoError(t, video.EndRoom(ctx, q, cancelled.ID, cancelled.StartsAt.Add(-time.Hour)))
+	_, err = video.EndRoom(ctx, q, cancelled.ID, video.EndedByCancellation, cancelled.StartsAt.Add(-time.Hour))
+	require.NoError(t, err)
 	s, err := video.FindSession(ctx, q, token, cancelled.StartsAt)
 	require.NoError(t, err)
 	require.Equal(t, video.Ended, s.State)

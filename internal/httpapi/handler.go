@@ -13,6 +13,7 @@ import (
 	"github.com/VetMiMi/vetmimi-api/internal/httpapi/gen"
 	"github.com/VetMiMi/vetmimi-api/internal/platform"
 	"github.com/VetMiMi/vetmimi-api/internal/platform/clock"
+	"github.com/VetMiMi/vetmimi-api/internal/video"
 )
 
 // Deps are what the handlers need, set by cmd/api once the database pool and
@@ -26,8 +27,9 @@ import (
 // tasks a handler enqueues after its transaction commits; nil drops them, and
 // the sweepers rebuild them (tests leave it nil). SigningSecret derives
 // management and join links and room tickets. PublicAPIURL, TURNHost and
-// TURNSecret go into room tickets; TURNHost empty leaves TURN out. Now is the
-// clock; nil means time.Now.
+// TURNSecret go into room tickets; TURNHost empty leaves TURN out. SiteURL is
+// the only origin the video WebSocket accepts. Hub holds the open video
+// rooms; nil gets a fresh one. Now is the clock; nil means time.Now.
 type Deps struct {
 	PingPostgres  func(context.Context) error
 	PingRedis     func(context.Context) error
@@ -41,6 +43,8 @@ type Deps struct {
 	PublicAPIURL  string
 	TURNHost      string
 	TURNSecret    string
+	SiteURL       string
+	Hub           *video.Hub
 	Now           clock.Now
 }
 

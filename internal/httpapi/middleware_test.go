@@ -21,7 +21,7 @@ func through(t *testing.T, mount func(chi.Router), req *http.Request) (*httptest
 	t.Helper()
 	var logs bytes.Buffer
 	res := httptest.NewRecorder()
-	router(slog.New(slog.NewJSONHandler(&logs, nil)), mount).ServeHTTP(res, req)
+	router(slog.New(slog.NewJSONHandler(&logs, nil)), nil, mount).ServeHTTP(res, req)
 	return res, logLines(t, logs.String())
 }
 
@@ -147,7 +147,7 @@ func TestPanicIsA500ProblemAndTheServerKeepsServing(t *testing.T) {
 		r.Get("/boom", func(http.ResponseWriter, *http.Request) { panic("nil map") })
 		echo(r)
 	}
-	srv := httptest.NewServer(router(slog.New(slog.NewJSONHandler(&logs, nil)), stub))
+	srv := httptest.NewServer(router(slog.New(slog.NewJSONHandler(&logs, nil)), nil, stub))
 	defer srv.Close()
 
 	res, err := http.Get(srv.URL + "/boom")

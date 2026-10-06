@@ -20,6 +20,13 @@ import (
 // joinLink books a confirmed online appointment at startsAt with a room and
 // returns its join token, derived as the worker derives it for the email.
 func joinLink(t *testing.T, startsAt time.Time) string {
+	_, _, token := withRoom(t, startsAt)
+	return token
+}
+
+// withRoom books a confirmed online appointment at startsAt with a room, and
+// returns both and the room's join token.
+func withRoom(t *testing.T, startsAt time.Time) (db.Appointment, db.VideoRoom, string) {
 	t.Helper()
 	ctx := context.Background()
 	q := db.New(pgtest.Pool(t))
@@ -35,7 +42,7 @@ func joinLink(t *testing.T, startsAt time.Time) string {
 	require.NoError(t, err)
 	room, _, err := video.RoomOf(ctx, q, appt.ID)
 	require.NoError(t, err)
-	return platform.NewJoinToken(secret, room.JoinTokenSeed)
+	return appt, room, platform.NewJoinToken(secret, room.JoinTokenSeed)
 }
 
 func TestPublicSession_ReadyGivesAClientTicket(t *testing.T) {
@@ -85,8 +92,4 @@ func TestPublicSession_Refusals(t *testing.T) {
 	refused(t, http.StatusBadRequest, "invalid_request", a.public("/public/sessions/"+strings.Repeat("Z", 42)))
 	requireUnauthenticated(t, a.send(http.MethodGet, "/public/sessions/"+early, "not-a-service-key"))
 
-	token := insertSession(t, a.clock.at, "booking_admin")
-	path := appointmentsURL + "/8f14e45f-ceea-4e8a-9b1c-3c1d2a6b7e10/video-session"
-	refused(t, http.StatusNotImplemented, "not_implemented", a.sendJSON(http.MethodPost, path, token, ""))
-	refused(t, http.StatusNotImplemented, "not_implemented", a.sendJSON(http.MethodPost, path+"/end", token, ""))
 }

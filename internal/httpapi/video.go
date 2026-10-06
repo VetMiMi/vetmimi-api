@@ -2,8 +2,6 @@ package httpapi
 
 import (
 	"context"
-	"encoding/json"
-	"net/http"
 
 	openapi_types "github.com/oapi-codegen/runtime/types"
 
@@ -43,15 +41,28 @@ func (s *server) CreateRoomTicket(ctx context.Context, req gen.CreateRoomTicketR
 	return gen.CreateRoomTicket201JSONResponse(ticketView(t)), nil
 }
 
-// StartVideoSession and EndVideoSession arrive with Daw Mi's side of the
-// room; until then they answer 501.
-func (s *server) StartVideoSession(context.Context, gen.StartVideoSessionRequestObject) (gen.StartVideoSessionResponseObject, error) {
-	return notImplemented{}, nil
+// StartVideoSession gives Daw Mi her ticket for an appointment's room while
+// the admin would offer start_video.
+func (s *server) StartVideoSession(ctx context.Context, req gen.StartVideoSessionRequestObject) (gen.StartVideoSessionResponseObject, error) {
+	t, err := video.JoinAsPractitioner(ctx, db.New(s.Pool), s.issuer(), uuid(req.AppointmentId), s.Now())
+	if err != nil {
+		return nil, err
+	}
+	s.Log.InfoContext(ctx, "room_ticket_issued", "request_id", RequestID(ctx), "room_id", t.RoomID.String(),
+		"role", t.Role)
+	return gen.StartVideoSession201JSONResponse(ticketView(t)), nil
 }
 
-// EndVideoSession: see StartVideoSession.
-func (s *server) EndVideoSession(context.Context, gen.EndVideoSessionRequestObject) (gen.EndVideoSessionResponseObject, error) {
-	return notImplemented{}, nil
+// EndVideoSession ends the room and closes both sockets. The appointment
+// stays as it is until Daw Mi marks it completed or a no-show.
+func (s *server) EndVideoSession(ctx context.Context, req gen.EndVideoSessionRequestObject) (gen.EndVideoSessionResponseObject, error) {
+	room, err := video.EndAsPractitioner(ctx, db.New(s.Pool), uuid(req.AppointmentId), s.Now())
+	if err != nil {
+		return nil, err
+	}
+	s.Hub.EndRoom(room.ID)
+	s.Log.InfoContext(ctx, "video_session_ended", "request_id", RequestID(ctx), "room_id", room.ID.String())
+	return gen.EndVideoSession200JSONResponse(*videoRoomView(room)), nil
 }
 
 func (s *server) issuer() video.Issuer {
@@ -73,22 +84,4 @@ func ticketView(t video.Ticket) gen.RoomTicket {
 			Credential: nonEmpty(ice.Credential)}
 	}
 	return out
-}
-
-type notImplemented struct{}
-
-func (notImplemented) VisitStartVideoSessionResponse(w http.ResponseWriter) error {
-	return notImplemented{}.write(w)
-}
-func (notImplemented) VisitEndVideoSessionResponse(w http.ResponseWriter) error {
-	return notImplemented{}.write(w)
-}
-
-func (notImplemented) write(w http.ResponseWriter) error {
-	w.Header().Set("Content-Type", "application/problem+json")
-	w.WriteHeader(http.StatusNotImplemented)
-	return json.NewEncoder(w).Encode(map[string]any{
-		"type": problemTypePrefix + "not_implemented", "title": "Not implemented",
-		"status": http.StatusNotImplemented, "code": "not_implemented",
-	})
 }

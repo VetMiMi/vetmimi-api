@@ -34,7 +34,9 @@ const (
 	StateInSession = "in_session"
 	StateEnded     = "ended"
 
-	EndedByCancellation = "appointment_cancelled"
+	EndedByCancellation  = "appointment_cancelled"
+	EndedByPractitioner  = "practitioner"
+	EndedByWindowClosing = "window_closed"
 )
 
 // Window is when a room for an appointment from start to end is open.
@@ -89,16 +91,34 @@ func MoveRoom(ctx context.Context, q db.Querier, appt db.Appointment, now time.T
 	return tasks, err
 }
 
-// EndRoom ends a cancelled appointment's room, if it has one, in the
-// cancelling transaction. Nobody is connected before the window opens, and
-// cancellation is only possible before the start; closing live sockets
-// arrives with the hub.
-func EndRoom(ctx context.Context, q db.Querier, appointmentID pgtype.UUID, now time.Time) error {
-	return q.EndVideoRoom(ctx, db.EndVideoRoomParams{
+// EndRoom ends an appointment's room for reason, if it has one still open,
+// and returns the room's id (not Valid when nothing ended). Callers in a
+// transaction tell the Hub to close the sockets after it commits.
+func EndRoom(ctx context.Context, q db.Querier, appointmentID pgtype.UUID, reason string,
+	now time.Time) (pgtype.UUID, error) {
+	room, err := q.EndVideoRoom(ctx, db.EndVideoRoomParams{
 		AppointmentID: appointmentID,
-		EndedReason:   pgtype.Text{String: EndedByCancellation, Valid: true},
+		EndedReason:   pgtype.Text{String: reason, Valid: true},
 		Now:           now,
 	})
+	if errors.Is(err, pgx.ErrNoRows) {
+		return pgtype.UUID{}, nil
+	}
+	return room.ID, err
+}
+
+// Actions are the video actions the admin may offer for an appointment's
+// room: start while the window is open, end once it has opened, neither
+// once the room has ended.
+func Actions(room db.VideoRoom, confirmed bool, now time.Time) []string {
+	if room.State == StateEnded || now.Before(room.OpensAt) {
+		return nil
+	}
+	var out []string
+	if confirmed && now.Before(room.ClosesAt) {
+		out = append(out, "start_video")
+	}
+	return append(out, "end_video")
 }
 
 // RoomOf is an appointment's room, or false when it has none.

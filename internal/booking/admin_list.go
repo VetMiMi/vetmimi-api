@@ -155,6 +155,7 @@ func GetAppointment(ctx context.Context, q db.Querier, id pgtype.UUID, now time.
 	room, ok, err := video.RoomOf(ctx, q, id)
 	if ok {
 		d.VideoRoom = &room
+		d.AllowedActions = append(d.AllowedActions, video.Actions(room, Status(appt.Status) == Confirmed, now)...)
 	}
 	return d, err
 }

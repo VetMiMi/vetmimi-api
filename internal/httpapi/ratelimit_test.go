@@ -90,7 +90,7 @@ func serveSpec(t *testing.T, rdb *redis.Client, prefix string, spec *openapi3.T,
 		RateLimits:   NewRateLimits(limiter, log, a.clock.now),
 		Sessions:     newSessions(t, a.clock.now),
 	}
-	a.handler = router(log, func(r chi.Router) {
+	a.handler = router(log, nil, func(r chi.Router) {
 		mountAPI(&server{deps}, spec, deps)(r)
 		if stubs != nil {
 			stubs(r, deps)

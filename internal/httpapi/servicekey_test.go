@@ -39,7 +39,7 @@ func withKey(t *testing.T, key string, req *http.Request) (*httptest.ResponseRec
 		}
 	}
 	res := httptest.NewRecorder()
-	router(log, mount).ServeHTTP(res, req)
+	router(log, nil, mount).ServeHTTP(res, req)
 	return res, logs.String()
 }
 

@@ -303,6 +303,10 @@ content. Daw Mi holds all three roles.
 9. Daw Mi ends the session with `POST /admin/appointments/{id}/video-session/end`,
    or `video:close-room` ends it at `closes_at`. Both close the sockets and set
    the room `ended`. The appointment becomes `completed` only when Daw Mi marks it.
+   The worker cannot reach the api's hub, so the hub reads its open rooms back
+   every 30 seconds and closes those ended or past `closes_at` with 4002; it
+   pings every 20 seconds and drops a participant silent for 10 more, and on
+   shutdown closes every socket with 1001 so the browser reconnects.
 
 ### 5. Publish a story
 
@@ -374,6 +378,7 @@ content. Daw Mi holds all three roles.
 | `site:revalidate` | After publish, unpublish, archive, featured change, service change | Immediate | Revalidating a tag twice is harmless |
 | `media:derive` | After upload commit | Immediate, queue `low`, concurrency 1 | Skips unless `processing_status = processing`; overwrites the same object keys |
 | `video:close-room` | Room created or moved | At `closes_at` | Task id `room:<id>:<closes_at>`; ends the room only if still open and the window has passed |
+| `video:sweep-rooms` | asynq periodic | Every 5 minutes | Ends only rooms still open past `closes_at`; ending twice is a no-op |
 | `booking:purge-retention` | asynq periodic | Daily 03:00 practice time (`CRON_TZ`, from `settings.timezone` when the worker starts) | Deletes final appointments and contact enquiries past `retention_months`, 500 rows a statement; deleting twice deletes nothing |
 | `platform:cleanup` | asynq periodic | Hourly | Deletes expired sessions and idempotency keys older than 24 hours |
 

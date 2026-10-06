@@ -1,7 +1,7 @@
 openapi: "3.1.0"
 info:
   title: VetMiMi API
-  version: "0.2.1"
+  version: "0.2.2"
   description: >-
     The API behind VetMiMi, Daw Mi's art therapy practice. The Next.js site is the only caller
     (ADR-002): public routes take the shared service key, admin routes a session token. The one
@@ -1821,13 +1821,16 @@ paths:
             maxLength: 1000
       responses:
         "101":
-          description: Switching protocols to WebSocket.
+          description: >-
+            Switching protocols to WebSocket. An invalid or expired ticket, or a room that has
+            ended or closed, is refused after the upgrade with close code `4001` or `4002`, because
+            a browser cannot read the status of a refused handshake.
         "400":
           $ref: "#/components/responses/BadRequest"
-        "401":
-          $ref: "#/components/responses/Unauthorized"
-        "404":
-          $ref: "#/components/responses/NotFound"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "429":
+          $ref: "#/components/responses/TooManyRequests"
         "500":
           $ref: "#/components/responses/InternalError"
       x-websocket-messages:
@@ -1918,6 +1921,8 @@ paths:
           "4000": replaced by a newer connection for the same role
           "4001": ticket invalid or expired
           "4002": room ended
+          "1001": server restarting; reconnect with a fresh ticket
+          "1008": message invalid or sent before join
           "1009": message too large
   /admin/stories:
     get:

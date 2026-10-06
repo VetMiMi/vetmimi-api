@@ -6,6 +6,7 @@ package db
 
 import (
 	"context"
+	"time"
 
 	"github.com/jackc/pgx/v5/pgtype"
 )
@@ -18,6 +19,9 @@ type Querier interface {
 	// is later than the last one accepted, so two concurrent sign-ins with one
 	// code cannot both succeed.
 	ClaimTOTPStep(ctx context.Context, arg ClaimTOTPStepParams) (int64, error)
+	// CloseOverdueVideoRooms ends every room still open past its window, for the
+	// sweep that catches close-room tasks Redis lost.
+	CloseOverdueVideoRooms(ctx context.Context, now time.Time) (int64, error)
 	// CloseVideoRoomIfDue ends a room whose window has passed; a room moved
 	// later, or already ended, is left alone.
 	CloseVideoRoomIfDue(ctx context.Context, arg CloseVideoRoomIfDueParams) error
@@ -46,10 +50,13 @@ type Querier interface {
 	DeleteService(ctx context.Context, id pgtype.UUID) (int64, error)
 	DeleteSession(ctx context.Context, id pgtype.UUID) error
 	DeleteUserSessions(ctx context.Context, userID pgtype.UUID) error
-	EndVideoRoom(ctx context.Context, arg EndVideoRoomParams) error
+	// EndVideoRoom ends an appointment's room for a reason; a room already
+	// ended is left as it is, so of two racing ends exactly one writes.
+	EndVideoRoom(ctx context.Context, arg EndVideoRoomParams) (VideoRoom, error)
 	FinishIdempotencyKey(ctx context.Context, arg FinishIdempotencyKeyParams) error
 	GetAppointmentDetail(ctx context.Context, id pgtype.UUID) (GetAppointmentDetailRow, error)
 	GetAppointmentForMessage(ctx context.Context, id pgtype.UUID) (GetAppointmentForMessageRow, error)
+	GetAppointmentStatus(ctx context.Context, id pgtype.UUID) (string, error)
 	GetCommunication(ctx context.Context, id pgtype.UUID) (Communication, error)
 	GetContactEnquiry(ctx context.Context, id pgtype.UUID) (GetContactEnquiryRow, error)
 	GetIdempotencyKey(ctx context.Context, arg GetIdempotencyKeyParams) (IdempotencyKey, error)
@@ -63,6 +70,7 @@ type Querier interface {
 	// so authenticating a request is one query.
 	GetSession(ctx context.Context, tokenHash []byte) (GetSessionRow, error)
 	GetUserForSignIn(ctx context.Context, email string) (GetUserForSignInRow, error)
+	GetVideoRoom(ctx context.Context, id pgtype.UUID) (VideoRoom, error)
 	GetVideoRoomByAppointment(ctx context.Context, appointmentID pgtype.UUID) (VideoRoom, error)
 	// GetVideoSessionByTokenHash is a room with what its join page shows of the
 	// appointment: times, status, locale and the service's public name.
@@ -116,6 +124,8 @@ type Querier interface {
 	ListQueuedReminderIDs(ctx context.Context, appointmentID pgtype.UUID) ([]pgtype.UUID, error)
 	ListServices(ctx context.Context) ([]Service, error)
 	ListSettings(ctx context.Context) ([]ListSettingsRow, error)
+	// ListVideoRooms reads the rooms the hub holds sockets for.
+	ListVideoRooms(ctx context.Context, ids []pgtype.UUID) ([]VideoRoom, error)
 	LockAppointment(ctx context.Context, id pgtype.UUID) (Appointment, error)
 	LockAppointmentByTokenHash(ctx context.Context, tokenHash []byte) (Appointment, error)
 	// LockCommunication skips a row another worker holds, so two workers given
@@ -157,6 +167,9 @@ type Querier interface {
 	// keeps its hold.
 	SetAppointmentStatus(ctx context.Context, arg SetAppointmentStatusParams) (Appointment, error)
 	SetCommunicationStatus(ctx context.Context, arg SetCommunicationStatusParams) (int64, error)
+	// SetVideoRoomInSession marks a waiting room in session once both
+	// participants have joined; started_at keeps the first time.
+	SetVideoRoomInSession(ctx context.Context, arg SetVideoRoomInSessionParams) (int64, error)
 	TouchSession(ctx context.Context, arg TouchSessionParams) error
 	UpdateAvailabilityBlock(ctx context.Context, arg UpdateAvailabilityBlockParams) (AvailabilityBlock, error)
 	UpdateAvailabilityOverride(ctx context.Context, arg UpdateAvailabilityOverrideParams) (AvailabilityOverride, error)

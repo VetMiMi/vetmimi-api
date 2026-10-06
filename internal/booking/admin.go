@@ -53,6 +53,9 @@ type Change struct {
 // with the same id, and Remove to take off the queue.
 type Changed struct {
 	Tasks, Replace, Remove []platform.Task
+	// EndedRoom is the video room the change ended, whose sockets the
+	// caller closes once it has committed.
+	EndedRoom pgtype.UUID
 }
 
 var (
