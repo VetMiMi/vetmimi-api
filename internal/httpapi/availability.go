@@ -169,6 +169,28 @@ func (s *server) DeleteAvailabilityBlock(ctx context.Context, req gen.DeleteAvai
 	return gen.DeleteAvailabilityBlock204Response{}, nil
 }
 
+// PreviewAvailability shows an administrator exactly the slots the public
+// sees for a service, whether or not public booking is paused.
+func (s *server) PreviewAvailability(ctx context.Context, req gen.PreviewAvailabilityRequestObject) (gen.PreviewAvailabilityResponseObject, error) {
+	p := req.Params
+	q := db.New(s.Pool)
+	svc, err := booking.GetService(ctx, q, uuid(p.ServiceId))
+	if err != nil {
+		return nil, err
+	}
+	a, err := booking.Slots(ctx, q, svc, p.From.Time, p.To.Time, s.Now())
+	if err != nil {
+		return nil, err
+	}
+	return gen.PreviewAvailability200JSONResponse{
+		ServiceId: p.ServiceId,
+		Timezone:  a.Timezone,
+		From:      openapi_types.Date{Time: a.First},
+		To:        openapi_types.Date{Time: a.Last},
+		Days:      slotDaysView(a.Days),
+	}, nil
+}
+
 // logAvailability records a change by id only: notes and reasons are private.
 func (s *server) logAvailability(ctx context.Context, msg string, id pgtype.UUID, attrs ...any) {
 	s.Log.InfoContext(ctx, msg, append([]any{"request_id", RequestID(ctx), "id", id.String()}, attrs...)...)
