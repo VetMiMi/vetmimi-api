@@ -54,5 +54,5 @@ func TestEventDetailHoldsNoPersonalData(t *testing.T) {
 		name, _, _ := strings.Cut(f.Tag.Get("json"), ",")
 		keys = append(keys, name)
 	}
-	require.Equal(t, []string{"late_cancellation", "by", "source", "length"}, keys)
+	require.Equal(t, []string{"late_cancellation", "by", "source", "length", "preferred"}, keys)
 }

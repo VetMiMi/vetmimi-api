@@ -3,6 +3,7 @@ package booking
 import (
 	"context"
 	"encoding/json"
+	"time"
 
 	"github.com/jackc/pgx/v5/pgtype"
 
@@ -31,6 +32,8 @@ type EventDetail struct {
 	Source string `json:"source,omitempty"`
 	// NoteLength is the private note's length; its text is never recorded.
 	NoteLength *int `json:"length,omitempty"`
+	// Preferred is the starts a visitor offered when asking to reschedule.
+	Preferred []time.Time `json:"preferred,omitempty"`
 }
 
 // AppendEvent records e in the caller's transaction.
