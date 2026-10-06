@@ -31,3 +31,10 @@ RETURNING *;
 
 -- name: DeleteService :execrows
 DELETE FROM services WHERE id = @id;
+
+-- ListPublicBookableServices selects only what a visitor may see.
+-- name: ListPublicBookableServices :many
+SELECT slug, name, description, booking_action, duration_minutes, formats, fee_text
+FROM services
+WHERE state = 'active' AND booking_action IN ('book', 'request')
+ORDER BY sort_order, name->>'en';

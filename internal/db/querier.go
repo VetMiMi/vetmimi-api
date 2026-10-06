@@ -44,7 +44,13 @@ type Querier interface {
 	ListAvailabilityBlocks(ctx context.Context, within pgtype.Range[pgtype.Timestamptz]) ([]AvailabilityBlock, error)
 	ListAvailabilityOverrides(ctx context.Context, arg ListAvailabilityOverridesParams) ([]AvailabilityOverride, error)
 	ListAvailabilityRules(ctx context.Context) ([]AvailabilityRule, error)
+	// ListBusyPeriods is the time slot generation must keep free inside within:
+	// every block and every pending or confirmed appointment's busy range. It
+	// selects the periods alone, never a reason or anything about a visitor.
+	ListBusyPeriods(ctx context.Context, within pgtype.Range[pgtype.Timestamptz]) ([]pgtype.Range[pgtype.Timestamptz], error)
 	ListOverlappingAppointments(ctx context.Context, period pgtype.Range[pgtype.Timestamptz]) ([]ListOverlappingAppointmentsRow, error)
+	// ListPublicBookableServices selects only what a visitor may see.
+	ListPublicBookableServices(ctx context.Context) ([]ListPublicBookableServicesRow, error)
 	ListServices(ctx context.Context) ([]Service, error)
 	ListSettings(ctx context.Context) ([]ListSettingsRow, error)
 	// LockSchedule takes the transaction-scoped lock that availability writes and
