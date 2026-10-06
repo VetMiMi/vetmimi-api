@@ -99,6 +99,13 @@ var rolesByOperation = map[string][]auth.Role{
 	"getMedia":    contentEditor,
 	"updateMedia": contentEditor,
 	"deleteMedia": contentEditor,
+
+	// Connecting the practice's own Facebook Page and Instagram is Daw Mi's.
+	"getMetaConnection":    siteAdmin,
+	"startMetaConnection":  siteAdmin,
+	"finishMetaConnection": siteAdmin,
+	"chooseMetaPage":       siteAdmin,
+	"disconnectMeta":       siteAdmin,
 }
 
 // requireRoles answers 403 forbidden to a request for a sessionToken

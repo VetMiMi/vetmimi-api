@@ -50,6 +50,13 @@ type Config struct {
 	TURNHost   string
 	TURNSecret string
 
+	// MetaAppID and MetaAppSecret are empty until the Meta app exists
+	// (docs/meta-setup.md); Facebook and Instagram are then posted by hand.
+	MetaAppID        string
+	MetaAppSecret    string
+	MetaConfigID     string
+	MetaGraphVersion string
+
 	// MetricsAddr is empty when the metrics listener is disabled.
 	MetricsAddr string
 }
@@ -100,6 +107,11 @@ func LoadConfig(getenv func(string) string) (Config, error) {
 		TURNHost:   l.requiredInProduction("TURN_HOST"),
 		TURNSecret: l.requiredInProduction("TURN_SECRET"),
 
+		MetaAppID:        l.optional("META_APP_ID"),
+		MetaAppSecret:    l.optional("META_APP_SECRET"),
+		MetaConfigID:     l.optional("META_CONFIG_ID"),
+		MetaGraphVersion: l.withDefault("META_GRAPH_VERSION", "v24.0"),
+
 		MetricsAddr: l.optional("METRICS_ADDR"),
 	}
 	port := l.withDefault("PORT", "8080")
@@ -119,6 +131,9 @@ func LoadConfig(getenv func(string) string) (Config, error) {
 	l.serviceKey(c.ServiceKey)
 	l.emailAddress("EMAIL_FROM", c.EmailFrom)
 	l.hostPort("METRICS_ADDR", c.MetricsAddr)
+	if (c.MetaAppID == "") != (c.MetaAppSecret == "") {
+		l.fail("META_APP_ID", "and META_APP_SECRET must be set together")
+	}
 
 	if len(l.problems) > 0 {
 		return Config{}, errors.New("invalid configuration: " + strings.Join(l.problems, "; "))

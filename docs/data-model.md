@@ -263,9 +263,9 @@ Index: `(status, created_at)`. Transitions (`internal/content/workflow.go`): `id
 `approved|scheduled → publishing|published` (publish now; the scheduler will do the same at `scheduled_at`),
 `publishing → published` (once every publication is `published` or `manual`), any → `archived`. Saving an
 `approved` or `scheduled` post moves it back to `in_review`. A `publishing` or `published` post may change only
-its title and website version; that too returns it to `in_review` (the article is off the site until published
-again, which republishes the website only). Approval needs at least one enabled channel, every enabled version
-valid for its platform, every image it names in `media`, and, for a True Story, consent confirmed. Only ideas and drafts may be deleted.
+its title and website version; that too returns it to `in_review` (visitors keep reading the article as last
+published until it is published again, which republishes the website only). Approval needs at least one enabled channel, every enabled version
+valid for its platform, every image it names in `media`, and, for a True Story, consent confirmed. Only ideas and drafts that were never published may be deleted.
 
 **`post_versions`** — One row per post and channel. PK `(post_id, channel)`; FK posts `CASCADE`.
 
@@ -293,14 +293,37 @@ title, excerpt and body; Facebook — text; Instagram — at least one image, ca
 |---|---|---|---|---|
 | channel | text | no | — | as in `post_versions` |
 | status | text | no | `'pending'` | `pending`, `publishing`, `published`, `failed`, `manual` (posted by hand: copy & open) |
-| external_id, permalink, error | text | yes | — | the platform's id and address; the failure reason (`not_connected`, `connection_failed`) |
+| external_id, permalink, error | text | yes | — | the platform's id and address; the failure reason: `not_connected`, `connection_failed`, `rejected` (the platform refused it), `reconnect_required`, `unknown_outcome` (may have posted; never re-sent by itself) |
 | attempts | int | no | 0 | worker attempts this round: a first try and three retries, reset by `retry` |
 | published_at | timestamptz | yes | — | required when `published` or `manual` |
 
 The website publication is `published` as soon as publishing starts; social ones wait as `pending` for the
 publishing worker or for Daw Mi to mark them posted. Index: `status WHERE status IN ('pending','failed')`.
-Public article reads return enabled website versions whose publication is `published` and whose post is
-`publishing` or `published`, so archiving a post takes its article down.
+A channel left `publishing` for 10 minutes is failed as `unknown_outcome` by the sweep, not sent again.
+
+**`published_articles`** — What visitors read: a copy of the website version taken each time the post is
+published, so an edit going back through review leaves the live article as it was. PK `post_id`, FK posts
+`CASCADE`; columns as in `post_versions` (slug, title, excerpt, body, cover_image_id, seo_title, seo_description)
+and `updated_at`. `slug` is unique (`409 slug_taken` when publishing a post whose slug another live article still
+has). Public article reads return these copies, with the website publication's `published_at`, for posts not
+`archived`, so archiving a post takes its article down; publishing with the website switched off removes it.
+
+## Connections
+
+**`connections`** — How the portal reaches a platform; one row per platform (`meta` today).
+
+| Column | Type | Null | Default | Notes |
+|---|---|---|---|---|
+| platform | text | no | — | PK; `meta` |
+| status | text | no | — | `choosing_page` (signed in, several Pages) or `connected` |
+| token | bytea | no | — | AES-256-GCM under `TOTP_ENCRYPTION_KEY`: the long-lived user token while choosing, then the Page token |
+| account_id, account_name | text | yes | — | the Facebook Page; required when `connected` |
+| instagram_id, instagram_username | text | yes | — | the Instagram Business account linked to the Page |
+| expires_at | timestamptz | yes | — | when Meta stops the token's access (data access lapses after 90 days without signing in again) |
+| last_error | text | yes | — | `reconnect_required` once Meta refused the token; cleared by connecting again |
+| connected_by, connected_at, updated_at | | | | `connected_by` FK users `SET NULL` |
+
+Disconnecting deletes the row and so the token.
 
 ## Media
 
@@ -318,7 +341,7 @@ at `originals/<id>.jpg` (private) and each web size at `public/<id>/<width>.jpg`
 | version, created_at, updated_at | | no | | |
 
 Every stored file is re-encoded as JPEG, so no camera, time or location metadata survives. An item cannot be
-deleted while any post version, whatever the post's status, uses it (`409 in_use`). Index: `created_at`.
+deleted while any post version, whatever the post's status, or published article uses it (`409 in_use`). Index: `created_at`.
 
 ## Settings keys
 

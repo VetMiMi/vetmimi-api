@@ -22,6 +22,7 @@ import (
 	"github.com/VetMiMi/vetmimi-api/internal/auth"
 	"github.com/VetMiMi/vetmimi-api/internal/httpapi"
 	"github.com/VetMiMi/vetmimi-api/internal/media"
+	"github.com/VetMiMi/vetmimi-api/internal/meta"
 	"github.com/VetMiMi/vetmimi-api/internal/platform"
 	"github.com/VetMiMi/vetmimi-api/internal/video"
 )
@@ -107,6 +108,7 @@ func runAPI(ctx context.Context, log *slog.Logger, cfg platform.Config, pool *pg
 		Hub:            hub,
 		Media:          media.NewStore(cfg),
 		MediaPublicURL: cfg.MediaPublicURL,
+		Meta:           meta.New(cfg, pool, codes, log),
 		Now:            time.Now,
 	}))
 	if cfg.TURNHost == "" {

@@ -57,6 +57,10 @@ func TestPostFromEditorToPublicArticle(t *testing.T) {
 
 	post = decoded(t, http.StatusOK, a.action(t, admin, id, "publish", post))
 	require.Equal(t, "publishing", post["status"])
+	summary := decoded(t, http.StatusOK, a.send(http.MethodGet, "/admin/posts?q=colour", editor))["items"].([]any)[0].(map[string]any)
+	require.Equal(t, []any{map[string]any{"channel": "instagram", "status": "pending"},
+		map[string]any{"channel": "website", "status": "published"}}, summary["publications"])
+	require.NotContains(t, summary, "publishedAt", "not every channel is out yet")
 	post = decoded(t, http.StatusOK, a.sendJSON(http.MethodPost, "/admin/posts/"+id+"/channels/instagram/mark-posted",
 		editor, `{"permalink": "https://www.instagram.com/p/abc/"}`))
 	require.Equal(t, "published", post["status"])
@@ -76,5 +80,8 @@ func TestPostFromEditorToPublicArticle(t *testing.T) {
 
 	refused(t, http.StatusNotFound, "not_found", a.sendPublic(http.MethodGet, "/public/articles/no-such-article", ""))
 	listed := decoded(t, http.StatusOK, a.send(http.MethodGet, "/admin/posts?status=published&q=colour", editor))
-	require.Equal(t, []any{"instagram", "website"}, listed["items"].([]any)[0].(map[string]any)["channels"])
+	summary = listed["items"].([]any)[0].(map[string]any)
+	require.Equal(t, []any{"instagram", "website"}, summary["channels"])
+	require.Equal(t, "manual", summary["publications"].([]any)[0].(map[string]any)["status"])
+	require.Equal(t, "2026-10-05T09:30:15Z", summary["publishedAt"])
 }

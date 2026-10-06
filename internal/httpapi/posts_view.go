@@ -109,12 +109,18 @@ func postSummaryView(r db.ListPostsRow) gen.PostSummary {
 		Status:      gen.PostStatus(r.Status),
 		ScheduledAt: optionalTime(r.ScheduledAt.Time, r.ScheduledAt.Valid),
 		Channels:    make([]gen.Channel, len(r.Channels)),
+		PublishedAt: optionalTime(r.PublishedAt.Time, r.PublishedAt.Valid),
 		Version:     int(r.Version),
 		CreatedAt:   r.CreatedAt.UTC(),
 		UpdatedAt:   r.UpdatedAt.UTC(),
 	}
 	for i, c := range r.Channels {
 		v.Channels[i] = gen.Channel(c)
+	}
+	v.Publications = make([]gen.PublicationSummary, len(r.PublicationChannels))
+	for i, c := range r.PublicationChannels {
+		v.Publications[i] = gen.PublicationSummary{Channel: gen.Channel(c),
+			Status: gen.PublicationStatus(r.PublicationStatuses[i])}
 	}
 	return v
 }

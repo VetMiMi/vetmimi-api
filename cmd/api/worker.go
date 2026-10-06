@@ -13,6 +13,7 @@ import (
 	"github.com/VetMiMi/vetmimi-api/internal/comms"
 	"github.com/VetMiMi/vetmimi-api/internal/content"
 	"github.com/VetMiMi/vetmimi-api/internal/db"
+	"github.com/VetMiMi/vetmimi-api/internal/meta"
 	"github.com/VetMiMi/vetmimi-api/internal/platform"
 	"github.com/VetMiMi/vetmimi-api/internal/platform/idempotency"
 	"github.com/VetMiMi/vetmimi-api/internal/platform/settings"
@@ -47,7 +48,15 @@ func runWorker(ctx context.Context, log *slog.Logger, cfg platform.Config, pool 
 	}).Register(w)
 	(&booking.Tasks{Pool: pool, Queue: queue, Log: log, Now: time.Now, Timezone: cur.Timezone}).Register(w)
 	(&video.Tasks{Pool: pool, Log: log, Now: time.Now}).Register(w)
+	tokens, err := auth.NewTOTP(cfg.TOTPEncryptionKey, time.Now)
+	if err != nil {
+		return err
+	}
+	connector := meta.New(cfg, pool, tokens, log)
 	(&content.Tasks{Pool: pool, Queue: queue, SiteURL: cfg.SiteURL, RevalidateSecret: cfg.SiteRevalidateSecret,
+		Publishers: map[string]content.Publisher{
+			"facebook": connector.PublishFacebook, "instagram": connector.PublishInstagram,
+		},
 		Log: log, Now: time.Now}).Register(w)
 	// Rebuild at once any task Redis lost while the worker was down.
 	queue.Enqueue(ctx, platform.Task{Type: comms.TaskSweep}, platform.Task{Type: booking.TaskSweepHolds},

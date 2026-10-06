@@ -1,7 +1,7 @@
 openapi: "3.1.0"
 info:
   title: VetMiMi API
-  version: "0.4.0"
+  version: "0.4.1"
   description: >-
     The API behind VetMiMi, Daw Mi's art therapy practice. The Next.js site is the only caller
     (ADR-002): public routes take the shared service key, admin routes a session token. The one
@@ -41,6 +41,8 @@ tags:
     description: Published website articles, read by the site.
   - name: media
     description: "The media library: images for posts, stored with web sizes."
+  - name: connections
+    description: "Platform connections the publishing portal posts through: the Facebook Page and its Instagram account."
   - name: contact
     description: Contact enquiries.
   - name: health
@@ -2145,8 +2147,8 @@ paths:
         A channel named in `versions` replaces that channel's version whole. Saving an `approved`
         or `scheduled` post sends it back to `in_review`. A `publishing` or `published` post may
         change only its title and website version (otherwise `422 action_not_allowed`); it goes
-        back to `in_review`, its article is off the site until it is published again, and what went
-        out on social channels stays. Archived posts cannot be edited (`409 invalid_transition`).
+        back to `in_review`, visitors keep reading the article as last published until it is
+        published again, and what went out on social channels stays. Archived posts cannot be edited (`409 invalid_transition`).
       security:
         - sessionToken: []
       parameters:
@@ -2185,7 +2187,8 @@ paths:
       operationId: deletePost
       summary: Delete an idea or draft
       description: >-
-        Any other status is `409 invalid_transition`; archive instead.
+        Any other status, or a draft that has been published before, is `409 invalid_transition`;
+        archive instead.
       security:
         - sessionToken: []
       parameters:
@@ -2421,7 +2424,8 @@ paths:
         channel is. The website version goes live at once and the site is asked to revalidate; each
         social channel starts `pending` for the publishing worker, which retries a transient failure
         three times. A channel that fails (`error` says why, e.g. `not_connected`) can be retried or
-        marked posted by hand.
+        marked posted by hand. An attempt that never finished is failed as `unknown_outcome` after 10
+        minutes, never sent again by itself, since it may have posted.
       security:
         - sessionToken: []
       parameters:
@@ -2792,6 +2796,167 @@ paths:
           $ref: "#/components/responses/TooManyRequests"
         "500":
           $ref: "#/components/responses/InternalError"
+  /admin/connections/meta:
+    get:
+      tags: [connections]
+      operationId: getMetaConnection
+      summary: Read the Meta connection
+      description: >-
+        site_admin only. Whether the Facebook Page (and the Instagram Business account linked to it) is
+        connected, as which Page, until when, and the last error publishing met (`reconnect_required`:
+        connect again). While `choosing_page`, lists the Pages Daw Mi manages.
+      security:
+        - sessionToken: []
+      responses:
+        "200":
+          description: Success.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/MetaConnection"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "429":
+          $ref: "#/components/responses/TooManyRequests"
+        "500":
+          $ref: "#/components/responses/InternalError"
+        "503":
+          $ref: "#/components/responses/Unavailable"
+    delete:
+      tags: [connections]
+      operationId: disconnectMeta
+      summary: Disconnect Meta
+      description: >-
+        site_admin only. Deletes the connection and its token; Facebook and Instagram channels are then
+        posted by hand (copy & open).
+      security:
+        - sessionToken: []
+      responses:
+        "204":
+          description: Disconnected.
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "429":
+          $ref: "#/components/responses/TooManyRequests"
+        "500":
+          $ref: "#/components/responses/InternalError"
+  /admin/connections/meta/authorize:
+    post:
+      tags: [connections]
+      operationId: startMetaConnection
+      summary: Start Facebook Login
+      description: >-
+        site_admin only. Returns the Facebook Login address to send Daw Mi's browser to. Facebook sends
+        her back to `{SITE_URL}/admin/settings/connections` with `code` and `state`, which that page
+        passes to `POST /admin/connections/meta/callback` within 10 minutes. `503 unavailable` when
+        the Meta app is not configured.
+      security:
+        - sessionToken: []
+      responses:
+        "200":
+          description: Success.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/MetaAuthorization"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "429":
+          $ref: "#/components/responses/TooManyRequests"
+        "500":
+          $ref: "#/components/responses/InternalError"
+        "503":
+          $ref: "#/components/responses/Unavailable"
+  /admin/connections/meta/callback:
+    post:
+      tags: [connections]
+      operationId: finishMetaConnection
+      summary: Finish Facebook Login
+      description: >-
+        site_admin only, the same administrator who started it. Trades the code for a long-lived token.
+        With one Page the connection is `connected` at once; with several it is `choosing_page`. A
+        state that expired, was altered or was started by someone else, or a code Facebook refuses, is
+        `422 action_not_allowed`.
+      security:
+        - sessionToken: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/MetaCallback"
+      responses:
+        "200":
+          description: Success.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/MetaConnection"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "422":
+          $ref: "#/components/responses/UnprocessableEntity"
+        "429":
+          $ref: "#/components/responses/TooManyRequests"
+        "500":
+          $ref: "#/components/responses/InternalError"
+        "503":
+          $ref: "#/components/responses/Unavailable"
+  /admin/connections/meta/page:
+    put:
+      tags: [connections]
+      operationId: chooseMetaPage
+      summary: Choose the Facebook Page
+      description: >-
+        site_admin only, while `choosing_page`. Connects the Page with the Instagram Business account
+        linked to it; a Page she does not manage is `404`.
+      security:
+        - sessionToken: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/MetaPageChoice"
+      responses:
+        "200":
+          description: Success.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/MetaConnection"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "422":
+          $ref: "#/components/responses/UnprocessableEntity"
+        "429":
+          $ref: "#/components/responses/TooManyRequests"
+        "500":
+          $ref: "#/components/responses/InternalError"
+        "503":
+          $ref: "#/components/responses/Unavailable"
 components:
   securitySchemes:
     serviceKey:
@@ -4887,8 +5052,11 @@ components:
         error:
           type: string
           description: >-
-            Why the last attempt failed: `not_connected` (no platform connection; copy & open) or
-            `connection_failed`.
+            Why the last attempt failed: `not_connected` (no platform connection; copy & open),
+            `connection_failed` (the platform could not be reached), `rejected` (the platform refused
+            the post), `reconnect_required` (the connection's token no longer works), or
+            `unknown_outcome` (the attempt never finished and may have posted: check the platform,
+            then retry or mark posted).
         attempts:
           type: integer
         publishedAt:
@@ -4954,9 +5122,83 @@ components:
           description: UTC timestamp (RFC 3339).
           format: date-time
       additionalProperties: false
+    MetaConnection:
+      type: object
+      required: [status]
+      properties:
+        status:
+          type: string
+          enum: [not_connected, choosing_page, connected]
+        pageId:
+          type: string
+        pageName:
+          type: string
+        instagramId:
+          type: string
+          description: The linked Instagram Business account; absent when the Page has none.
+        instagramUsername:
+          type: string
+        expiresAt:
+          type: string
+          description: UTC timestamp (RFC 3339) when Meta stops the token's access; connect again before it.
+          format: date-time
+        lastError:
+          type: string
+          description: "`reconnect_required` when Meta refused the token; cleared by connecting again."
+        connectedAt:
+          type: string
+          description: UTC timestamp (RFC 3339).
+          format: date-time
+        pages:
+          type: array
+          description: While `choosing_page`, the Pages Daw Mi manages.
+          items:
+            $ref: "#/components/schemas/MetaPage"
+      additionalProperties: false
+    MetaPage:
+      type: object
+      required: [id, name]
+      properties:
+        id:
+          type: string
+        name:
+          type: string
+        instagramUsername:
+          type: string
+      additionalProperties: false
+    MetaAuthorization:
+      type: object
+      required: [authorizeUrl]
+      properties:
+        authorizeUrl:
+          type: string
+          format: uri
+      additionalProperties: false
+    MetaCallback:
+      type: object
+      required: [code, state]
+      properties:
+        code:
+          type: string
+          minLength: 1
+          maxLength: 2000
+        state:
+          type: string
+          minLength: 1
+          maxLength: 500
+      additionalProperties: false
+    MetaPageChoice:
+      type: object
+      required: [pageId]
+      properties:
+        pageId:
+          type: string
+          minLength: 1
+          maxLength: 100
+      additionalProperties: false
     PostSummary:
       type: object
-      required: [id, title, kind, status, channels, version, createdAt, updatedAt]
+      required: [id, title, kind, status, channels, publications, version, createdAt, updatedAt]
       properties:
         id:
           type: string
@@ -4976,6 +5218,15 @@ components:
           description: The enabled channels.
           items:
             $ref: "#/components/schemas/Channel"
+        publications:
+          type: array
+          description: How each enabled channel's publishing is going, once publishing has started.
+          items:
+            $ref: "#/components/schemas/PublicationSummary"
+        publishedAt:
+          type: string
+          description: UTC timestamp (RFC 3339) when the post became `published`.
+          format: date-time
         version:
           $ref: "#/components/schemas/Version"
         createdAt:
@@ -4986,6 +5237,15 @@ components:
           type: string
           description: UTC timestamp (RFC 3339).
           format: date-time
+      additionalProperties: false
+    PublicationSummary:
+      type: object
+      required: [channel, status]
+      properties:
+        channel:
+          $ref: "#/components/schemas/Channel"
+        status:
+          $ref: "#/components/schemas/PublicationStatus"
       additionalProperties: false
     PostList:
       type: object
@@ -5307,6 +5567,12 @@ components:
           schema:
             type: integer
             minimum: 1
+      content:
+        "application/problem+json":
+          schema:
+            $ref: "#/components/schemas/Problem"
+    Unavailable:
+      description: "`unavailable`: a service it depends on is not configured or did not answer."
       content:
         "application/problem+json":
           schema:
