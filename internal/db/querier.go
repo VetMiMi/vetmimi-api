@@ -15,20 +15,42 @@ type Querier interface {
 	// is later than the last one accepted, so two concurrent sign-ins with one
 	// code cannot both succeed.
 	ClaimTOTPStep(ctx context.Context, arg ClaimTOTPStepParams) (int64, error)
+	CreateAvailabilityBlock(ctx context.Context, arg CreateAvailabilityBlockParams) (AvailabilityBlock, error)
+	CreateAvailabilityOverride(ctx context.Context, arg CreateAvailabilityOverrideParams) (AvailabilityOverride, error)
+	CreateAvailabilityRule(ctx context.Context, arg CreateAvailabilityRuleParams) (AvailabilityRule, error)
+	CreateService(ctx context.Context, arg CreateServiceParams) (Service, error)
 	CreateSession(ctx context.Context, arg CreateSessionParams) (pgtype.UUID, error)
 	// CreateUser and ReplaceUserCredentials store the step of the code typed at
 	// enrolment as already accepted, so that code can never also sign in.
 	CreateUser(ctx context.Context, arg CreateUserParams) (pgtype.UUID, error)
+	DeleteAvailabilityBlock(ctx context.Context, id pgtype.UUID) (int64, error)
+	DeleteAvailabilityOverride(ctx context.Context, id pgtype.UUID) (int64, error)
+	DeleteAvailabilityRule(ctx context.Context, id pgtype.UUID) (int64, error)
 	DeleteExpiredSessions(ctx context.Context, arg DeleteExpiredSessionsParams) (int64, error)
+	DeleteService(ctx context.Context, id pgtype.UUID) (int64, error)
 	DeleteSession(ctx context.Context, id pgtype.UUID) error
 	DeleteUserSessions(ctx context.Context, userID pgtype.UUID) error
+	GetService(ctx context.Context, id pgtype.UUID) (Service, error)
 	GetServiceBySlug(ctx context.Context, slug string) (Service, error)
 	// GetSession returns the session a token hash names together with its user,
 	// so authenticating a request is one query.
 	GetSession(ctx context.Context, tokenHash []byte) (GetSessionRow, error)
 	GetUserForSignIn(ctx context.Context, email string) (GetUserForSignInRow, error)
+	// InsertAppointment does nothing on a reference collision, so the caller can
+	// retry with a new reference inside the same transaction. Every other
+	// violation, appointments_no_overlap included, is an error.
+	InsertAppointment(ctx context.Context, arg InsertAppointmentParams) (Appointment, error)
+	InsertAppointmentEvent(ctx context.Context, arg InsertAppointmentEventParams) error
+	ListAvailabilityBlocks(ctx context.Context, within pgtype.Range[pgtype.Timestamptz]) ([]AvailabilityBlock, error)
+	ListAvailabilityOverrides(ctx context.Context, arg ListAvailabilityOverridesParams) ([]AvailabilityOverride, error)
+	ListAvailabilityRules(ctx context.Context) ([]AvailabilityRule, error)
+	ListOverlappingAppointments(ctx context.Context, period pgtype.Range[pgtype.Timestamptz]) ([]ListOverlappingAppointmentsRow, error)
 	ListServices(ctx context.Context) ([]Service, error)
 	ListSettings(ctx context.Context) ([]ListSettingsRow, error)
+	// LockSchedule takes the transaction-scoped lock that availability writes and
+	// appointment creation share (docs/architecture.md, walkthrough 1, step 5),
+	// keyed by the one practitioner.
+	LockSchedule(ctx context.Context) error
 	Ping(ctx context.Context) (int32, error)
 	// RecordSignIn succeeds only while the user is enabled and still has the
 	// password hash sign-in verified. Its row lock orders it against a
@@ -40,6 +62,12 @@ type Querier interface {
 	// --practitioner must not leave the practice without its practitioner.
 	ReplaceUserCredentials(ctx context.Context, arg ReplaceUserCredentialsParams) (pgtype.UUID, error)
 	TouchSession(ctx context.Context, arg TouchSessionParams) error
+	UpdateAvailabilityBlock(ctx context.Context, arg UpdateAvailabilityBlockParams) (AvailabilityBlock, error)
+	UpdateAvailabilityOverride(ctx context.Context, arg UpdateAvailabilityOverrideParams) (AvailabilityOverride, error)
+	UpdateAvailabilityRule(ctx context.Context, arg UpdateAvailabilityRuleParams) (AvailabilityRule, error)
+	// UpdateService writes the whole row only if nobody changed it since the
+	// caller read version; no row back means they did.
+	UpdateService(ctx context.Context, arg UpdateServiceParams) (Service, error)
 	// UpdateSettings writes every key of patch, a JSON object of key to value, in
 	// one statement, so a patch lands whole or not at all. Keys with no row are
 	// ignored; platform/settings only passes known keys.

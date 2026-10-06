@@ -12,6 +12,83 @@ import (
 	"github.com/jackc/pgx/v5/pgtype"
 )
 
+type Appointment struct {
+	ID                  pgtype.UUID
+	Reference           string
+	PractitionerID      pgtype.UUID
+	ServiceID           pgtype.UUID
+	Status              string
+	StartsAt            time.Time
+	EndsAt              time.Time
+	DurationMinutes     int32
+	BusyRange           pgtype.Range[pgtype.Timestamptz]
+	Timezone            string
+	Format              string
+	Locale              string
+	Source              string
+	VisitorName         string
+	VisitorEmail        string
+	VisitorPhone        pgtype.Text
+	VisitorNote         pgtype.Text
+	PrivacyAckAt        sql.NullTime
+	PolicyAckAt         sql.NullTime
+	HoldExpiresAt       sql.NullTime
+	ManagementTokenSeed []byte
+	ManagementTokenHash []byte
+	MeetingLink         pgtype.Text
+	AdminNote           pgtype.Text
+	LateCancellation    bool
+	StatusChangedAt     time.Time
+	CreatedBy           pgtype.UUID
+	Version             int32
+	CreatedAt           time.Time
+	UpdatedAt           time.Time
+}
+
+type AppointmentEvent struct {
+	ID            int64
+	AppointmentID pgtype.UUID
+	Kind          string
+	FromStatus    pgtype.Text
+	ToStatus      pgtype.Text
+	PreviousRange pgtype.Range[pgtype.Timestamptz]
+	NewRange      pgtype.Range[pgtype.Timestamptz]
+	Actor         string
+	ActorUserID   pgtype.UUID
+	Detail        []byte
+	CreatedAt     time.Time
+}
+
+type AvailabilityBlock struct {
+	ID        pgtype.UUID
+	Period    pgtype.Range[pgtype.Timestamptz]
+	AllDay    bool
+	Reason    pgtype.Text
+	CreatedBy pgtype.UUID
+	CreatedAt time.Time
+	UpdatedAt time.Time
+}
+
+type AvailabilityOverride struct {
+	ID        pgtype.UUID
+	OnDate    pgtype.Date
+	Kind      string
+	Period    pgtype.Range[pgtype.Timestamptz]
+	Note      pgtype.Text
+	CreatedBy pgtype.UUID
+	CreatedAt time.Time
+	UpdatedAt time.Time
+}
+
+type AvailabilityRule struct {
+	ID        pgtype.UUID
+	Weekday   int16
+	StartTime pgtype.Time
+	EndTime   pgtype.Time
+	CreatedAt time.Time
+	UpdatedAt time.Time
+}
+
 type Service struct {
 	ID                  pgtype.UUID
 	Slug                string

@@ -7,7 +7,112 @@ package db
 
 import (
 	"context"
+	"encoding/json"
+	"time"
+
+	"github.com/jackc/pgx/v5/pgtype"
 )
+
+const createService = `-- name: CreateService :one
+INSERT INTO services (
+    slug, name, description, booking_action, duration_minutes, buffer_before_minutes,
+    buffer_after_minutes, formats, fee_text, preparation_text, sort_order
+) VALUES (
+    $1, $2, $3, $4, $5, $6,
+    $7, $8, $9, $10, $11
+)
+RETURNING id, slug, name, description, booking_action, state, duration_minutes, buffer_before_minutes, buffer_after_minutes, formats, fee_text, preparation_text, sort_order, version, created_at, updated_at
+`
+
+type CreateServiceParams struct {
+	Slug                string
+	Name                json.RawMessage
+	Description         json.RawMessage
+	BookingAction       string
+	DurationMinutes     pgtype.Int4
+	BufferBeforeMinutes int32
+	BufferAfterMinutes  int32
+	Formats             []string
+	FeeText             json.RawMessage
+	PreparationText     json.RawMessage
+	SortOrder           int32
+}
+
+func (q *Queries) CreateService(ctx context.Context, arg CreateServiceParams) (Service, error) {
+	row := q.db.QueryRow(ctx, createService,
+		arg.Slug,
+		arg.Name,
+		arg.Description,
+		arg.BookingAction,
+		arg.DurationMinutes,
+		arg.BufferBeforeMinutes,
+		arg.BufferAfterMinutes,
+		arg.Formats,
+		arg.FeeText,
+		arg.PreparationText,
+		arg.SortOrder,
+	)
+	var i Service
+	err := row.Scan(
+		&i.ID,
+		&i.Slug,
+		&i.Name,
+		&i.Description,
+		&i.BookingAction,
+		&i.State,
+		&i.DurationMinutes,
+		&i.BufferBeforeMinutes,
+		&i.BufferAfterMinutes,
+		&i.Formats,
+		&i.FeeText,
+		&i.PreparationText,
+		&i.SortOrder,
+		&i.Version,
+		&i.CreatedAt,
+		&i.UpdatedAt,
+	)
+	return i, err
+}
+
+const deleteService = `-- name: DeleteService :execrows
+DELETE FROM services WHERE id = $1
+`
+
+func (q *Queries) DeleteService(ctx context.Context, id pgtype.UUID) (int64, error) {
+	result, err := q.db.Exec(ctx, deleteService, id)
+	if err != nil {
+		return 0, err
+	}
+	return result.RowsAffected(), nil
+}
+
+const getService = `-- name: GetService :one
+SELECT id, slug, name, description, booking_action, state, duration_minutes, buffer_before_minutes, buffer_after_minutes, formats, fee_text, preparation_text, sort_order, version, created_at, updated_at FROM services WHERE id = $1
+`
+
+func (q *Queries) GetService(ctx context.Context, id pgtype.UUID) (Service, error) {
+	row := q.db.QueryRow(ctx, getService, id)
+	var i Service
+	err := row.Scan(
+		&i.ID,
+		&i.Slug,
+		&i.Name,
+		&i.Description,
+		&i.BookingAction,
+		&i.State,
+		&i.DurationMinutes,
+		&i.BufferBeforeMinutes,
+		&i.BufferAfterMinutes,
+		&i.Formats,
+		&i.FeeText,
+		&i.PreparationText,
+		&i.SortOrder,
+		&i.Version,
+		&i.CreatedAt,
+		&i.UpdatedAt,
+	)
+	return i, err
+}
 
 const getServiceBySlug = `-- name: GetServiceBySlug :one
 SELECT id, slug, name, description, booking_action, state, duration_minutes, buffer_before_minutes, buffer_after_minutes, formats, fee_text, preparation_text, sort_order, version, created_at, updated_at FROM services WHERE slug = $1
@@ -38,7 +143,7 @@ func (q *Queries) GetServiceBySlug(ctx context.Context, slug string) (Service, e
 }
 
 const listServices = `-- name: ListServices :many
-SELECT id, slug, name, description, booking_action, state, duration_minutes, buffer_before_minutes, buffer_after_minutes, formats, fee_text, preparation_text, sort_order, version, created_at, updated_at FROM services ORDER BY sort_order, slug
+SELECT id, slug, name, description, booking_action, state, duration_minutes, buffer_before_minutes, buffer_after_minutes, formats, fee_text, preparation_text, sort_order, version, created_at, updated_at FROM services ORDER BY sort_order, name->>'en'
 `
 
 func (q *Queries) ListServices(ctx context.Context) ([]Service, error) {
@@ -76,4 +181,75 @@ func (q *Queries) ListServices(ctx context.Context) ([]Service, error) {
 		return nil, err
 	}
 	return items, nil
+}
+
+const updateService = `-- name: UpdateService :one
+UPDATE services
+SET slug = $1, name = $2, description = $3, booking_action = $4,
+    state = $5, duration_minutes = $6,
+    buffer_before_minutes = $7, buffer_after_minutes = $8,
+    formats = $9, fee_text = $10, preparation_text = $11,
+    sort_order = $12, version = version + 1, updated_at = $13
+WHERE id = $14 AND version = $15
+RETURNING id, slug, name, description, booking_action, state, duration_minutes, buffer_before_minutes, buffer_after_minutes, formats, fee_text, preparation_text, sort_order, version, created_at, updated_at
+`
+
+type UpdateServiceParams struct {
+	Slug                string
+	Name                json.RawMessage
+	Description         json.RawMessage
+	BookingAction       string
+	State               string
+	DurationMinutes     pgtype.Int4
+	BufferBeforeMinutes int32
+	BufferAfterMinutes  int32
+	Formats             []string
+	FeeText             json.RawMessage
+	PreparationText     json.RawMessage
+	SortOrder           int32
+	Now                 time.Time
+	ID                  pgtype.UUID
+	Version             int32
+}
+
+// UpdateService writes the whole row only if nobody changed it since the
+// caller read version; no row back means they did.
+func (q *Queries) UpdateService(ctx context.Context, arg UpdateServiceParams) (Service, error) {
+	row := q.db.QueryRow(ctx, updateService,
+		arg.Slug,
+		arg.Name,
+		arg.Description,
+		arg.BookingAction,
+		arg.State,
+		arg.DurationMinutes,
+		arg.BufferBeforeMinutes,
+		arg.BufferAfterMinutes,
+		arg.Formats,
+		arg.FeeText,
+		arg.PreparationText,
+		arg.SortOrder,
+		arg.Now,
+		arg.ID,
+		arg.Version,
+	)
+	var i Service
+	err := row.Scan(
+		&i.ID,
+		&i.Slug,
+		&i.Name,
+		&i.Description,
+		&i.BookingAction,
+		&i.State,
+		&i.DurationMinutes,
+		&i.BufferBeforeMinutes,
+		&i.BufferAfterMinutes,
+		&i.Formats,
+		&i.FeeText,
+		&i.PreparationText,
+		&i.SortOrder,
+		&i.Version,
+		&i.CreatedAt,
+		&i.UpdatedAt,
+	)
+	return i, err
 }
