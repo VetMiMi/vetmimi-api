@@ -216,6 +216,7 @@ Index: `(status, created_at)`.
 | attempts | int | no | 0 | |
 | resend_of, created_by | uuid | yes | — | FK communications, set by Resend; author of manual rows |
 | note | text | yes | — | `manual` only: how it was communicated, private |
+| message | text | yes | — | Daw Mi's own words to the visitor on a decline or cancellation (≤ 1,000), rendered as written |
 
 Kinds: `request_received`, `booking_confirmed`, `request_declined`, `rescheduled`, `cancelled`, `reminder`,
 `request_expired` (visitor); `practitioner_new_request`, `practitioner_new_booking`,

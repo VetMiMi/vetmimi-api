@@ -73,13 +73,20 @@ func (q *Queue) Enqueue(ctx context.Context, tasks ...Task) {
 // so a task that moved in time runs at its new time instead of the old one.
 // A task already running is left alone; its handler re-checks the row.
 func (q *Queue) Replace(ctx context.Context, tasks ...Task) {
+	q.Remove(tasks...)
+	q.Enqueue(ctx, tasks...)
+}
+
+// Remove deletes the waiting tasks with the ids of tasks, ignoring any not
+// there. A failure is logged only: each handler re-checks its row, so a task
+// left behind does nothing.
+func (q *Queue) Remove(tasks ...Task) {
 	for _, t := range tasks {
 		err := q.inspector.DeleteTask(q.ns+cmp.Or(t.Queue, QueueDefault), t.ID)
 		if err != nil && !errors.Is(err, asynq.ErrTaskNotFound) && !errors.Is(err, asynq.ErrQueueNotFound) {
-			q.log.Error("replace_failed", "task", t.Type, "task_id", t.ID, "err", err)
+			q.log.Error("remove_failed", "task", t.Type, "task_id", t.ID, "err", err)
 		}
 	}
-	q.Enqueue(ctx, tasks...)
 }
 
 func (q *Queue) enqueue(ctx context.Context, t Task) error {

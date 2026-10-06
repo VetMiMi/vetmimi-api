@@ -7,6 +7,7 @@ package db
 
 import (
 	"context"
+	"time"
 
 	"github.com/jackc/pgx/v5/pgtype"
 )
@@ -46,4 +47,60 @@ func (q *Queries) InsertAppointmentEvent(ctx context.Context, arg InsertAppointm
 		arg.Detail,
 	)
 	return err
+}
+
+const listAppointmentEvents = `-- name: ListAppointmentEvents :many
+SELECT e.id, e.appointment_id, e.kind, e.from_status, e.to_status, e.previous_range, e.new_range, e.actor, e.actor_user_id, e.detail, e.created_at, u.display_name AS actor_name
+FROM appointment_events e
+LEFT JOIN users u ON u.id = e.actor_user_id
+WHERE e.appointment_id = $1
+ORDER BY e.created_at, e.id
+`
+
+type ListAppointmentEventsRow struct {
+	ID            int64
+	AppointmentID pgtype.UUID
+	Kind          string
+	FromStatus    pgtype.Text
+	ToStatus      pgtype.Text
+	PreviousRange pgtype.Range[pgtype.Timestamptz]
+	NewRange      pgtype.Range[pgtype.Timestamptz]
+	Actor         string
+	ActorUserID   pgtype.UUID
+	Detail        []byte
+	CreatedAt     time.Time
+	ActorName     pgtype.Text
+}
+
+func (q *Queries) ListAppointmentEvents(ctx context.Context, appointmentID pgtype.UUID) ([]ListAppointmentEventsRow, error) {
+	rows, err := q.db.Query(ctx, listAppointmentEvents, appointmentID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	items := []ListAppointmentEventsRow{}
+	for rows.Next() {
+		var i ListAppointmentEventsRow
+		if err := rows.Scan(
+			&i.ID,
+			&i.AppointmentID,
+			&i.Kind,
+			&i.FromStatus,
+			&i.ToStatus,
+			&i.PreviousRange,
+			&i.NewRange,
+			&i.Actor,
+			&i.ActorUserID,
+			&i.Detail,
+			&i.CreatedAt,
+			&i.ActorName,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
 }

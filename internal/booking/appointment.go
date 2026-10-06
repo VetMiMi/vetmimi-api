@@ -65,6 +65,7 @@ type NewAppointment struct {
 	PolicyAckAt    sql.NullTime
 	HoldExpiresAt  sql.NullTime
 	CreatedBy      pgtype.UUID
+	AdminNote      pgtype.Text
 }
 
 // referenceAttempts bounds the retries on a reference collision, which at a
@@ -102,6 +103,7 @@ func InsertAppointment(ctx context.Context, q db.Querier, secret []byte, a NewAp
 		ManagementTokenSeed: seed,
 		ManagementTokenHash: platform.HashToken(NewManagementToken(secret, seed)),
 		CreatedBy:           a.CreatedBy,
+		AdminNote:           a.AdminNote,
 	}
 	for range referenceAttempts {
 		if p.Reference, err = NewReference(); err != nil {
