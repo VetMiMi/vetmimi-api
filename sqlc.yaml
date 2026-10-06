@@ -19,3 +19,13 @@ sql:
             go_type:
               import: database/sql
               type: NullTime
+          # The localized domain over jsonb (docs/data-model.md, "Conventions").
+          - db_type: localized
+            go_type:
+              import: encoding/json
+              type: RawMessage
+          - db_type: localized
+            nullable: true
+            go_type:
+              import: encoding/json
+              type: RawMessage

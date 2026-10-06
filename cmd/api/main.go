@@ -94,6 +94,8 @@ func runAPI(ctx context.Context, log *slog.Logger, cfg platform.Config, pool *pg
 		ServiceKey:   cfg.ServiceKey,
 		RateLimits:   httpapi.NewRateLimits(platform.NewLimiter(rdb, "", time.Now), log, time.Now),
 		Sessions:     sessions,
+		Pool:         pool,
+		Now:          time.Now,
 	}))
 
 	errc := make(chan error, 1)

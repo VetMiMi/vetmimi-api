@@ -14,6 +14,7 @@ output-options:
   include-tags:
     - health
     - auth
+    - settings
   # The WebSocket upgrade is a plain net/http handler, not a strict operation.
   exclude-operation-ids:
     - connectVideoRoom

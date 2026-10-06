@@ -7,8 +7,11 @@ import (
 	"log/slog"
 	"time"
 
+	"github.com/jackc/pgx/v5/pgxpool"
+
 	"github.com/VetMiMi/vetmimi-api/internal/auth"
 	"github.com/VetMiMi/vetmimi-api/internal/httpapi/gen"
+	"github.com/VetMiMi/vetmimi-api/internal/platform/clock"
 )
 
 // Deps are what the handlers need, set by cmd/api once the database pool and
@@ -18,7 +21,8 @@ import (
 // and sign-in require; empty, they refuse every call. RateLimits counts
 // requests; nil behaves as if Redis were unreachable. Sessions signs
 // administrators in and authenticates them; nil, signed-in operations refuse
-// every call.
+// every call. Pool is the database the domain handlers use. Now is the
+// clock; nil means time.Now.
 type Deps struct {
 	PingPostgres func(context.Context) error
 	PingRedis    func(context.Context) error
@@ -26,6 +30,8 @@ type Deps struct {
 	ServiceKey   string
 	RateLimits   *RateLimits
 	Sessions     *auth.Sessions
+	Pool         *pgxpool.Pool
+	Now          clock.Now
 }
 
 // server implements gen.StrictServerInterface.

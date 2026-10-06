@@ -1,7 +1,7 @@
 openapi: "3.1.0"
 info:
   title: VetMiMi API
-  version: "0.1.0"
+  version: "0.2.0"
   description: >-
     The API behind VetMiMi, Daw Mi's art therapy practice. The Next.js site is the only caller
     (ADR-002): public routes take the shared service key, admin routes a session token. The one
@@ -5654,23 +5654,11 @@ components:
       type: object
       description: >-
         All settings; keys are the camelCase form of the `settings` table keys. A content editor
-        receives only the `site` group (timezone, retentionMonths, contactEmail, responseTime).
+        receives only the `site` group (timezone, retentionMonths, contactEmail, responseTime);
+        booking and site administrators receive every key. `updatedAt` is the newest change among
+        the keys returned.
       required:
         - timezone
-        - bookingMode
-        - publicBookingEnabled
-        - pendingHoldHours
-        - reminderHours
-        - minNoticeHours
-        - maxAdvanceDays
-        - slotStepMinutes
-        - cancellationNoticeHours
-        - lateCancellationFeePercent
-        - lateCancellationFirstWaived
-        - noShowFeePercent
-        - meetingLinkMode
-        - paymentMethods
-        - invoiceTiming
         - retentionMonths
         - contactEmail
         - responseTime
@@ -5746,7 +5734,10 @@ components:
       additionalProperties: false
     SettingsPatch:
       type: object
-      description: "Keys to change. `booking` keys need booking_admin; `site` keys need site_admin."
+      description: >-
+        Keys to change, applied together or not at all. `booking` keys need booking_admin; `site`
+        keys need site_admin.
+      minProperties: 1
       properties:
         timezone:
           $ref: "#/components/schemas/Timezone"

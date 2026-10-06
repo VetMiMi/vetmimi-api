@@ -23,7 +23,7 @@ Business rules Daw Mi may change without a deploy, one row per key (see "Setting
 |---|---|---|---|---|
 | key | text | no | — | PK; unknown keys are refused by the API |
 | value | jsonb | no | — | typed and range-checked per key in `platform/settings` |
-| updated_by, updated_at | uuid, timestamptz | yes, no | —, now() | |
+| updated_by, updated_at | uuid, timestamptz | yes, no | —, now() | a patch lands whole or not at all |
 
 ## Accounts
 
@@ -76,6 +76,8 @@ Constraint: `CHECK (booking_action NOT IN ('book','request') OR duration_minutes
 State: `active ⇄ paused`, `active|paused → archived`, `archived → paused`. Publicly bookable = `active`, action
 `book`/`request`, and `public_booking_enabled`. Seeds, all online: `individual-art-therapy` (request, 60 min,
 0/15 buffers), `free-consultation` (request, 20 min), `group-art-wellbeing`, `workshops-programs` (enquiry_only).
+`free-consultation` is seeded `paused`: neither the site nor the requirements mention it, so it stays unbookable
+until Daw Mi confirms it and resumes it from admin.
 
 ## Availability
 

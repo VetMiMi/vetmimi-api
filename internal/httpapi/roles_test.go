@@ -16,9 +16,9 @@ import (
 	"github.com/VetMiMi/vetmimi-api/internal/httpapi/gen"
 )
 
-// Only the auth tag is generated yet, so most of the table is tested against
-// the middleware directly, with requests routed to the operations in
-// openapi.yaml; the generated routes test it end to end.
+// Only the auth and settings tags are generated yet, so most of the table is
+// tested against the middleware directly, with requests routed to the
+// operations in openapi.yaml; the generated routes test it end to end.
 
 func requireForbidden(t *testing.T, res *httptest.ResponseRecorder) {
 	t.Helper()
