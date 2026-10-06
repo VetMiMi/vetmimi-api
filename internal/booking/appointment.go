@@ -101,12 +101,12 @@ func InsertAppointment(ctx context.Context, q db.Querier, secret []byte, a NewAp
 		PolicyAckAt:         a.PolicyAckAt,
 		HoldExpiresAt:       a.HoldExpiresAt,
 		ManagementTokenSeed: seed,
-		ManagementTokenHash: platform.HashToken(NewManagementToken(secret, seed)),
+		ManagementTokenHash: platform.HashToken(platform.NewManagementToken(secret, seed)),
 		CreatedBy:           a.CreatedBy,
 		AdminNote:           a.AdminNote,
 	}
 	for range referenceAttempts {
-		if p.Reference, err = NewReference(); err != nil {
+		if p.Reference, err = platform.NewReference("VM-"); err != nil {
 			return db.Appointment{}, err
 		}
 		row, err := q.InsertAppointment(ctx, p)

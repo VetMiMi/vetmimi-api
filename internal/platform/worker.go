@@ -53,7 +53,8 @@ func (w *Worker) Handle(taskType string, fn func(ctx context.Context, payload []
 }
 
 // Every enqueues a task of taskType, with no payload, on the default queue
-// on spec: a cron line in UTC or a descriptor such as "@every 5m".
+// on spec: a cron line in UTC, one in a named zone with a CRON_TZ= prefix,
+// or a descriptor such as "@every 5m".
 func (w *Worker) Every(spec, taskType string) {
 	w.periodic = append(w.periodic, periodicTask{spec, taskType})
 }

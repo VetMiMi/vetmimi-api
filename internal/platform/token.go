@@ -1,6 +1,7 @@
 package platform
 
 import (
+	"crypto/hmac"
 	"crypto/rand"
 	"crypto/sha256"
 	"encoding/base64"
@@ -47,4 +48,16 @@ func IsSessionToken(s string) bool {
 func HashToken(token string) []byte {
 	sum := sha256.Sum256([]byte(token))
 	return sum[:]
+}
+
+// NewManagementToken derives the token in a visitor's management link from
+// its seed (docs/architecture.md, "Token formats"): 43 characters of
+// base64url HMAC-SHA256 under SIGNING_SECRET, so the database alone holds no
+// usable link. Booking stores its hash; the worker derives it again to put
+// the link in an email.
+func NewManagementToken(secret, seed []byte) string {
+	mac := hmac.New(sha256.New, secret)
+	mac.Write([]byte("manage"))
+	mac.Write(seed)
+	return base64.RawURLEncoding.EncodeToString(mac.Sum(nil))
 }
