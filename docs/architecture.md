@@ -374,7 +374,7 @@ content. Daw Mi holds all three roles.
 | `site:revalidate` | After publish, unpublish, archive, featured change, service change | Immediate | Revalidating a tag twice is harmless |
 | `media:derive` | After upload commit | Immediate, queue `low`, concurrency 1 | Skips unless `processing_status = processing`; overwrites the same object keys |
 | `video:close-room` | Room created or moved | At `closes_at` | Task id `room:<id>:<closes_at>`; ends the room only if still open and the window has passed |
-| `booking:purge-retention` | asynq periodic | Daily 03:00 practice time | Deletes appointments and contact enquiries past `retention_months`; deleting twice deletes nothing |
+| `booking:purge-retention` | asynq periodic | Daily 03:00 practice time (`CRON_TZ`, from `settings.timezone` when the worker starts) | Deletes final appointments and contact enquiries past `retention_months`, 500 rows a statement; deleting twice deletes nothing |
 | `platform:cleanup` | asynq periodic | Hourly | Deletes expired sessions and idempotency keys older than 24 hours |
 
 ## Configuration

@@ -14,6 +14,7 @@ import (
 	"github.com/VetMiMi/vetmimi-api/internal/db"
 	"github.com/VetMiMi/vetmimi-api/internal/platform"
 	"github.com/VetMiMi/vetmimi-api/internal/platform/idempotency"
+	"github.com/VetMiMi/vetmimi-api/internal/platform/settings"
 )
 
 // taskCleanup deletes what has expired (docs/architecture.md, "Background
@@ -33,12 +34,16 @@ func runWorker(ctx context.Context, log *slog.Logger, cfg platform.Config, pool 
 	if err != nil {
 		return err
 	}
+	cur, err := settings.Load(ctx, db.New(pool))
+	if err != nil {
+		return err
+	}
 	queue := platform.NewQueue(rdb, log)
 	(&comms.Tasks{
 		Pool: pool, Queue: queue, Resend: resend, From: cfg.EmailFrom, SiteURL: cfg.SiteURL,
-		Log: log, Now: time.Now,
+		SigningSecret: cfg.SigningSecret, Log: log, Now: time.Now,
 	}).Register(w)
-	(&booking.Tasks{Pool: pool, Queue: queue, Log: log, Now: time.Now}).Register(w)
+	(&booking.Tasks{Pool: pool, Queue: queue, Log: log, Now: time.Now, Timezone: cur.Timezone}).Register(w)
 	// Rebuild at once any task Redis lost while the worker was down.
 	queue.Enqueue(ctx, platform.Task{Type: comms.TaskSweep}, platform.Task{Type: booking.TaskSweepHolds})
 	return w.Run(ctx)
