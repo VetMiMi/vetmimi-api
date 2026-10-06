@@ -1,0 +1,13 @@
+A new enquiry arrived through the website.
+
+Name: Thandar
+Email: thandar@example.com
+Phone: +61 400 000 000
+Note: Mornings suit me best.
+
+Subject: A workshop for our team
+
+Hello Daw Mi,
+We would like to plan a wellbeing workshop in November.
+
+Open it in admin: https://vetmimi.example/admin/appointments/8f14e45f-ceea-4e7a-9b1f-2c3d4e5f6a7b

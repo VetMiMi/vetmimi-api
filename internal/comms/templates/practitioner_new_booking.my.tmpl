@@ -1,0 +1,21 @@
+{{/* DRAFT: machine-drafted Burmese (Unicode, Western digits, glossary from vetmimi-next messages/README.md), awaiting review by Daw Mi. */}}
+{{define "subject"}}ချိန်းဆိုမှုအသစ် - {{.ServiceName}}၊ {{.Start}}{{end}}
+
+{{define "text"}}
+ချိန်းဆိုမှုအသစ်တစ်ခု ပြုလုပ်ထားပြီး အတည်ဖြစ်ပြီးသား ဖြစ်ပါတယ်။
+
+{{template "details_text" .}}
+အခြေအနေ - {{.Status}}
+
+{{template "visitor_text" .}}
+
+{{template "admin_text" .}}
+{{end}}
+
+{{define "html"}}{{template "open_html" .}}
+<p>ချိန်းဆိုမှုအသစ်တစ်ခု ပြုလုပ်ထားပြီး အတည်ဖြစ်ပြီးသား ဖြစ်ပါတယ်။</p>
+{{template "details_html" .}}
+<p>အခြေအနေ - {{.Status}}</p>
+{{template "visitor_html" .}}
+{{template "admin_html" .}}
+{{template "close_html" .}}{{end}}

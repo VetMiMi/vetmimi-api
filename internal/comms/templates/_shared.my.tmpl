@@ -1,0 +1,108 @@
+{{/* DRAFT: machine-drafted Burmese (Unicode, Western digits, glossary from vetmimi-next messages/README.md), awaiting review by Daw Mi. */}}
+{{/* Blocks every Burmese message may use. */}}
+
+{{define "format"}}{{if eq .Format "in_person"}}လူကိုယ်တိုင် တွေ့ဆုံ၍{{else}}အွန်လိုင်း{{end}}{{end}}
+
+{{define "details_text"}}
+ဝန်ဆောင်မှု - {{.ServiceName}}
+ရက်စွဲနှင့် အချိန် - {{.Start}}
+ကြာချိန် - {{.DurationMinutes}} မိနစ်
+ပုံစံ - {{template "format" .}}
+ရည်ညွှန်းကုဒ် - {{.Reference}}
+{{end}}
+
+{{define "details_html"}}
+<table role="presentation" style="border-collapse:collapse;margin:16px 0">
+<tr><td style="padding:4px 16px 4px 0;color:#6b6259">ဝန်ဆောင်မှု</td><td style="padding:4px 0">{{.ServiceName}}</td></tr>
+<tr><td style="padding:4px 16px 4px 0;color:#6b6259">ရက်စွဲနှင့် အချိန်</td><td style="padding:4px 0"><strong>{{.Start}}</strong></td></tr>
+<tr><td style="padding:4px 16px 4px 0;color:#6b6259">ကြာချိန်</td><td style="padding:4px 0">{{.DurationMinutes}} မိနစ်</td></tr>
+<tr><td style="padding:4px 16px 4px 0;color:#6b6259">ပုံစံ</td><td style="padding:4px 0">{{template "format" .}}</td></tr>
+<tr><td style="padding:4px 16px 4px 0;color:#6b6259">ရည်ညွှန်းကုဒ်</td><td style="padding:4px 0">{{.Reference}}</td></tr>
+</table>
+{{end}}
+
+{{define "join_text"}}
+{{if .JoinURL}}ဆက်ရှင်ကို ဒီလင့်ခ်မှ ဝင်ရောက်နိုင်ပါတယ် - {{.JoinURL}}{{else if .MeetingLink}}ဆက်ရှင်ကို ဒီလင့်ခ်မှ ဝင်ရောက်နိုင်ပါတယ် - {{.MeetingLink}}{{end}}
+{{end}}
+
+{{define "join_html"}}
+{{if .JoinURL}}<p><a href="{{.JoinURL}}">ဆက်ရှင်သို့ ဝင်ရောက်ရန်</a></p>{{else if .MeetingLink}}<p><a href="{{.MeetingLink}}">ဆက်ရှင်သို့ ဝင်ရောက်ရန်</a></p>{{end}}
+{{end}}
+
+{{define "manage_text"}}
+{{if .ManageURL}}ချိန်းဆိုမှုကို ကြည့်ရှုရန်၊ ပြောင်းလဲရန် သို့မဟုတ် ပယ်ဖျက်ရန် - {{.ManageURL}}{{end}}
+{{end}}
+
+{{define "manage_html"}}
+{{if .ManageURL}}<p><a href="{{.ManageURL}}">ချိန်းဆိုမှုကို ကြည့်ရှုရန်၊ ပြောင်းလဲရန် သို့မဟုတ် ပယ်ဖျက်ရန်</a></p>{{end}}
+{{end}}
+
+{{define "methods"}}{{range $i, $m := .PaymentMethods}}{{if $i}} သို့မဟုတ် {{end}}{{if eq $m "card"}}ကတ်{{else}}ဘဏ်လွှဲ{{end}}{{end}}{{end}}
+
+{{define "payment_text"}}
+{{if .FeeText}}ဝန်ဆောင်ခ - {{.FeeText}}{{end}}
+ဆက်ရှင်ပြီးနောက် ဒေါ်မိက ငွေတောင်းခံလွှာ ပို့ပေးပါမယ်။ {{template "methods" .}}ဖြင့် ပေးချေနိုင်ပါတယ်။
+{{end}}
+
+{{define "payment_html"}}
+<p>{{if .FeeText}}ဝန်ဆောင်ခ - {{.FeeText}}<br>{{end}}
+ဆက်ရှင်ပြီးနောက် ဒေါ်မိက ငွေတောင်းခံလွှာ ပို့ပေးပါမယ်။ {{template "methods" .}}ဖြင့် ပေးချေနိုင်ပါတယ်။</p>
+{{end}}
+
+{{define "policy"}}ချိန်းဆိုမှုကို ပယ်ဖျက်ရန် သို့မဟုတ် ပြောင်းလဲရန် လိုအပ်ပါက စတင်ချိန်မတိုင်မီ အနည်းဆုံး {{.Policy.NoticeHours}} နာရီ ကြိုတင် အသိပေးပေးပါ။{{if gt .Policy.LateFeePercent 0}} ထိုထက် နောက်ကျမှ အသိပေးပါက ဆက်ရှင်ခ၏ {{.Policy.LateFeePercent}}% ကောက်ခံနိုင်ပါတယ်{{if .Policy.FirstWaived}}၊ သို့သော် ပထမဆုံး နောက်ကျ ပယ်ဖျက်ခြင်းအတွက် အခမဲ့ ဖြစ်ပါတယ်{{end}}။{{end}}{{if gt .Policy.NoShowFeePercent 0}} အသိမပေးဘဲ ချိန်းဆိုမှုသို့ မလာရောက်ပါက ဆက်ရှင်ခ၏ {{.Policy.NoShowFeePercent}}% ကောက်ခံနိုင်ပါတယ်။{{end}}{{end}}
+
+{{define "preparation_text"}}
+{{if .PreparationText}}ဆက်ရှင်မတိုင်မီ - {{.PreparationText}}{{end}}
+{{end}}
+
+{{define "preparation_html"}}
+{{if .PreparationText}}<p>ဆက်ရှင်မတိုင်မီ - {{.PreparationText}}</p>{{end}}
+{{end}}
+
+{{define "signoff_text"}}
+မေးမြန်းလိုသည်များ ရှိပါက ဒီအီးမေးလ်ကို ပြန်ကြားနိုင်သလို {{.ContactEmail}} သို့လည်း ဆက်သွယ်နိုင်ပါတယ်။
+
+လေးစားစွာဖြင့်
+ဒေါ်မိ
+VetMiMi
+{{end}}
+
+{{define "signoff_html"}}
+<p>မေးမြန်းလိုသည်များ ရှိပါက ဒီအီးမေးလ်ကို ပြန်ကြားနိုင်သလို <a href="mailto:{{.ContactEmail}}">{{.ContactEmail}}</a> သို့လည်း ဆက်သွယ်နိုင်ပါတယ်။</p>
+<p>လေးစားစွာဖြင့်<br>ဒေါ်မိ<br>VetMiMi</p>
+{{end}}
+
+{{define "open_html"}}<!doctype html>
+<html lang="my">
+<head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1"></head>
+<body style="margin:0;padding:24px;background:#faf7f2;color:#2f2a25;font-family:Georgia,'Times New Roman',serif;font-size:16px;line-height:1.6">
+<div style="max-width:560px;margin:0 auto">
+{{end}}
+
+{{define "close_html"}}
+</div>
+</body>
+</html>
+{{end}}
+
+{{define "visitor_text"}}
+အမည် - {{.VisitorName}}
+အီးမေးလ် - {{.VisitorEmail}}
+{{if .VisitorPhone}}ဖုန်း - {{.VisitorPhone}}{{end}}
+{{if .VisitorNote}}မှတ်စု - {{.VisitorNote}}{{end}}
+{{end}}
+
+{{define "visitor_html"}}
+<p>အမည် - {{.VisitorName}}<br>
+အီးမေးလ် - <a href="mailto:{{.VisitorEmail}}">{{.VisitorEmail}}</a>
+{{if .VisitorPhone}}<br>ဖုန်း - {{.VisitorPhone}}{{end}}
+{{if .VisitorNote}}<br>မှတ်စု - {{.VisitorNote}}{{end}}</p>
+{{end}}
+
+{{define "admin_text"}}
+admin တွင် ဖွင့်ကြည့်ရန် - {{.AdminURL}}
+{{end}}
+
+{{define "admin_html"}}
+<p><a href="{{.AdminURL}}">admin တွင် ဖွင့်ကြည့်ရန်</a></p>
+{{end}}

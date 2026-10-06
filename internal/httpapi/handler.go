@@ -11,6 +11,7 @@ import (
 
 	"github.com/VetMiMi/vetmimi-api/internal/auth"
 	"github.com/VetMiMi/vetmimi-api/internal/httpapi/gen"
+	"github.com/VetMiMi/vetmimi-api/internal/platform"
 	"github.com/VetMiMi/vetmimi-api/internal/platform/clock"
 )
 
@@ -21,8 +22,10 @@ import (
 // and sign-in require; empty, they refuse every call. RateLimits counts
 // requests; nil behaves as if Redis were unreachable. Sessions signs
 // administrators in and authenticates them; nil, signed-in operations refuse
-// every call. Pool is the database the domain handlers use. Now is the
-// clock; nil means time.Now.
+// every call. Pool is the database the domain handlers use. Queue takes the
+// tasks a handler enqueues after its transaction commits; nil drops them, and
+// the sweepers rebuild them (tests leave it nil). Now is the clock; nil means
+// time.Now.
 type Deps struct {
 	PingPostgres func(context.Context) error
 	PingRedis    func(context.Context) error
@@ -31,6 +34,7 @@ type Deps struct {
 	RateLimits   *RateLimits
 	Sessions     *auth.Sessions
 	Pool         *pgxpool.Pool
+	Queue        *platform.Queue
 	Now          clock.Now
 }
 

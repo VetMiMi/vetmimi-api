@@ -1,0 +1,22 @@
+{{/* DRAFT: machine-drafted Burmese (Unicode, Western digits, glossary from vetmimi-next messages/README.md), awaiting review by Daw Mi. */}}
+{{define "subject"}}စုံစမ်းမေးမြန်းမှုအသစ် - {{.EnquirySubject}}{{end}}
+
+{{define "text"}}
+ဝက်ဘ်ဆိုက်မှတစ်ဆင့် စုံစမ်းမေးမြန်းမှုအသစ်တစ်ခု ရောက်ရှိလာပါတယ်။
+
+{{template "visitor_text" .}}
+
+အကြောင်းအရာ - {{.EnquirySubject}}
+
+{{.EnquiryMessage}}
+
+{{template "admin_text" .}}
+{{end}}
+
+{{define "html"}}{{template "open_html" .}}
+<p>ဝက်ဘ်ဆိုက်မှတစ်ဆင့် စုံစမ်းမေးမြန်းမှုအသစ်တစ်ခု ရောက်ရှိလာပါတယ်။</p>
+{{template "visitor_html" .}}
+<p>အကြောင်းအရာ - {{.EnquirySubject}}</p>
+<p style="white-space:pre-line">{{.EnquiryMessage}}</p>
+{{template "admin_html" .}}
+{{template "close_html" .}}{{end}}

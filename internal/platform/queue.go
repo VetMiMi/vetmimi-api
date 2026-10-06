@@ -39,8 +39,9 @@ type Task struct {
 
 // Queue adds tasks to the asynq queues in Redis.
 type Queue struct {
-	client *asynq.Client
-	log    *slog.Logger
+	client    *asynq.Client
+	inspector *asynq.Inspector
+	log       *slog.Logger
 	// ns prefixes every queue name. Tests set it so that test binaries
 	// sharing one Redis never take each other's tasks; it is empty otherwise.
 	ns string
@@ -48,7 +49,11 @@ type Queue struct {
 
 // NewQueue returns a Queue that shares rdb's connections.
 func NewQueue(rdb *redis.Client, log *slog.Logger) *Queue {
-	return &Queue{client: asynq.NewClientFromRedisClient(rdb), log: log}
+	return &Queue{
+		client:    asynq.NewClientFromRedisClient(rdb),
+		inspector: asynq.NewInspectorFromRedisClient(rdb),
+		log:       log,
+	}
 }
 
 // Enqueue adds tasks and reports nothing back. The transaction that produced
@@ -62,6 +67,19 @@ func (q *Queue) Enqueue(ctx context.Context, tasks ...Task) {
 			q.log.Error("enqueue_failed", "task", t.Type, "task_id", t.ID, "err", err)
 		}
 	}
+}
+
+// Replace enqueues tasks after deleting any waiting task with the same id,
+// so a task that moved in time runs at its new time instead of the old one.
+// A task already running is left alone; its handler re-checks the row.
+func (q *Queue) Replace(ctx context.Context, tasks ...Task) {
+	for _, t := range tasks {
+		err := q.inspector.DeleteTask(q.ns+cmp.Or(t.Queue, QueueDefault), t.ID)
+		if err != nil && !errors.Is(err, asynq.ErrTaskNotFound) && !errors.Is(err, asynq.ErrQueueNotFound) {
+			q.log.Error("replace_failed", "task", t.Type, "task_id", t.ID, "err", err)
+		}
+	}
+	q.Enqueue(ctx, tasks...)
 }
 
 func (q *Queue) enqueue(ctx context.Context, t Task) error {

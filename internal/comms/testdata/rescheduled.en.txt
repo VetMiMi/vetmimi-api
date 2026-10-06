@@ -1,0 +1,22 @@
+Hello Thandar,
+
+Your appointment has moved to a new time.
+
+New time: Monday 5 October 2026, 10:00 am AEDT
+Previous time (no longer booked): Friday 2 October 2026, 2:00 pm AEST
+
+Service: Individual Art Therapy
+Date and time: Monday 5 October 2026, 10:00 am AEDT
+Duration: 60 minutes
+Format: Online
+Reference: VM-7KQ2PX
+
+Join your session here: https://vetmimi.example/join/example-token
+
+To view, change or cancel your appointment: https://vetmimi.example/manage/example-token
+
+If you have any questions, just reply to this email or write to hello@vetmimi.example.
+
+Warm regards,
+Daw Mi
+VetMiMi

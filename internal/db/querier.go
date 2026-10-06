@@ -30,6 +30,8 @@ type Querier interface {
 	DeleteService(ctx context.Context, id pgtype.UUID) (int64, error)
 	DeleteSession(ctx context.Context, id pgtype.UUID) error
 	DeleteUserSessions(ctx context.Context, userID pgtype.UUID) error
+	GetAppointmentForMessage(ctx context.Context, id pgtype.UUID) (GetAppointmentForMessageRow, error)
+	GetCommunication(ctx context.Context, id pgtype.UUID) (Communication, error)
 	GetService(ctx context.Context, id pgtype.UUID) (Service, error)
 	GetServiceBySlug(ctx context.Context, slug string) (Service, error)
 	// GetSession returns the session a token hash names together with its user,
@@ -41,6 +43,7 @@ type Querier interface {
 	// violation, appointments_no_overlap included, is an error.
 	InsertAppointment(ctx context.Context, arg InsertAppointmentParams) (Appointment, error)
 	InsertAppointmentEvent(ctx context.Context, arg InsertAppointmentEventParams) error
+	InsertCommunication(ctx context.Context, arg InsertCommunicationParams) (Communication, error)
 	ListAvailabilityBlocks(ctx context.Context, within pgtype.Range[pgtype.Timestamptz]) ([]AvailabilityBlock, error)
 	ListAvailabilityOverrides(ctx context.Context, arg ListAvailabilityOverridesParams) ([]AvailabilityOverride, error)
 	ListAvailabilityRules(ctx context.Context) ([]AvailabilityRule, error)
@@ -48,16 +51,25 @@ type Querier interface {
 	// every block and every pending or confirmed appointment's busy range. It
 	// selects the periods alone, never a reason or anything about a visitor.
 	ListBusyPeriods(ctx context.Context, within pgtype.Range[pgtype.Timestamptz]) ([]pgtype.Range[pgtype.Timestamptz], error)
+	// ListDueCommunications serves comms:sweep through the partial index on
+	// queued rows.
+	ListDueCommunications(ctx context.Context, arg ListDueCommunicationsParams) ([]ListDueCommunicationsRow, error)
 	ListOverlappingAppointments(ctx context.Context, period pgtype.Range[pgtype.Timestamptz]) ([]ListOverlappingAppointmentsRow, error)
 	// ListPublicBookableServices selects only what a visitor may see.
 	ListPublicBookableServices(ctx context.Context) ([]ListPublicBookableServicesRow, error)
+	ListQueuedReminderIDs(ctx context.Context, appointmentID pgtype.UUID) ([]pgtype.UUID, error)
 	ListServices(ctx context.Context) ([]Service, error)
 	ListSettings(ctx context.Context) ([]ListSettingsRow, error)
+	// LockCommunication skips a row another worker holds, so two workers given
+	// the same task never both send it.
+	LockCommunication(ctx context.Context, id pgtype.UUID) (Communication, error)
 	// LockSchedule takes the transaction-scoped lock that availability writes and
 	// appointment creation share (docs/architecture.md, walkthrough 1, step 5),
 	// keyed by the one practitioner.
 	LockSchedule(ctx context.Context) error
 	Ping(ctx context.Context) (int32, error)
+	// PreviousRangeOf is where the latest reschedule moved the appointment from.
+	PreviousRangeOf(ctx context.Context, appointmentID pgtype.UUID) (pgtype.Range[pgtype.Timestamptz], error)
 	// RecordSignIn succeeds only while the user is enabled and still has the
 	// password hash sign-in verified. Its row lock orders it against a
 	// concurrent create-user, whose session delete then sees this sign-in's
@@ -67,6 +79,10 @@ type Querier interface {
 	// is_practitioner: re-running create-user to reset Daw Mi's password without
 	// --practitioner must not leave the practice without its practitioner.
 	ReplaceUserCredentials(ctx context.Context, arg ReplaceUserCredentialsParams) (pgtype.UUID, error)
+	// RescheduleQueuedReminders moves every queued reminder to its start less
+	// @hours, the new reminder_hours.
+	RescheduleQueuedReminders(ctx context.Context, hours int32) ([]RescheduleQueuedRemindersRow, error)
+	SetCommunicationStatus(ctx context.Context, arg SetCommunicationStatusParams) (int64, error)
 	TouchSession(ctx context.Context, arg TouchSessionParams) error
 	UpdateAvailabilityBlock(ctx context.Context, arg UpdateAvailabilityBlockParams) (AvailabilityBlock, error)
 	UpdateAvailabilityOverride(ctx context.Context, arg UpdateAvailabilityOverrideParams) (AvailabilityOverride, error)

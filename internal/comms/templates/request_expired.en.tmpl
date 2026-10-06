@@ -1,0 +1,21 @@
+{{define "subject"}}Your request for {{.Start}} has lapsed{{end}}
+
+{{define "text"}}
+Hello {{.VisitorName}},
+
+We held this time for you while your request waited for confirmation, but the hold has now lapsed and the appointment will not go ahead. We are sorry we could not confirm it in time.
+
+{{template "details_text" .}}
+
+You are very welcome to request a new time: {{.BookURL}}
+
+{{template "signoff_text" .}}
+{{end}}
+
+{{define "html"}}{{template "open_html" .}}
+<p>Hello {{.VisitorName}},</p>
+<p>We held this time for you while your request waited for confirmation, but the hold has now lapsed and the appointment will not go ahead. We are sorry we could not confirm it in time.</p>
+{{template "details_html" .}}
+<p><a href="{{.BookURL}}">Request a new time</a></p>
+{{template "signoff_html" .}}
+{{template "close_html" .}}{{end}}

@@ -1,0 +1,21 @@
+Hello Thandar,
+
+Thank you for your appointment request. We have received it.
+
+Status: Pending. Your appointment is not yet confirmed.
+
+Service: Individual Art Therapy
+Date and time: Monday 5 October 2026, 10:00 am AEDT
+Duration: 60 minutes
+Format: Online
+Reference: VM-7KQ2PX
+
+What happens next: Daw Mi will review your request and email you to confirm it. Usually within 2 business days.
+
+To view, change or cancel your appointment: https://vetmimi.example/manage/example-token
+
+If you have any questions, just reply to this email or write to hello@vetmimi.example.
+
+Warm regards,
+Daw Mi
+VetMiMi

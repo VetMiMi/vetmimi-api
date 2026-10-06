@@ -1,0 +1,20 @@
+{{define "subject"}}Change requested: {{.ServiceName}}, {{.Start}}{{end}}
+
+{{define "text"}}
+The client asked to change this appointment. Please choose a new time with them.
+
+{{template "details_text" .}}
+Status: {{.Status}}
+
+{{template "visitor_text" .}}
+
+{{template "admin_text" .}}
+{{end}}
+
+{{define "html"}}{{template "open_html" .}}
+<p>The client asked to change this appointment. Please choose a new time with them.</p>
+{{template "details_html" .}}
+<p>Status: {{.Status}}</p>
+{{template "visitor_html" .}}
+{{template "admin_html" .}}
+{{template "close_html" .}}{{end}}

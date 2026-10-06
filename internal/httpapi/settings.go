@@ -5,12 +5,15 @@ import (
 	"encoding/json"
 	"maps"
 	"slices"
+	"strconv"
 
 	openapi_types "github.com/oapi-codegen/runtime/types"
 
 	"github.com/VetMiMi/vetmimi-api/internal/auth"
+	"github.com/VetMiMi/vetmimi-api/internal/comms"
 	"github.com/VetMiMi/vetmimi-api/internal/db"
 	"github.com/VetMiMi/vetmimi-api/internal/httpapi/gen"
+	"github.com/VetMiMi/vetmimi-api/internal/platform"
 	"github.com/VetMiMi/vetmimi-api/internal/platform/settings"
 )
 
@@ -33,9 +36,19 @@ func (s *server) UpdateSettings(ctx context.Context, req gen.UpdateSettingsReque
 	if err != nil {
 		return nil, err
 	}
-	updated, err := settings.Update(ctx, db.New(s.Pool), patch, session.User, s.Now())
+	now := s.Now()
+	updated, err := settings.Update(ctx, db.New(s.Pool), patch, session.User, now)
 	if err != nil {
 		return nil, err
+	}
+	if _, ok := patch["reminder_hours"]; ok && s.Queue != nil {
+		// Queued reminders move to the new offset (docs/architecture.md,
+		// "Background jobs"). The task recomputes from the stored setting, so
+		// running it twice is harmless.
+		s.Queue.Enqueue(ctx, platform.Task{
+			Type: comms.TaskRescheduleReminders,
+			ID:   "reminders:" + strconv.FormatInt(now.UnixNano(), 10),
+		})
 	}
 	s.Log.InfoContext(ctx, "settings_changed", "request_id", RequestID(ctx),
 		"user_id", session.User.ID.String(), "keys", slices.Sorted(maps.Keys(patch)))

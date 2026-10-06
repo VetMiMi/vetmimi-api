@@ -77,6 +77,30 @@ func TestDuplicateTaskIDRunsOnce(t *testing.T) {
 	require.EqualValues(t, 1, runs.Load())
 }
 
+// A reminder moved to a new time must run then, not at the time its old task
+// still holds.
+func TestReplaceMovesAWaitingTask(t *testing.T) {
+	tw := newTestWorker(t)
+	ctx := context.Background()
+	first := time.Now().Add(time.Hour).Truncate(time.Second)
+	task := Task{Type: "test:remind", ID: "comms:9", Queue: QueueCritical, ProcessAt: first}
+	tw.queue.Enqueue(ctx, task)
+
+	task.ProcessAt = first.Add(time.Hour)
+	tw.queue.Enqueue(ctx, task)
+	inspector := asynq.NewInspectorFromRedisClient(tw.rdb)
+	info, err := inspector.GetTaskInfo(tw.ns+QueueCritical, "comms:9")
+	require.NoError(t, err)
+	require.Equal(t, first, info.NextProcessAt.Truncate(time.Second), "Enqueue keeps the old time")
+
+	tw.queue.Replace(ctx, task, Task{Type: "test:remind", ID: "comms:10", Queue: QueueCritical, ProcessAt: first})
+	info, err = inspector.GetTaskInfo(tw.ns+QueueCritical, "comms:9")
+	require.NoError(t, err)
+	require.Equal(t, first.Add(time.Hour), info.NextProcessAt.Truncate(time.Second))
+	require.Equal(t, 2, tw.queueInfo(t, QueueCritical).Scheduled, "a task with no old copy is added")
+	require.Empty(t, tw.logs.entries("replace_failed"))
+}
+
 func TestEnqueueFailureIsLoggedNotReturned(t *testing.T) {
 	logs := &logBuffer{}
 	rdb, err := OpenRedis(unusedRedis)

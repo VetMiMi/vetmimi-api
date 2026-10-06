@@ -1,0 +1,29 @@
+{{define "subject"}}New time: {{.ServiceName}}, {{.Start}}{{end}}
+
+{{define "text"}}
+Hello {{.VisitorName}},
+
+Your appointment has moved to a new time.
+
+New time: {{.Start}}
+Previous time (no longer booked): {{.PreviousStart}}
+
+{{template "details_text" .}}
+
+{{template "join_text" .}}
+
+{{template "manage_text" .}}
+
+{{template "signoff_text" .}}
+{{end}}
+
+{{define "html"}}{{template "open_html" .}}
+<p>Hello {{.VisitorName}},</p>
+<p>Your appointment has moved to a new time.</p>
+<p style="font-size:20px;margin:16px 0 4px"><strong>New time: {{.Start}}</strong></p>
+<p style="margin:0 0 16px;color:#6b6259">Previous time (no longer booked): <s>{{.PreviousStart}}</s></p>
+{{template "details_html" .}}
+{{template "join_html" .}}
+{{template "manage_html" .}}
+{{template "signoff_html" .}}
+{{template "close_html" .}}{{end}}

@@ -1,0 +1,27 @@
+{{define "subject"}}Request received: {{.ServiceName}}, {{.Start}}{{end}}
+
+{{define "text"}}
+Hello {{.VisitorName}},
+
+Thank you for your appointment request. We have received it.
+
+Status: Pending. Your appointment is not yet confirmed.
+
+{{template "details_text" .}}
+
+What happens next: Daw Mi will review your request and email you to confirm it. {{.ResponseTime}}.
+
+{{template "manage_text" .}}
+
+{{template "signoff_text" .}}
+{{end}}
+
+{{define "html"}}{{template "open_html" .}}
+<p>Hello {{.VisitorName}},</p>
+<p>Thank you for your appointment request. We have received it.</p>
+<p style="padding:12px 16px;background:#fff4dc;border-radius:8px"><strong>Status: Pending.</strong> Your appointment is not yet confirmed.</p>
+{{template "details_html" .}}
+<p>What happens next: Daw Mi will review your request and email you to confirm it. {{.ResponseTime}}.</p>
+{{template "manage_html" .}}
+{{template "signoff_html" .}}
+{{template "close_html" .}}{{end}}

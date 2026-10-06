@@ -89,6 +89,27 @@ type AvailabilityRule struct {
 	UpdatedAt time.Time
 }
 
+type Communication struct {
+	ID                pgtype.UUID
+	AppointmentID     pgtype.UUID
+	ContactEnquiryID  pgtype.UUID
+	Kind              string
+	Audience          string
+	Channel           string
+	Recipient         pgtype.Text
+	Locale            string
+	Status            string
+	ScheduledFor      time.Time
+	SentAt            sql.NullTime
+	ProviderMessageID pgtype.Text
+	Error             pgtype.Text
+	Attempts          int32
+	ResendOf          pgtype.UUID
+	CreatedBy         pgtype.UUID
+	Note              pgtype.Text
+	CreatedAt         time.Time
+}
+
 type Service struct {
 	ID                  pgtype.UUID
 	Slug                string
