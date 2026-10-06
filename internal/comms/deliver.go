@@ -19,6 +19,7 @@ import (
 	"github.com/VetMiMi/vetmimi-api/internal/platform"
 	"github.com/VetMiMi/vetmimi-api/internal/platform/clock"
 	"github.com/VetMiMi/vetmimi-api/internal/platform/settings"
+	"github.com/VetMiMi/vetmimi-api/internal/video"
 )
 
 // maxAttempts bounds the sends of one row (ADR-006: retries with backoff up
@@ -36,7 +37,8 @@ type Tasks struct {
 	Resend  *resend.Client
 	From    string
 	SiteURL string
-	// SigningSecret derives the management link in a visitor's email.
+	// SigningSecret derives the management and join links in a visitor's
+	// email.
 	SigningSecret []byte
 	Log           *slog.Logger
 	Now           clock.Now
@@ -197,11 +199,24 @@ func (t *Tasks) appointmentData(ctx context.Context, q *db.Queries, row db.Commu
 		data.MessageToVisitor = row.Message.String
 		token := platform.NewManagementToken(t.SigningSecret, appt.ManagementTokenSeed)
 		data.ManageURL = sitePath(t.SiteURL, row.Locale, "/manage/"+token)
+		if data.JoinURL, err = t.joinURL(ctx, q, appt.ID, row.Locale); err != nil {
+			return RenderData{}, "", err
+		}
 	}
 	if kind == PractitionerRescheduleRequested {
 		data.PreferredTimes, err = preferredTimes(ctx, q, appt, row.Locale)
 	}
 	return data, "", err
+}
+
+// joinURL is the join link of the appointment's VetMiMi room, derived from
+// its seed now and never stored, or empty when it has no room.
+func (t *Tasks) joinURL(ctx context.Context, q *db.Queries, appointmentID pgtype.UUID, locale string) (string, error) {
+	room, ok, err := video.RoomOf(ctx, q, appointmentID)
+	if !ok || err != nil {
+		return "", err
+	}
+	return sitePath(t.SiteURL, locale, "/session/"+platform.NewJoinToken(t.SigningSecret, room.JoinTokenSeed)), nil
 }
 
 // preferredTimes are the starts the visitor offered in their newest

@@ -8,7 +8,9 @@ Duration: 60 minutes
 Format: Online
 Reference: VM-7KQ2PX
 
-Join your session here: https://vetmimi.example/join/example-token
+How to join
+Join your session here: https://vetmimi.example/session/example-token
+The page opens 15 minutes before your session starts. You will need a laptop or phone with a camera, and a quiet place where you will not be disturbed.
 
 Before your session: Please find a quiet, private space with a few art materials nearby.
 
