@@ -28,10 +28,10 @@ func fixture(t *testing.T) *openapi3.T {
 	return spec
 }
 
-// booking sends a request to the fixture's body operation through the real
-// middleware chain, after edit has changed whatever the test is about. The
-// handler answers with the body it received.
-func booking(t *testing.T, body string, edit func(*http.Request)) *httptest.ResponseRecorder {
+// bookingRequest sends a request to the fixture's body operation through
+// the real middleware chain, after edit has changed whatever the test is
+// about. The handler answers with the body it received.
+func bookingRequest(t *testing.T, body string, edit func(*http.Request)) *httptest.ResponseRecorder {
 	t.Helper()
 	req := httptest.NewRequest(http.MethodPost, bookingURL, strings.NewReader(body))
 	req.Header.Set("Content-Type", "application/json")
@@ -67,13 +67,13 @@ func fieldError(field, message string) map[string]any {
 }
 
 func TestValidBodyReachesTheHandlerUnchanged(t *testing.T) {
-	res := booking(t, validBody, nil)
+	res := bookingRequest(t, validBody, nil)
 	require.Equal(t, http.StatusOK, res.Code, res.Body.String())
 	require.Equal(t, validBody, res.Body.String(), "no default filled in, nothing re-encoded")
 }
 
 func TestMissingRequiredFieldIsNamedByPointer(t *testing.T) {
-	res := booking(t, `{"startsAt": "2026-10-05T10:00:00Z", "mode": "video"}`, nil)
+	res := bookingRequest(t, `{"startsAt": "2026-10-05T10:00:00Z", "mode": "video"}`, nil)
 	errs := invalid(t, res)
 	require.Equal(t, "/email", errs[0]["field"])
 	require.Equal(t, "is required", errs[0]["message"])
@@ -127,14 +127,14 @@ func TestBrokenRulesAreAnsweredWithoutTheValue(t *testing.T) {
 		},
 	} {
 		t.Run(name, func(t *testing.T) {
-			res := booking(t, tc.body, nil)
+			res := bookingRequest(t, tc.body, nil)
 			require.Equal(t, []map[string]any{fieldError(tc.field, tc.message)}, invalid(t, res))
 			require.NotContains(t, res.Body.String(), tc.secret)
 		})
 	}
 
 	t.Run("type of a parameter", func(t *testing.T) {
-		res := booking(t, validBody, func(r *http.Request) { r.URL.RawQuery = "limit=zz-secret-zz" })
+		res := bookingRequest(t, validBody, func(r *http.Request) { r.URL.RawQuery = "limit=zz-secret-zz" })
 		require.Equal(t, []map[string]any{fieldError("limit", "must be of type integer")}, invalid(t, res))
 		require.NotContains(t, res.Body.String(), "zz-secret-zz")
 	})
@@ -166,14 +166,14 @@ func TestStringFormatsAreChecked(t *testing.T) {
 		},
 	} {
 		t.Run(name, func(t *testing.T) {
-			res := booking(t, tc.body, tc.edit)
+			res := bookingRequest(t, tc.body, tc.edit)
 			require.Equal(t, []map[string]any{fieldError(tc.field, tc.message)}, invalid(t, res))
 		})
 	}
 }
 
 func TestUnknownPropertiesAreRejected(t *testing.T) {
-	res := booking(t, `{"email": "mi@example.com", "startsAt": "2026-10-05T10:00:00Z", "mode": "video",
+	res := bookingRequest(t, `{"email": "mi@example.com", "startsAt": "2026-10-05T10:00:00Z", "mode": "video",
 		"nickname": "zz-secret-zz", "a/b~c": 1, "contact": {"fax": "zz-secret-zz"}}`, nil)
 	require.Equal(t, []map[string]any{
 		fieldError("/a~1b~0c", "is not an allowed property"),
@@ -184,11 +184,11 @@ func TestUnknownPropertiesAreRejected(t *testing.T) {
 }
 
 func TestMissingBodyIsRejected(t *testing.T) {
-	require.Equal(t, []map[string]any{fieldError("", "is required")}, invalid(t, booking(t, "", nil)))
+	require.Equal(t, []map[string]any{fieldError("", "is required")}, invalid(t, bookingRequest(t, "", nil)))
 }
 
 func TestBodyThatIsNotJSONIsRejected(t *testing.T) {
-	res := booking(t, `zz-secret-zz`, nil)
+	res := bookingRequest(t, `zz-secret-zz`, nil)
 	require.Equal(t, []map[string]any{
 		fieldError("", "must be a well-formed body for its Content-Type"),
 	}, invalid(t, res))
@@ -196,7 +196,7 @@ func TestBodyThatIsNotJSONIsRejected(t *testing.T) {
 }
 
 func TestUnacceptedContentTypeIsRejected(t *testing.T) {
-	res := booking(t, validBody, func(r *http.Request) { r.Header.Set("Content-Type", "text/zz-secret-zz") })
+	res := bookingRequest(t, validBody, func(r *http.Request) { r.Header.Set("Content-Type", "text/zz-secret-zz") })
 	require.Equal(t, []map[string]any{
 		fieldError("Content-Type", "must be application/json"),
 	}, invalid(t, res))
@@ -204,7 +204,7 @@ func TestUnacceptedContentTypeIsRejected(t *testing.T) {
 }
 
 func TestAllProblemsComeBackTogether(t *testing.T) {
-	res := booking(t, `{"startsAt": "2026-10-05T10:00:00Z", "mode": "boat"}`, func(r *http.Request) {
+	res := bookingRequest(t, `{"startsAt": "2026-10-05T10:00:00Z", "mode": "boat"}`, func(r *http.Request) {
 		r.URL.Path = "/bookings/not-a-uuid"
 		r.URL.RawQuery = "date=tomorrow"
 		r.Header.Del("Idempotency-Key")
@@ -219,7 +219,7 @@ func TestAllProblemsComeBackTogether(t *testing.T) {
 }
 
 func TestBodyOverTheCapIs413NotA400(t *testing.T) {
-	res := booking(t, `{"email": "`+strings.Repeat("a", defaultBodyCap)+`"}`, nil)
+	res := bookingRequest(t, `{"email": "`+strings.Repeat("a", defaultBodyCap)+`"}`, nil)
 	require.Equal(t, http.StatusRequestEntityTooLarge, res.Code, res.Body.String())
 	require.Equal(t, "payload_too_large", problemFrom(t, res)["code"])
 }

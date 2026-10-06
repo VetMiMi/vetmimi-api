@@ -121,7 +121,7 @@ never shows `detail` to visitors. Renaming a code is a breaking change.
 | `booking_paused` | 422 | `public_booking_enabled` is false. |
 | `acknowledgement_required` | 422 | Privacy or booking policy acknowledgement missing. |
 | `idempotency_key_reused` | 422 | Same `Idempotency-Key` sent with a different body. |
-| `action_not_allowed` | 422 | Business rule refuses the action, e.g. cancelling a past appointment through a management link. |
+| `action_not_allowed` | 422 | Business rule refuses the action, e.g. cancelling a past appointment through a management link, or a service or availability period that breaks a scheduling rule (`errors[]` names the field). |
 | `approval_required` | 422 | Publish or schedule requested while `approval_status` is not `approved`. |
 | `publish_requirements_unmet` | 422 | Hard publishing checks failed; `errors[]` lists each one. |
 | `website_not_published` | 422 | A Facebook post that links to website content cannot be marked published before that content is. |

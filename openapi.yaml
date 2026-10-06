@@ -1,7 +1,7 @@
 openapi: "3.1.0"
 info:
   title: VetMiMi API
-  version: "0.2.0"
+  version: "0.2.1"
   description: >-
     The API behind VetMiMi, Daw Mi's art therapy practice. The Next.js site is the only caller
     (ADR-002): public routes take the shared service key, admin routes a session token. The one
@@ -302,7 +302,9 @@ paths:
       tags: [services]
       operationId: updateService
       summary: Change a service
-      description: New durations and buffers apply to future bookings only.
+      description: >-
+        New durations and buffers apply to future bookings only. `state` archives a service or
+        brings an archived one back as `paused`; a refused change is `409 invalid_transition`.
       security:
         - sessionToken: []
       parameters:
@@ -5955,6 +5957,8 @@ components:
           $ref: "#/components/schemas/LocalizedText"
         sortOrder:
           type: integer
+        state:
+          $ref: "#/components/schemas/ServiceState"
       additionalProperties: false
     ServiceList:
       type: object
