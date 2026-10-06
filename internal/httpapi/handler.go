@@ -25,7 +25,9 @@ import (
 // every call. Pool is the database the domain handlers use. Queue takes the
 // tasks a handler enqueues after its transaction commits; nil drops them, and
 // the sweepers rebuild them (tests leave it nil). SigningSecret derives
-// management links. Now is the clock; nil means time.Now.
+// management and join links and room tickets. PublicAPIURL, TURNHost and
+// TURNSecret go into room tickets; TURNHost empty leaves TURN out. Now is the
+// clock; nil means time.Now.
 type Deps struct {
 	PingPostgres  func(context.Context) error
 	PingRedis     func(context.Context) error
@@ -36,6 +38,9 @@ type Deps struct {
 	Pool          *pgxpool.Pool
 	Queue         *platform.Queue
 	SigningSecret []byte
+	PublicAPIURL  string
+	TURNHost      string
+	TURNSecret    string
 	Now           clock.Now
 }
 

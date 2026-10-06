@@ -70,6 +70,7 @@ func TestAdminAppointmentLifecycle(t *testing.T) {
 	require.Equal(t, []string{"created"}, kinds(t, appt, "events"))
 	require.Equal(t, []string{"request_received"}, kinds(t, appt, "communications"))
 	require.Equal(t, []any{"confirm", "decline", "reschedule", "set_note", "mark_communicated"}, appt["allowedActions"])
+	require.NotContains(t, appt, "videoRoom", "a pending request has no room")
 	path := appointmentsURL + "/" + appt["id"].(string)
 
 	replay := a.createManual(token, key, body)
@@ -91,6 +92,10 @@ func TestAdminAppointmentLifecycle(t *testing.T) {
 	require.Equal(t, "confirmed", appt["status"])
 	require.NotContains(t, appt, "holdExpiresAt")
 	require.Equal(t, []string{"request_received", "booking_confirmed", "reminder"}, kinds(t, appt, "communications"))
+	room := appt["videoRoom"].(map[string]any)
+	require.Equal(t, "waiting", room["state"])
+	require.Equal(t, "2026-10-20T22:45:00Z", room["opensAt"])
+	require.Equal(t, "2026-10-21T01:00:00Z", room["closesAt"])
 	refused(t, http.StatusConflict, "stale_version", a.sendJSON(http.MethodPost, path+"/confirm", token, `{"version": 1}`))
 	refused(t, http.StatusConflict, "invalid_transition", a.sendJSON(http.MethodPost, path+"/decline", token, `{"version": 2}`))
 	refused(t, http.StatusConflict, "slot_unavailable", a.sendJSON(http.MethodPost, path+"/reschedule", token,
@@ -99,6 +104,7 @@ func TestAdminAppointmentLifecycle(t *testing.T) {
 	appt = decoded(t, http.StatusOK, a.sendJSON(http.MethodPost, path+"/reschedule", token,
 		`{"version": 2, "startsAt": "2026-10-21T00:00:00Z"}`))
 	require.Equal(t, "2026-10-21T00:00:00Z", appt["startsAt"])
+	require.Equal(t, "2026-10-20T23:45:00Z", appt["videoRoom"].(map[string]any)["opensAt"], "the room moves too")
 	events := appt["events"].([]any)
 	moved := events[len(events)-1].(map[string]any)
 	require.Equal(t, "rescheduled", moved["kind"])
@@ -109,6 +115,7 @@ func TestAdminAppointmentLifecycle(t *testing.T) {
 	appt = decoded(t, http.StatusOK, a.sendJSON(http.MethodPost, path+"/cancel", token,
 		`{"version": 4, "messageToVisitor": "Sorry, I am unwell"}`))
 	require.Equal(t, "cancelled_by_practitioner", appt["status"])
+	require.Equal(t, "ended", appt["videoRoom"].(map[string]any)["state"])
 	refused(t, http.StatusConflict, "invalid_transition", a.sendJSON(http.MethodPost, path+"/complete", token, `{"version": 5}`))
 
 	for _, private := range []string{"Kyaw", "kyaw.phone@example.com", "Side door", "Call first", "unwell"} {

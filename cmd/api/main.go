@@ -97,8 +97,15 @@ func runAPI(ctx context.Context, log *slog.Logger, cfg platform.Config, pool *pg
 		Pool:          pool,
 		Queue:         platform.NewQueue(rdb, log),
 		SigningSecret: cfg.SigningSecret,
+		PublicAPIURL:  cfg.PublicAPIURL,
+		TURNHost:      cfg.TURNHost,
+		TURNSecret:    cfg.TURNSecret,
 		Now:           time.Now,
 	}))
+	if cfg.TURNHost == "" {
+		// Development only: production refuses to start without TURN.
+		log.Warn("turn_disabled", "detail", "TURN_HOST is empty; room tickets offer STUN only")
+	}
 
 	errc := make(chan error, 1)
 	go func() {
