@@ -190,9 +190,12 @@ func (q *Queries) InsertCommunication(ctx context.Context, arg InsertCommunicati
 const listAppointmentCommunications = `-- name: ListAppointmentCommunications :many
 SELECT id, appointment_id, contact_enquiry_id, kind, audience, channel, recipient, locale, status, scheduled_for, sent_at, provider_message_id, error, attempts, resend_of, created_by, note, created_at, message FROM communications
 WHERE appointment_id = $1
-ORDER BY created_at, id
+ORDER BY created_at, scheduled_for, id
 `
 
+// ListAppointmentCommunications is an appointment's messages in the order
+// they were written; rows of one transaction share created_at, so the time
+// each is due orders them, and the id keeps the order stable.
 func (q *Queries) ListAppointmentCommunications(ctx context.Context, appointmentID pgtype.UUID) ([]Communication, error) {
 	rows, err := q.db.Query(ctx, listAppointmentCommunications, appointmentID)
 	if err != nil {

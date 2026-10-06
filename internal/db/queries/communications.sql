@@ -56,7 +56,10 @@ WHERE appointment_id = @appointment_id AND kind = 'rescheduled' AND previous_ran
 ORDER BY created_at DESC, id DESC
 LIMIT 1;
 
+-- ListAppointmentCommunications is an appointment's messages in the order
+-- they were written; rows of one transaction share created_at, so the time
+-- each is due orders them, and the id keeps the order stable.
 -- name: ListAppointmentCommunications :many
 SELECT * FROM communications
 WHERE appointment_id = @appointment_id
-ORDER BY created_at, id;
+ORDER BY created_at, scheduled_for, id;

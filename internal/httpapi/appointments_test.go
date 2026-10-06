@@ -36,6 +36,7 @@ func kinds(t *testing.T, detail map[string]any, list string) []string {
 }
 
 func TestAdminAppointmentLifecycle(t *testing.T) {
+	const key = "3b0f7a52-61c4-4f0c-9d0a-5e8f1b2c3d41"
 	ctx := context.Background()
 	pool := pgtest.Pool(t)
 	_, err := pool.Exec(ctx, `INSERT INTO users (email, display_name, password_hash, roles, is_practitioner, totp_secret_enc)
@@ -48,6 +49,8 @@ func TestAdminAppointmentLifecycle(t *testing.T) {
 		require.NoError(t, err)
 		_, err = pool.Exec(ctx, "DELETE FROM appointments WHERE visitor_email = 'kyaw.phone@example.com'")
 		require.NoError(t, err)
+		_, err = pool.Exec(ctx, "DELETE FROM idempotency_keys WHERE key = $1", key)
+		require.NoError(t, err)
 	})
 	_, err = booking.CreateRule(ctx, pool, booking.Rule{Weekday: 3, Start: "10:00", End: "13:00"})
 	require.NoError(t, err)
@@ -57,7 +60,6 @@ func TestAdminAppointmentLifecycle(t *testing.T) {
 	// Wednesday 21 October 2026, 10:00 in Sydney; the clock reads 5 October.
 	a := newAuthAPI(t)
 	token := insertSession(t, a.clock.at, "booking_admin")
-	const key = "3b0f7a52-61c4-4f0c-9d0a-5e8f1b2c3d41"
 	body := fmt.Sprintf(`{"serviceId": %q, "startsAt": "2026-10-20T23:00:00Z", "format": "online", "locale": "en",
 		"status": "pending", "visitor": {"name": "Kyaw Phone", "email": "kyaw.phone@example.com", "note": "Side door"}}`,
 		serviceID)

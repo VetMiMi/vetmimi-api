@@ -54,6 +54,9 @@ type Querier interface {
 	// InsertIdempotencyKey waits for a transaction holding the same key, then
 	// inserts nothing if that transaction committed.
 	InsertIdempotencyKey(ctx context.Context, arg InsertIdempotencyKeyParams) (int64, error)
+	// ListAppointmentCommunications is an appointment's messages in the order
+	// they were written; rows of one transaction share created_at, so the time
+	// each is due orders them, and the id keeps the order stable.
 	ListAppointmentCommunications(ctx context.Context, appointmentID pgtype.UUID) ([]Communication, error)
 	ListAppointmentEvents(ctx context.Context, appointmentID pgtype.UUID) ([]ListAppointmentEventsRow, error)
 	// ListAppointments serves the admin list (booking.ListAppointments). sort_at
