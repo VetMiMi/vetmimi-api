@@ -10,13 +10,15 @@ import (
 	"github.com/VetMiMi/vetmimi-api/internal/db"
 	"github.com/VetMiMi/vetmimi-api/internal/platform"
 	"github.com/VetMiMi/vetmimi-api/internal/platform/settings"
+	"github.com/VetMiMi/vetmimi-api/internal/video"
 )
 
 // Confirm turns a pending request into a booking (docs/architecture.md,
 // walkthrough 2). The row stays inside appointments_no_overlap throughout,
 // so its time is never free in between. The visitor's confirmation and
-// reminder are queued; a failed email never reverts it.
-func Confirm(ctx context.Context, pool *pgxpool.Pool, c Change, now time.Time) (Changed, error) {
+// reminder are queued, and an online appointment gets its video room, whose
+// join token secret signs; a failed email never reverts it.
+func Confirm(ctx context.Context, pool *pgxpool.Pool, secret []byte, c Change, now time.Time) (Changed, error) {
 	return change(ctx, pool, c, func(q *db.Queries, appt db.Appointment, cur settings.Settings) (Changed, error) {
 		if !appt.StartsAt.After(now) {
 			return Changed{}, invalidTransition(Status(appt.Status), "confirmed")
@@ -25,7 +27,7 @@ func Confirm(ctx context.Context, pool *pgxpool.Pool, c Change, now time.Time) (
 		if err != nil {
 			return Changed{}, err
 		}
-		tasks, err := afterConfirm(ctx, q, appt, cur, now, true)
+		tasks, err := afterConfirm(ctx, q, secret, appt, cur, now, true)
 		return Changed{Tasks: tasks, Remove: []platform.Task{holdTask(appt.ID, time.Time{})}}, err
 	})
 }
@@ -47,8 +49,8 @@ func Decline(ctx context.Context, pool *pgxpool.Pool, c Change, now time.Time) (
 
 // Cancel cancels a confirmed appointment that has not started, as Daw Mi
 // (Booking & Admin UX §16). Pending requests are declined instead. Its time
-// reopens, its reminder is cancelled, and unless Daw Mi tells the visitor
-// herself they are emailed.
+// reopens, its reminder is cancelled, its video room ends, and unless Daw Mi
+// tells the visitor herself they are emailed.
 func Cancel(ctx context.Context, pool *pgxpool.Pool, c Change, now time.Time) (Changed, error) {
 	return change(ctx, pool, c, func(q *db.Queries, appt db.Appointment, _ settings.Settings) (Changed, error) {
 		if !appt.StartsAt.After(now) {
@@ -60,6 +62,9 @@ func Cancel(ctx context.Context, pool *pgxpool.Pool, c Change, now time.Time) (C
 			return Changed{}, err
 		}
 		if err := CancelReminders(ctx, q, appt.ID, string(CancelledByPractitioner)); err != nil {
+			return Changed{}, err
+		}
+		if err := video.EndRoom(ctx, q, appt.ID, now); err != nil {
 			return Changed{}, err
 		}
 		if !c.Notify {

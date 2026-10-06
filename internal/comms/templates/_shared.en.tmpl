@@ -20,12 +20,27 @@ Reference: {{.Reference}}
 </table>
 {{end}}
 
+{{/* How to join an online session: the VetMiMi room, Daw Mi's own link, or
+     a promise of details. In person has no block. The "will send" sentence is
+     [To confirm] wording for Daw Mi. */}}
 {{define "join_text"}}
-{{if .JoinURL}}Join your session here: {{.JoinURL}}{{else if .MeetingLink}}Join your session here: {{.MeetingLink}}{{end}}
+{{if eq .Format "online"}}How to join
+{{if .JoinURL}}Join your session here: {{.JoinURL}}
+The page opens {{.JoinOpensMinutesBefore}} minutes before your session starts. You will need a laptop or phone with a camera, and a quiet place where you will not be disturbed.
+{{else if .MeetingLink}}Join your session here: {{.MeetingLink}}
+{{else}}Daw Mi will send you the details for joining before your session.
+{{end}}{{end}}
 {{end}}
 
 {{define "join_html"}}
-{{if .JoinURL}}<p><a href="{{.JoinURL}}">Join your session</a></p>{{else if .MeetingLink}}<p><a href="{{.MeetingLink}}">Join your session</a></p>{{end}}
+{{if eq .Format "online"}}<h2 style="font-size:18px;margin:24px 0 8px">How to join</h2>
+{{if .JoinURL}}<p><a href="{{.JoinURL}}" style="display:inline-block;padding:12px 24px;background:#2f2a25;color:#faf7f2;text-decoration:none;border-radius:6px">Join your session</a></p>
+<p style="margin:8px 0 0;font-size:14px;color:#6b6259;word-break:break-all">{{.JoinURL}}</p>
+<p>The page opens {{.JoinOpensMinutesBefore}} minutes before your session starts. You will need a laptop or phone with a camera, and a quiet place where you will not be disturbed.</p>
+{{else if .MeetingLink}}<p><a href="{{.MeetingLink}}" style="display:inline-block;padding:12px 24px;background:#2f2a25;color:#faf7f2;text-decoration:none;border-radius:6px">Join your session</a></p>
+<p style="margin:8px 0 0;font-size:14px;color:#6b6259;word-break:break-all">{{.MeetingLink}}</p>
+{{else}}<p>Daw Mi will send you the details for joining before your session.</p>
+{{end}}{{end}}
 {{end}}
 
 {{define "manage_text"}}

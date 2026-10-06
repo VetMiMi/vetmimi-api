@@ -406,7 +406,7 @@ values for secrets.
 | `MEDIA_S3_ACCESS_KEY` | Bucket access key. |
 | `MEDIA_S3_SECRET_KEY` | Bucket secret key. |
 | `MEDIA_PUBLIC_URL` | Base URL the bucket's `public/` prefix is served from. |
-| `TURN_HOST` | coturn `host:port`. |
+| `TURN_HOST` | coturn `host:port`. Empty in development: room tickets offer STUN only. |
 | `TURN_SECRET` | coturn `static-auth-secret` for time-limited credentials. |
 | `METRICS_ADDR` | Optional `127.0.0.1:9090`; serves counters at `/debug/vars`. Empty disables. |
 

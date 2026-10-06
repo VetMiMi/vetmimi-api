@@ -11,6 +11,7 @@ import (
 	"github.com/VetMiMi/vetmimi-api/internal/platform"
 	"github.com/VetMiMi/vetmimi-api/internal/platform/apperr"
 	"github.com/VetMiMi/vetmimi-api/internal/platform/settings"
+	"github.com/VetMiMi/vetmimi-api/internal/video"
 )
 
 var errPastStart = apperr.New(apperr.OutsideBookingWindow, "The new start has already passed.")
@@ -61,8 +62,9 @@ func Reschedule(ctx context.Context, pool *pgxpool.Pool, c Change, start, now ti
 }
 
 // rescheduled queues what a move sends: a confirmed appointment's reminder
-// for its new time, and the visitor's email. A pending request's hold may
-// have moved earlier, so its expiry task is replaced.
+// for its new time and its video room's new window, and the visitor's email.
+// A pending request's hold may have moved earlier, so its expiry task is
+// replaced.
 func rescheduled(ctx context.Context, q db.Querier, appt db.Appointment, cur settings.Settings, notify bool,
 	now time.Time) (Changed, error) {
 	var out Changed
@@ -76,7 +78,11 @@ func rescheduled(ctx context.Context, q db.Querier, appt db.Appointment, cur set
 		if err != nil {
 			return Changed{}, err
 		}
-		out.Tasks = reminder
+		room, err := video.MoveRoom(ctx, q, appt, now)
+		if err != nil {
+			return Changed{}, err
+		}
+		out.Tasks = append(reminder, room...)
 	}
 	if notify {
 		task, err := comms.Queue(ctx, q, comms.Message{AppointmentID: appt.ID, Kind: comms.Rescheduled,

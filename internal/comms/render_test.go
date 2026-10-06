@@ -49,7 +49,7 @@ func fixture(t *testing.T, locale string) comms.RenderData {
 	d, err := comms.DataFor(appt, s, "https://vetmimi.example", locale, time.Date(2026, 10, 2, 14, 0, 0, 0, sydney))
 	require.NoError(t, err)
 	d.ManageURL = "https://vetmimi.example/manage/example-token"
-	d.JoinURL = "https://vetmimi.example/join/example-token"
+	d.JoinURL = "https://vetmimi.example/session/example-token"
 	d.MessageToVisitor = "I am away that week. I would love to see you the week after."
 	d.EnquirySubject = "A workshop for our team"
 	d.EnquiryMessage = "Hello Daw Mi,\nWe would like to plan a wellbeing workshop in November."
@@ -145,4 +145,38 @@ func TestFormatTime_FollowsDaylightSaving(t *testing.T) {
 	require.Equal(t, "Sunday 5 April 2026, 2:30 am AEDT", comms.FormatTime(before, sydney, "en"))
 	require.Equal(t, "Sunday 5 April 2026, 3:30 am AEST", comms.FormatTime(after, sydney, "en"))
 	require.Equal(t, "တနင်္ဂနွေနေ့၊ 2026 ဧပြီလ 5 ရက်၊ နံနက် 3:30 AEST", comms.FormatTime(after, sydney, "my"))
+}
+
+// The join block follows the format and the link mode (ADR-007): the room
+// link with when it opens, Daw Mi's own link, a promise of details, or
+// nothing in person.
+func TestRender_JoinBlock(t *testing.T) {
+	for name, c := range map[string]struct {
+		edit       func(*comms.RenderData)
+		has, hasnt []string
+	}{
+		"room": {func(d *comms.RenderData) {}, []string{"How to join", "/session/example-token", "opens 15 minutes"},
+			[]string{"will send"}},
+		"manual link": {func(d *comms.RenderData) { d.JoinURL, d.MeetingLink = "", "https://meet.example/abc" },
+			[]string{"How to join", "https://meet.example/abc"}, []string{"/session/", "will send"}},
+		"no link yet": {func(d *comms.RenderData) { d.JoinURL = "" },
+			[]string{"How to join", "Daw Mi will send you the details"}, []string{"/session/"}},
+		"in person": {func(d *comms.RenderData) { d.Format = "in_person" }, nil,
+			[]string{"How to join", "/session/", "will send"}},
+	} {
+		for _, kind := range []comms.Kind{comms.BookingConfirmed, comms.Reminder, comms.Rescheduled} {
+			d := fixture(t, "en")
+			c.edit(&d)
+			email, err := comms.Render(kind, "en", d)
+			require.NoError(t, err)
+			for _, body := range []string{email.Text, email.HTML} {
+				for _, s := range c.has {
+					require.Contains(t, body, s, "%s %s", name, kind)
+				}
+				for _, s := range c.hasnt {
+					require.NotContains(t, body, s, "%s %s", name, kind)
+				}
+			}
+		}
+	}
 }

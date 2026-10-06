@@ -13,6 +13,7 @@ import (
 	"github.com/VetMiMi/vetmimi-api/internal/db"
 	"github.com/VetMiMi/vetmimi-api/internal/platform"
 	"github.com/VetMiMi/vetmimi-api/internal/platform/settings"
+	"github.com/VetMiMi/vetmimi-api/internal/video"
 )
 
 // View is a preset of the admin list. The default puts upcoming and pending
@@ -128,6 +129,8 @@ type Detail struct {
 	// AllowedActions is what the screen may offer now; each action still
 	// re-checks the row.
 	AllowedActions []string
+	// VideoRoom is the appointment's VetMiMi room, or nil.
+	VideoRoom *db.VideoRoom
 }
 
 // GetAppointment reads one appointment's detail.
@@ -147,8 +150,13 @@ func GetAppointment(ctx context.Context, q db.Querier, id pgtype.UUID, now time.
 	if err != nil {
 		return Detail{}, err
 	}
-	return Detail{Appointment: appt, Events: events, Communications: sent,
-		AllowedActions: AllowedActions(Status(appt.Status), appt.StartsAt, now)}, nil
+	d := Detail{Appointment: appt, Events: events, Communications: sent,
+		AllowedActions: AllowedActions(Status(appt.Status), appt.StartsAt, now)}
+	room, ok, err := video.RoomOf(ctx, q, id)
+	if ok {
+		d.VideoRoom = &room
+	}
+	return d, err
 }
 
 // AllowedActions is what an administrator may do with an appointment in

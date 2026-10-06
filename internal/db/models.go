@@ -188,3 +188,18 @@ type User struct {
 	CreatedAt      time.Time
 	UpdatedAt      time.Time
 }
+
+type VideoRoom struct {
+	ID            pgtype.UUID
+	AppointmentID pgtype.UUID
+	JoinTokenSeed []byte
+	JoinTokenHash []byte
+	OpensAt       time.Time
+	ClosesAt      time.Time
+	State         string
+	StartedAt     sql.NullTime
+	EndedAt       sql.NullTime
+	EndedReason   pgtype.Text
+	CreatedAt     time.Time
+	UpdatedAt     time.Time
+}

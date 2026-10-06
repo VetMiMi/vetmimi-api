@@ -56,8 +56,18 @@ func HashToken(token string) []byte {
 // usable link. Booking stores its hash; the worker derives it again to put
 // the link in an email.
 func NewManagementToken(secret, seed []byte) string {
+	return linkToken(secret, "manage", seed)
+}
+
+// NewJoinToken derives a video room's join token from its seed in the same
+// way, under its own label, so one seed can never open the other link.
+func NewJoinToken(secret, seed []byte) string {
+	return linkToken(secret, "join", seed)
+}
+
+func linkToken(secret []byte, label string, seed []byte) string {
 	mac := hmac.New(sha256.New, secret)
-	mac.Write([]byte("manage"))
+	mac.Write([]byte(label))
 	mac.Write(seed)
 	return base64.RawURLEncoding.EncodeToString(mac.Sum(nil))
 }

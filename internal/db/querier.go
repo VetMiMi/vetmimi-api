@@ -18,6 +18,9 @@ type Querier interface {
 	// is later than the last one accepted, so two concurrent sign-ins with one
 	// code cannot both succeed.
 	ClaimTOTPStep(ctx context.Context, arg ClaimTOTPStepParams) (int64, error)
+	// CloseVideoRoomIfDue ends a room whose window has passed; a room moved
+	// later, or already ended, is left alone.
+	CloseVideoRoomIfDue(ctx context.Context, arg CloseVideoRoomIfDueParams) error
 	CreateAvailabilityBlock(ctx context.Context, arg CreateAvailabilityBlockParams) (AvailabilityBlock, error)
 	CreateAvailabilityOverride(ctx context.Context, arg CreateAvailabilityOverrideParams) (AvailabilityOverride, error)
 	CreateAvailabilityRule(ctx context.Context, arg CreateAvailabilityRuleParams) (AvailabilityRule, error)
@@ -43,6 +46,7 @@ type Querier interface {
 	DeleteService(ctx context.Context, id pgtype.UUID) (int64, error)
 	DeleteSession(ctx context.Context, id pgtype.UUID) error
 	DeleteUserSessions(ctx context.Context, userID pgtype.UUID) error
+	EndVideoRoom(ctx context.Context, arg EndVideoRoomParams) error
 	FinishIdempotencyKey(ctx context.Context, arg FinishIdempotencyKeyParams) error
 	GetAppointmentDetail(ctx context.Context, id pgtype.UUID) (GetAppointmentDetailRow, error)
 	GetAppointmentForMessage(ctx context.Context, id pgtype.UUID) (GetAppointmentForMessageRow, error)
@@ -59,6 +63,10 @@ type Querier interface {
 	// so authenticating a request is one query.
 	GetSession(ctx context.Context, tokenHash []byte) (GetSessionRow, error)
 	GetUserForSignIn(ctx context.Context, email string) (GetUserForSignInRow, error)
+	GetVideoRoomByAppointment(ctx context.Context, appointmentID pgtype.UUID) (VideoRoom, error)
+	// GetVideoSessionByTokenHash is a room with what its join page shows of the
+	// appointment: times, status, locale and the service's public name.
+	GetVideoSessionByTokenHash(ctx context.Context, joinTokenHash []byte) (GetVideoSessionByTokenHashRow, error)
 	// InsertAppointment does nothing on a reference collision, so the caller can
 	// retry with a new reference inside the same transaction. Every other
 	// violation, appointments_no_overlap included, is an error.
@@ -71,6 +79,7 @@ type Querier interface {
 	// InsertIdempotencyKey waits for a transaction holding the same key, then
 	// inserts nothing if that transaction committed.
 	InsertIdempotencyKey(ctx context.Context, arg InsertIdempotencyKeyParams) (int64, error)
+	InsertVideoRoom(ctx context.Context, arg InsertVideoRoomParams) (VideoRoom, error)
 	// LatestRescheduleRequest is the detail of the visitor's newest request.
 	LatestRescheduleRequest(ctx context.Context, appointmentID pgtype.UUID) ([]byte, error)
 	// ListAppointmentCommunications is an appointment's messages in the order
@@ -122,6 +131,8 @@ type Querier interface {
 	// taken in the same statement that releases the old, so an overlap refuses
 	// the whole move. A pending hold never outlasts the new start.
 	MoveAppointment(ctx context.Context, arg MoveAppointmentParams) (Appointment, error)
+	// MoveVideoRoom follows a reschedule; an ended room stays as it is.
+	MoveVideoRoom(ctx context.Context, arg MoveVideoRoomParams) ([]VideoRoom, error)
 	Ping(ctx context.Context) (int32, error)
 	// PreviousRangeOf is where the latest reschedule moved the appointment from.
 	PreviousRangeOf(ctx context.Context, appointmentID pgtype.UUID) (pgtype.Range[pgtype.Timestamptz], error)

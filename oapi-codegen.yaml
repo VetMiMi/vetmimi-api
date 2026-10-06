@@ -20,6 +20,7 @@ output-options:
     - booking-public
     - appointments
     - contact
+    - video
   # The WebSocket upgrade is a plain net/http handler, not a strict operation.
   exclude-operation-ids:
     - connectVideoRoom

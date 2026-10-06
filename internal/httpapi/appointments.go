@@ -126,7 +126,10 @@ func (r replayedAppointment) VisitCreateManualAppointmentResponse(w http.Respons
 // ConfirmAppointment confirms a pending request. meetingLink belongs to the
 // manual meeting-link issue and is ignored until then.
 func (s *server) ConfirmAppointment(ctx context.Context, req gen.ConfirmAppointmentRequestObject) (gen.ConfirmAppointmentResponseObject, error) {
-	d, err := s.applyChange(ctx, "appointment_confirmed", booking.Confirm, s.changeOf(ctx, req.AppointmentId, req.Body.Version))
+	d, err := s.applyChange(ctx, "appointment_confirmed",
+		func(ctx context.Context, pool *pgxpool.Pool, c booking.Change, now time.Time) (booking.Changed, error) {
+			return booking.Confirm(ctx, pool, s.SigningSecret, c, now)
+		}, s.changeOf(ctx, req.AppointmentId, req.Body.Version))
 	if err != nil {
 		return nil, err
 	}

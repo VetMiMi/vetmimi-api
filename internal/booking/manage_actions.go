@@ -12,14 +12,16 @@ import (
 	"github.com/VetMiMi/vetmimi-api/internal/db"
 	"github.com/VetMiMi/vetmimi-api/internal/platform"
 	"github.com/VetMiMi/vetmimi-api/internal/platform/settings"
+	"github.com/VetMiMi/vetmimi-api/internal/video"
 )
 
 // CancelByClient cancels the appointment a management link names, as the
 // visitor (Booking & Admin UX §16). Inside the cancellation notice period it
 // is recorded as late, which the visitor's email then explains. Its time
-// reopens, its reminder is cancelled, and both the visitor and Daw Mi are
-// emailed, Daw Mi with the visitor's message. It runs under the schedule
-// lock, so it and an admin action on the same row take turns.
+// reopens, its reminder is cancelled, its video room ends, and both the
+// visitor and Daw Mi are emailed, Daw Mi with the visitor's message. It runs
+// under the schedule lock, so it and an admin action on the same row take
+// turns.
 func CancelByClient(ctx context.Context, pool *pgxpool.Pool, token, message string, now time.Time) (Changed, error) {
 	var out Changed
 	err := inSchedule(ctx, pool, func(q *db.Queries) error {
@@ -47,6 +49,9 @@ func CancelByClient(ctx context.Context, pool *pgxpool.Pool, token, message stri
 			return err
 		}
 		if err := CancelReminders(ctx, q, appt.ID, string(CancelledByClient)); err != nil {
+			return err
+		}
+		if err := video.EndRoom(ctx, q, appt.ID, now); err != nil {
 			return err
 		}
 		visitor, err := comms.Queue(ctx, q, comms.Message{AppointmentID: appt.ID, Kind: comms.Cancelled,

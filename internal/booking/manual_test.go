@@ -13,6 +13,7 @@ import (
 	"github.com/VetMiMi/vetmimi-api/internal/db"
 	"github.com/VetMiMi/vetmimi-api/internal/platform/apperr"
 	"github.com/VetMiMi/vetmimi-api/internal/platform/pgtest"
+	"github.com/VetMiMi/vetmimi-api/internal/video"
 )
 
 func manualBooking(t *testing.T, start time.Time, status booking.Status) booking.Manual {
@@ -51,7 +52,9 @@ func TestManual_ConfirmedTakesTheSlot(t *testing.T) {
 	require.Equal(t, []string{"created", "", "confirmed", "admin", `{"source": "manual"}`}, lastEvent(t, appt.ID))
 	require.Equal(t, []string{"booking_confirmed:queued:", "reminder:queued:"}, commStatuses(t, appt.ID),
 		"no practitioner email: she made it")
-	require.Equal(t, []string{comms.TaskDeliver, comms.TaskDeliver}, taskTypes(got.Tasks))
+	require.Equal(t, []string{comms.TaskDeliver, comms.TaskDeliver, video.TaskCloseRoom}, taskTypes(got.Tasks))
+	_, hasRoom := roomOf(t, appt.ID)
+	require.True(t, hasRoom, "a confirmed online booking gets its room")
 
 	setSetting(t, "public_booking_enabled", "true")
 	local := start.In(sydney)

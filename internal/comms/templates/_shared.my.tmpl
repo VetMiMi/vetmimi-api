@@ -21,12 +21,26 @@
 </table>
 {{end}}
 
+{{/* How to join an online session; the "will send" sentence is [To confirm]
+     wording for Daw Mi. */}}
 {{define "join_text"}}
-{{if .JoinURL}}ဆက်ရှင်ကို ဒီလင့်ခ်မှ ဝင်ရောက်နိုင်ပါတယ် - {{.JoinURL}}{{else if .MeetingLink}}ဆက်ရှင်ကို ဒီလင့်ခ်မှ ဝင်ရောက်နိုင်ပါတယ် - {{.MeetingLink}}{{end}}
+{{if eq .Format "online"}}ဆက်ရှင်သို့ ဝင်ရောက်နည်း
+{{if .JoinURL}}ဆက်ရှင်ကို ဒီလင့်ခ်မှ ဝင်ရောက်နိုင်ပါတယ် - {{.JoinURL}}
+ဆက်ရှင် မစတင်မီ {{.JoinOpensMinutesBefore}} မိနစ်အလိုတွင် စာမျက်နှာ ပွင့်ပါမယ်။ ကင်မရာပါသော လက်ပ်တော့ သို့မဟုတ် ဖုန်းတစ်လုံးနှင့် အနှောင့်အယှက်မရှိသော တိတ်ဆိတ်သည့် နေရာတစ်ခု လိုအပ်ပါတယ်။
+{{else if .MeetingLink}}ဆက်ရှင်ကို ဒီလင့်ခ်မှ ဝင်ရောက်နိုင်ပါတယ် - {{.MeetingLink}}
+{{else}}ဆက်ရှင်မတိုင်မီ ဝင်ရောက်ရန် အသေးစိတ်ကို ဒေါ်မိက ပို့ပေးပါမယ်။
+{{end}}{{end}}
 {{end}}
 
 {{define "join_html"}}
-{{if .JoinURL}}<p><a href="{{.JoinURL}}">ဆက်ရှင်သို့ ဝင်ရောက်ရန်</a></p>{{else if .MeetingLink}}<p><a href="{{.MeetingLink}}">ဆက်ရှင်သို့ ဝင်ရောက်ရန်</a></p>{{end}}
+{{if eq .Format "online"}}<h2 style="font-size:18px;margin:24px 0 8px">ဆက်ရှင်သို့ ဝင်ရောက်နည်း</h2>
+{{if .JoinURL}}<p><a href="{{.JoinURL}}" style="display:inline-block;padding:12px 24px;background:#2f2a25;color:#faf7f2;text-decoration:none;border-radius:6px">ဆက်ရှင်သို့ ဝင်ရောက်ရန်</a></p>
+<p style="margin:8px 0 0;font-size:14px;color:#6b6259;word-break:break-all">{{.JoinURL}}</p>
+<p>ဆက်ရှင် မစတင်မီ {{.JoinOpensMinutesBefore}} မိနစ်အလိုတွင် စာမျက်နှာ ပွင့်ပါမယ်။ ကင်မရာပါသော လက်ပ်တော့ သို့မဟုတ် ဖုန်းတစ်လုံးနှင့် အနှောင့်အယှက်မရှိသော တိတ်ဆိတ်သည့် နေရာတစ်ခု လိုအပ်ပါတယ်။</p>
+{{else if .MeetingLink}}<p><a href="{{.MeetingLink}}" style="display:inline-block;padding:12px 24px;background:#2f2a25;color:#faf7f2;text-decoration:none;border-radius:6px">ဆက်ရှင်သို့ ဝင်ရောက်ရန်</a></p>
+<p style="margin:8px 0 0;font-size:14px;color:#6b6259;word-break:break-all">{{.MeetingLink}}</p>
+{{else}}<p>ဆက်ရှင်မတိုင်မီ ဝင်ရောက်ရန် အသေးစိတ်ကို ဒေါ်မိက ပို့ပေးပါမယ်။</p>
+{{end}}{{end}}
 {{end}}
 
 {{define "manage_text"}}

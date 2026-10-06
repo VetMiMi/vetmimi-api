@@ -160,6 +160,7 @@ func newAuthAPI(t *testing.T) *authAPI {
 		Sessions:      sessions,
 		Pool:          pgtest.Pool(t),
 		SigningSecret: []byte("test signing secret, 32 bytes ok"),
+		PublicAPIURL:  "https://api.vetmimi.example",
 		Now:           a.clock.now,
 	})
 	return a

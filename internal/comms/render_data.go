@@ -8,6 +8,7 @@ import (
 
 	"github.com/VetMiMi/vetmimi-api/internal/db"
 	"github.com/VetMiMi/vetmimi-api/internal/platform/settings"
+	"github.com/VetMiMi/vetmimi-api/internal/video"
 )
 
 // RenderData is everything a template may show. It is a struct, not a map,
@@ -32,11 +33,12 @@ type RenderData struct {
 	BookURL         string
 
 	// ManageURL is the visitor's management link and JoinURL the VetMiMi room
-	// link, which the video issue fills. MeetingLink is the link Daw Mi set in
-	// manual_link mode.
-	ManageURL   string
-	JoinURL     string
-	MeetingLink string
+	// link, both derived at send time. MeetingLink is the link Daw Mi set in
+	// manual_link mode. JoinOpensMinutesBefore is when the room's page opens.
+	ManageURL              string
+	JoinURL                string
+	MeetingLink            string
+	JoinOpensMinutesBefore int
 	// MessageToVisitor is Daw Mi's own words on a decline or cancellation.
 	MessageToVisitor string
 	// LateCancellation is set when the visitor cancelled inside the notice
@@ -97,11 +99,13 @@ func DataFor(appt db.GetAppointmentForMessageRow, s settings.Settings, siteURL, 
 		ResponseTime: pick(s.ResponseTime, locale),
 		BookURL:      sitePath(siteURL, locale, "/book"),
 		MeetingLink:  appt.MeetingLink.String,
-		VisitorName:  appt.VisitorName,
-		VisitorEmail: appt.VisitorEmail,
-		VisitorPhone: appt.VisitorPhone.String,
-		VisitorNote:  appt.VisitorNote.String,
-		AdminURL:     strings.TrimRight(siteURL, "/") + "/admin/appointments/" + appt.ID.String(),
+
+		JoinOpensMinutesBefore: int(video.OpensBefore / time.Minute),
+		VisitorName:            appt.VisitorName,
+		VisitorEmail:           appt.VisitorEmail,
+		VisitorPhone:           appt.VisitorPhone.String,
+		VisitorNote:            appt.VisitorNote.String,
+		AdminURL:               strings.TrimRight(siteURL, "/") + "/admin/appointments/" + appt.ID.String(),
 
 		LateCancellation: appt.LateCancellation,
 	}

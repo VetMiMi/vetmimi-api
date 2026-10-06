@@ -13,6 +13,7 @@ import (
 	"github.com/VetMiMi/vetmimi-api/internal/db"
 	"github.com/VetMiMi/vetmimi-api/internal/platform/apperr"
 	"github.com/VetMiMi/vetmimi-api/internal/platform/pgtest"
+	"github.com/VetMiMi/vetmimi-api/internal/video"
 )
 
 // booked stores an appointment at 10:00 Sydney on a free day, and a
@@ -61,7 +62,7 @@ func commStatuses(t *testing.T, id pgtype.UUID) []string {
 
 func TestConfirm_ConfirmsAndQueuesConfirmationAndReminder(t *testing.T) {
 	appt, now := booked(t, booking.Pending)
-	changed, err := booking.Confirm(context.Background(), pgtest.Pool(t), changeOf(t, appt), now)
+	changed, err := booking.Confirm(context.Background(), pgtest.Pool(t), testSecret, changeOf(t, appt), now)
 	require.NoError(t, err)
 
 	got := getAppointment(t, appt.ID)
@@ -70,7 +71,7 @@ func TestConfirm_ConfirmsAndQueuesConfirmationAndReminder(t *testing.T) {
 	require.Equal(t, appt.Version+1, got.Version)
 	require.Equal(t, []string{"confirmed", "pending", "confirmed", "admin", "{}"}, lastEvent(t, appt.ID))
 	require.Equal(t, []string{"booking_confirmed:queued:", "reminder:queued:"}, commStatuses(t, appt.ID))
-	require.Equal(t, []string{comms.TaskDeliver, comms.TaskDeliver}, taskTypes(changed.Tasks))
+	require.Equal(t, []string{comms.TaskDeliver, comms.TaskDeliver, video.TaskCloseRoom}, taskTypes(changed.Tasks))
 	require.Len(t, changed.Remove, 1)
 	require.Equal(t, "hold:"+appt.ID.String(), changed.Remove[0].ID, "the hold's expiry task is removed")
 }
@@ -80,21 +81,21 @@ func TestConfirm_Refusals(t *testing.T) {
 	pending, now := booked(t, booking.Pending)
 	stale := changeOf(t, pending)
 	stale.Version++
-	_, err := booking.Confirm(ctx, pgtest.Pool(t), stale, now)
+	_, err := booking.Confirm(ctx, pgtest.Pool(t), testSecret, stale, now)
 	requireCode(t, apperr.StaleVersion, err)
 
-	_, err = booking.Confirm(ctx, pgtest.Pool(t), changeOf(t, pending), pending.StartsAt)
+	_, err = booking.Confirm(ctx, pgtest.Pool(t), testSecret, changeOf(t, pending), pending.StartsAt)
 	requireCode(t, apperr.InvalidTransition, err)
 
 	declined, now := booked(t, booking.Pending)
 	_, err = booking.Decline(ctx, pgtest.Pool(t), changeOf(t, declined), now)
 	require.NoError(t, err)
-	_, err = booking.Confirm(ctx, pgtest.Pool(t), changeOf(t, getAppointment(t, declined.ID)), now)
+	_, err = booking.Confirm(ctx, pgtest.Pool(t), testSecret, changeOf(t, getAppointment(t, declined.ID)), now)
 	requireCode(t, apperr.InvalidTransition, err)
 
 	missing := changeOf(t, pending)
 	missing.ID = practitioner(t)
-	_, err = booking.Confirm(ctx, pgtest.Pool(t), missing, now)
+	_, err = booking.Confirm(ctx, pgtest.Pool(t), testSecret, missing, now)
 	requireCode(t, apperr.NotFound, err)
 }
 
@@ -105,7 +106,7 @@ func TestConfirm_TwoAdminsAtOnce(t *testing.T) {
 	errs := make(chan error, 2)
 	for range 2 {
 		go func() {
-			_, err := booking.Confirm(context.Background(), pgtest.Pool(t), changeOf(t, appt), now)
+			_, err := booking.Confirm(context.Background(), pgtest.Pool(t), testSecret, changeOf(t, appt), now)
 			errs <- err
 		}()
 	}

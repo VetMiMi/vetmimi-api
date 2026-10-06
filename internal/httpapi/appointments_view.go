@@ -50,6 +50,9 @@ func (s *server) appointmentDetail(ctx context.Context, id pgtype.UUID) (gen.App
 		Events:                make([]gen.AppointmentEvent, len(d.Events)),
 		Communications:        make([]gen.Communication, len(d.Communications)),
 	}
+	if d.VideoRoom != nil {
+		out.VideoRoom = videoRoomView(*d.VideoRoom)
+	}
 	for i, action := range d.AllowedActions {
 		out.AllowedActions[i] = gen.AppointmentAction(action)
 	}
@@ -60,6 +63,17 @@ func (s *server) appointmentDetail(ctx context.Context, id pgtype.UUID) (gen.App
 		out.Communications[i] = communicationView(c)
 	}
 	return out, nil
+}
+
+func videoRoomView(r db.VideoRoom) *gen.VideoRoomSummary {
+	return &gen.VideoRoomSummary{
+		Id:        openapi_types.UUID(r.ID.Bytes),
+		State:     gen.VideoRoomSummaryState(r.State),
+		OpensAt:   r.OpensAt.UTC(),
+		ClosesAt:  r.ClosesAt.UTC(),
+		StartedAt: optionalTime(r.StartedAt.Time, r.StartedAt.Valid),
+		EndedAt:   optionalTime(r.EndedAt.Time, r.EndedAt.Valid),
+	}
 }
 
 func eventView(e db.ListAppointmentEventsRow) gen.AppointmentEvent {
