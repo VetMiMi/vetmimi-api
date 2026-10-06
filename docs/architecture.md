@@ -20,11 +20,11 @@ from database constraints and small transactions, not from clever Go.
 | Component | Role |
 |---|---|
 | **api process** | `api --mode api` (the default). chi router, all HTTP routes, the video signaling WebSocket. Stateless apart from the in-memory video room hub. |
-| **worker process** | The same binary with `--mode worker`. Runs the asynq server: email delivery, hold expiry, scheduled publishing, site revalidation, media derivatives, sweeps and clean-up. Never serves HTTP. |
+| **worker process** | The same binary with `--mode worker`. Runs the asynq server: email delivery, hold expiry, scheduled publishing, social channel publishing, site revalidation, sweeps and clean-up. Never serves HTTP. |
 | **PostgreSQL 17** | Every durable fact: settings, users, sessions, services, availability, appointments, communications, posts, media metadata. Enforces "no overlapping appointments" with an exclusion constraint (ADR-004). |
 | **Redis 7 + asynq** | Task queues (`critical`, `default`, `low`) and rate-limit counters. Losing Redis loses only queued tasks; sweepers rebuild them from PostgreSQL (ADR-006). |
 | **Resend** | Transactional email. Called only by the worker. |
-| **S3-compatible bucket** | Media originals (private prefix `originals/`) and web derivatives (public prefix `public/`), served from `MEDIA_PUBLIC_URL`. |
+| **S3-compatible bucket** | Media originals (private prefix `originals/`) and web sizes (public prefix `public/`), served from `MEDIA_PUBLIC_URL`. The API writes them during the upload request. |
 | **coturn** | TURN relay on the live host for video sessions; the API mints time-limited credentials with the shared `TURN_SECRET` (ADR-007). |
 | **Next.js site** (`vetmimi-next`) | The browser's only HTTP origin (ADR-002). Its server components and route handlers call this API server-side with `X-Service-Key` (public routes) or `Authorization: Bearer` (admin routes). The API has no CORS. |
 | **WebSocket exception** | `GET /video/rooms/{roomId}/ws?ticket=…` is the one route a browser calls directly, with a five-minute room ticket that Next obtained server-side (ADR-007). |
@@ -114,7 +114,7 @@ never shows `detail` to visitors. Renaming a code is a breaking change.
 | `overlapping_period` | 409 | A weekly availability period overlaps another on the same weekday. |
 | `in_use` | 409 | Delete refused: media used by a post, or a service with appointments. Archive instead. |
 | `payload_too_large` | 413 | Body or upload over its cap. |
-| `unsupported_media_type` | 415 | Upload type not accepted (JPEG, PNG, WebP, PDF only). |
+| `unsupported_media_type` | 415 | Upload type not accepted (JPEG, PNG and WebP images only). |
 | `outside_booking_window` | 422 | Start time inside the minimum notice or beyond the maximum advance window. |
 | `service_not_bookable` | 422 | Service paused, archived, or its booking action is not `book` or `request`. |
 | `booking_paused` | 422 | `public_booking_enabled` is false. |
@@ -308,16 +308,20 @@ content. Daw Mi holds all three roles.
    `version` checked, and every enabled version checked against its platform
    (docs/data-model.md, "Posts"); a True Story needs consent confirmed. Failures
    give `422 publish_requirements_unmet` listing each one.
-3. She publishes now, or schedules a future time. Publishing opens a
-   `post_publications` row per enabled channel: the website's is `published` at
-   once, so `GET /public/articles/{slug}` serves it; social ones are `pending`
-   and the post is `publishing`.
-4. Social channels are delivered by the publishing worker, or Daw Mi posts them
-   herself (copy & open) and marks them posted. When every channel is
+3. She publishes now, or schedules a future time (`content:publish-scheduled`
+   does the same at that time). Publishing opens a `post_publications` row per
+   enabled channel: the website's is `published` at once, so
+   `GET /public/articles/{slug}` serves it, and `content:revalidate` asks the
+   site to refresh it; social ones are `pending` and the post is `publishing`.
+4. Each social channel is its own `content:publish-channel` task, calling that
+   platform's connector (`internal/content/publish.go`). Until the Meta and
+   LinkedIn connectors exist each fails `not_connected`; a transient failure
+   is retried three times. A failed channel can be retried, or Daw Mi posts it
+   herself (copy & open) and marks it posted. When every channel is
    `published` or `manual`, the post is `published`.
-5. Editing an `approved` or `scheduled` post sends it back to `in_review`. The
-   scheduler, site revalidation and the platform connectors arrive with their
-   own issues; this step list grows with them.
+5. Editing an `approved` or `scheduled` post sends it back to `in_review`; so
+   does editing a published post's website version, which takes the article
+   off the site until it is published again.
 
 ## Time handling rules
 
@@ -356,9 +360,10 @@ content. Daw Mi holds all three roles.
 | `comms:reschedule-reminders` | After `updateSettings` changes `reminder_hours` | Immediate | Task id `reminders:<settings version>`; rewrites only `queued` reminder rows and replaces their tasks |
 | `booking:expire-hold` | Appointment created as `pending` | At `hold_expires_at` | Task id `hold:<id>`; acts only if still `pending` and the hold has passed; writes `expired`, event and `request_expired` email in one transaction |
 | `booking:sweep-holds` | asynq periodic | Every 5 minutes | Runs the same expiry for any overdue `pending` row |
-| `content:publish-scheduled` (planned) | `schedule` action | At `scheduled_at` | Runs the same start of publishing as Publish now, only if the post is still `scheduled` for that time |
-| `site:revalidate` (planned) | After an article is published or archived, service change | Immediate | Revalidating a tag twice is harmless |
-| `media:derive` | After upload commit | Immediate, queue `low`, concurrency 1 | Skips unless `processing_status = processing`; overwrites the same object keys |
+| `content:publish-scheduled` | `schedule` action | At `scheduled_at` | Task id `post:<id>:<scheduled_at>`; runs the same start of publishing as Publish now, only if the post is still `scheduled` and due |
+| `content:publish-channel` | Publishing starts; `retry` action | Immediate | Task id `publish:<post>:<channel>:<attempts>`; claims the row only while `pending` (or `publishing` for over 10 minutes) and the post `publishing`; up to 4 attempts, then `failed` |
+| `content:revalidate` | An article goes live, is edited back into review, or archived | Immediate | `POST {SITE_URL}/api/revalidate` with `X-Revalidate-Secret`, tags `articles` and `article:<slug>`; skipped without `SITE_REVALIDATE_SECRET`; revalidating twice is harmless |
+| `content:sweep` | asynq periodic | Every 5 minutes | Re-enqueues scheduled posts past due and channels waiting or running for over 10 minutes, with the same task ids |
 | `video:close-room` | Room created or moved | At `closes_at` | Task id `room:<id>:<closes_at>`; ends the room only if still open and the window has passed |
 | `video:sweep-rooms` | asynq periodic | Every 5 minutes | Ends only rooms still open past `closes_at`; ending twice is a no-op |
 | `booking:purge-retention` | asynq periodic | Daily 03:00 practice time (`CRON_TZ`, from `settings.timezone` when the worker starts) | Deletes final appointments and contact enquiries past `retention_months`, 500 rows a statement; deleting twice deletes nothing |

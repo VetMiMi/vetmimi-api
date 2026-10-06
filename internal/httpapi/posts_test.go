@@ -24,14 +24,16 @@ func TestPostFromEditorToPublicArticle(t *testing.T) {
 	a := newAuthAPI(t)
 	editor := insertSession(t, a.clock.at, "content_editor")
 	admin := insertSession(t, a.clock.at, "site_admin")
+	image := decoded(t, http.StatusCreated, a.upload(t, editor, jpegOf(t, 900, 600),
+		"altEn", "A blue painting", "altMy", "အပြာရောင်ပန်းချီ"))["id"].(string)
 
 	long := strings.Repeat("ကြည့်", 15000) // 225 KB of Burmese, over the 64 KiB default cap
 	body := fmt.Sprintf(`{"title": "Colour and calm", "kind": "insight", "versions": {
 		"website": {"enabled": true, "slug": "colour-and-calm",
 			"title": {"en": "Colour and calm", "my": "အရောင်နှင့် ငြိမ်သက်မှု"},
 			"excerpt": {"en": "How colour settles the mind."},
-			"body": {"en": "# Colour\n\nPaint slowly.", "my": %q}},
-		"instagram": {"enabled": true, "caption": "Colour and calm #arttherapy"}}}`, long)
+			"body": {"en": "# Colour\n\nPaint slowly.", "my": %q}, "coverImageId": %q},
+		"instagram": {"enabled": true, "caption": "Colour and calm #arttherapy"}}}`, long, image)
 	post := decoded(t, http.StatusCreated, a.sendJSON(http.MethodPost, "/admin/posts", editor, body))
 	require.Equal(t, "draft", post["status"])
 	id := post["id"].(string)
@@ -46,8 +48,9 @@ func TestPostFromEditorToPublicArticle(t *testing.T) {
 		problem["errors"])
 
 	patch := fmt.Sprintf(`{"version": %v, "versions": {"instagram": {"enabled": true,
-		"caption": "Colour and calm #arttherapy", "imageIds": ["0b7f9c2e-4d1a-4c3b-9e8f-7a6b5c4d3e2f"]}}}`, post["version"])
+		"caption": "Colour and calm #arttherapy", "imageIds": [%q]}}}`, post["version"], image)
 	post = decoded(t, http.StatusOK, a.sendJSON(http.MethodPatch, "/admin/posts/"+id, editor, patch))
+	refused(t, http.StatusConflict, "in_use", a.send(http.MethodDelete, "/admin/media/"+image, editor))
 	post = decoded(t, http.StatusOK, a.action(t, admin, id, "approve", post))
 	require.Equal(t, "approved", post["status"])
 	requireForbidden(t, a.action(t, editor, id, "publish", post))
@@ -62,10 +65,14 @@ func TestPostFromEditorToPublicArticle(t *testing.T) {
 	require.Equal(t, "အရောင်နှင့် ငြိမ်သက်မှု", article["title"])
 	require.Equal(t, long, article["body"])
 	require.Equal(t, "How colour settles the mind.", article["excerpt"])
+	cover := article["coverImage"].(map[string]any)
+	require.Equal(t, "အပြာရောင်ပန်းချီ", cover["alt"])
+	require.Equal(t, "https://media.vetmimi.example/"+image+"/400.jpg", cover["sizes"].([]any)[2].(map[string]any)["url"])
 	list := decoded(t, http.StatusOK, a.sendPublic(http.MethodGet, "/public/articles", ""))
 	require.Equal(t, "en", list["locale"])
-	require.Contains(t, list["items"], map[string]any{"slug": "colour-and-calm", "kind": "insight",
-		"title": "Colour and calm", "excerpt": "How colour settles the mind.", "publishedAt": post["publishedAt"]})
+	item := list["items"].([]any)[0].(map[string]any)
+	require.Equal(t, "colour-and-calm", item["slug"])
+	require.Equal(t, "A blue painting", item["coverImage"].(map[string]any)["alt"])
 
 	refused(t, http.StatusNotFound, "not_found", a.sendPublic(http.MethodGet, "/public/articles/no-such-article", ""))
 	listed := decoded(t, http.StatusOK, a.send(http.MethodGet, "/admin/posts?status=published&q=colour", editor))

@@ -1,7 +1,7 @@
 openapi: "3.1.0"
 info:
   title: VetMiMi API
-  version: "0.3.0"
+  version: "0.4.0"
   description: >-
     The API behind VetMiMi, Daw Mi's art therapy practice. The Next.js site is the only caller
     (ADR-002): public routes take the shared service key, admin routes a session token. The one
@@ -39,6 +39,8 @@ tags:
     description: "The publishing portal: posts, their channel versions and the publishing workflow (ADR-009)."
   - name: articles
     description: Published website articles, read by the site.
+  - name: media
+    description: "The media library: images for posts, stored with web sizes."
   - name: contact
     description: Contact enquiries.
   - name: health
@@ -2141,8 +2143,10 @@ paths:
       summary: Save changes to a post
       description: >-
         A channel named in `versions` replaces that channel's version whole. Saving an `approved`
-        or `scheduled` post sends it back to `in_review`. Posts that have started publishing
-        cannot be edited (`409 invalid_transition`).
+        or `scheduled` post sends it back to `in_review`. A `publishing` or `published` post may
+        change only its title and website version (otherwise `422 action_not_allowed`); it goes
+        back to `in_review`, its article is off the site until it is published again, and what went
+        out on social channels stays. Archived posts cannot be edited (`409 invalid_transition`).
       security:
         - sessionToken: []
       parameters:
@@ -2290,8 +2294,9 @@ paths:
       summary: Approve a post
       description: >-
         site_admin only. `in_review` → `approved`. Every enabled channel version must be complete
-        and within its platform's limits, and a True Story needs consent confirmed; otherwise
-        `422 publish_requirements_unmet` lists each problem.
+        and within its platform's limits, every image it names must be in the media library, and a
+        True Story needs consent confirmed; otherwise `422 publish_requirements_unmet` lists each
+        problem.
       security:
         - sessionToken: []
       parameters:
@@ -2331,7 +2336,8 @@ paths:
       operationId: schedulePost
       summary: Schedule a post
       description: >-
-        site_admin only. `approved` or `scheduled` → `scheduled` at a future `scheduledAt`.
+        site_admin only. `approved` or `scheduled` → `scheduled` at a future `scheduledAt`, when the
+        publishing worker publishes it as Publish now does.
       security:
         - sessionToken: []
       parameters:
@@ -2412,8 +2418,10 @@ paths:
       summary: Publish a post now
       description: >-
         site_admin only. `approved` or `scheduled` → `publishing`, or `published` once every enabled
-        channel is. The website version goes live at once; social channels start `pending` until
-        they are delivered or marked posted by hand.
+        channel is. The website version goes live at once and the site is asked to revalidate; each
+        social channel starts `pending` for the publishing worker, which retries a transient failure
+        three times. A channel that fails (`error` says why, e.g. `not_connected`) can be retried or
+        marked posted by hand.
       security:
         - sessionToken: []
       parameters:
@@ -2526,6 +2534,202 @@ paths:
           $ref: "#/components/responses/Conflict"
         "422":
           $ref: "#/components/responses/UnprocessableEntity"
+        "429":
+          $ref: "#/components/responses/TooManyRequests"
+        "500":
+          $ref: "#/components/responses/InternalError"
+  "/admin/posts/{postId}/channels/{channel}/retry":
+    post:
+      tags: [posts]
+      operationId: retryPostChannel
+      summary: Try a failed social channel again
+      description: >-
+        Allowed while the post is `publishing` and the channel is `failed`. The channel goes back to
+        `pending` with three fresh retries and the publishing worker takes it.
+      security:
+        - sessionToken: []
+      parameters:
+        - $ref: "#/components/parameters/PostId"
+        - $ref: "#/components/parameters/SocialChannel"
+      responses:
+        "200":
+          description: Success.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Post"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "409":
+          $ref: "#/components/responses/Conflict"
+        "422":
+          $ref: "#/components/responses/UnprocessableEntity"
+        "429":
+          $ref: "#/components/responses/TooManyRequests"
+        "500":
+          $ref: "#/components/responses/InternalError"
+  /admin/media:
+    get:
+      tags: [media]
+      operationId: listMedia
+      summary: List the media library
+      description: Newest first. `q` searches the alt text in either language and the credit.
+      security:
+        - sessionToken: []
+      parameters:
+        - $ref: "#/components/parameters/Search"
+        - $ref: "#/components/parameters/Cursor"
+        - $ref: "#/components/parameters/Limit"
+      responses:
+        "200":
+          description: Success.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/MediaList"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "429":
+          $ref: "#/components/responses/TooManyRequests"
+        "500":
+          $ref: "#/components/responses/InternalError"
+    post:
+      tags: [media]
+      operationId: uploadMedia
+      summary: Upload an image
+      description: >-
+        A JPEG, PNG or WebP image of at most 20 MB and 50 megapixels, recognised from its content.
+        It is turned upright and re-encoded as JPEG, which drops its metadata (camera, time,
+        location): the original is kept privately and web sizes 1600, 800 and 400 pixels wide (never
+        wider than the image) are public. Mounted by hand with a 21 MiB body cap and a 120-second
+        timeout, and excluded from strict-server generation.
+      security:
+        - sessionToken: []
+      requestBody:
+        required: true
+        content:
+          multipart/form-data:
+            schema:
+              $ref: "#/components/schemas/MediaUpload"
+      responses:
+        "201":
+          description: Stored with its web sizes.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Media"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "413":
+          $ref: "#/components/responses/PayloadTooLarge"
+        "415":
+          $ref: "#/components/responses/UnsupportedMediaType"
+        "429":
+          $ref: "#/components/responses/TooManyRequests"
+        "500":
+          $ref: "#/components/responses/InternalError"
+  "/admin/media/{mediaId}":
+    get:
+      tags: [media]
+      operationId: getMedia
+      summary: Get a media item
+      security:
+        - sessionToken: []
+      parameters:
+        - $ref: "#/components/parameters/MediaId"
+      responses:
+        "200":
+          description: Success.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Media"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "429":
+          $ref: "#/components/responses/TooManyRequests"
+        "500":
+          $ref: "#/components/responses/InternalError"
+    patch:
+      tags: [media]
+      operationId: updateMedia
+      summary: Describe a media item
+      description: Replaces the alt text and credit; one left out is cleared.
+      security:
+        - sessionToken: []
+      parameters:
+        - $ref: "#/components/parameters/MediaId"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/MediaPatch"
+      responses:
+        "200":
+          description: Success.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Media"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "409":
+          $ref: "#/components/responses/Conflict"
+        "429":
+          $ref: "#/components/responses/TooManyRequests"
+        "500":
+          $ref: "#/components/responses/InternalError"
+    delete:
+      tags: [media]
+      operationId: deleteMedia
+      summary: Delete a media item
+      description: >-
+        Removes the row and every stored file. Refused with `409 in_use` while any post, whatever its
+        status, uses the image.
+      security:
+        - sessionToken: []
+      parameters:
+        - $ref: "#/components/parameters/MediaId"
+      responses:
+        "204":
+          description: Deleted.
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "409":
+          $ref: "#/components/responses/Conflict"
         "429":
           $ref: "#/components/responses/TooManyRequests"
         "500":
@@ -2735,6 +2939,14 @@ components:
       in: header
       required: false
       description: "Optional client-generated UUID; same semantics as for appointment requests."
+      schema:
+        type: string
+        format: uuid
+    MediaId:
+      name: mediaId
+      in: path
+      required: true
+      description: Media id.
       schema:
         type: string
         format: uuid
@@ -4547,6 +4759,7 @@ components:
           $ref: "#/components/schemas/LocalizedMarkdown"
         coverImageId:
           type: string
+          description: Media library id.
           format: uuid
         seoTitle:
           $ref: "#/components/schemas/LocalizedText"
@@ -4673,6 +4886,9 @@ components:
           type: string
         error:
           type: string
+          description: >-
+            Why the last attempt failed: `not_connected` (no platform connection; copy & open) or
+            `connection_failed`.
         attempts:
           type: integer
         publishedAt:
@@ -4861,9 +5077,8 @@ components:
           type: string
         excerpt:
           type: string
-        coverImageId:
-          type: string
-          format: uuid
+        coverImage:
+          $ref: "#/components/schemas/PublicImage"
         publishedAt:
           type: string
           description: UTC timestamp (RFC 3339).
@@ -4884,9 +5099,8 @@ components:
         body:
           type: string
           description: Markdown, as written.
-        coverImageId:
-          type: string
-          format: uuid
+        coverImage:
+          $ref: "#/components/schemas/PublicImage"
         seoTitle:
           type: string
           description: The SEO title, or the title.
@@ -4908,6 +5122,127 @@ components:
           type: array
           items:
             $ref: "#/components/schemas/PublicArticleSummary"
+      additionalProperties: false
+    ImageSize:
+      type: object
+      required: [width, url]
+      properties:
+        width:
+          type: integer
+        url:
+          type: string
+          format: uri
+      additionalProperties: false
+    PublicImage:
+      type: object
+      description: A media library image as visitors see it.
+      required: [id, alt, width, height, sizes]
+      properties:
+        id:
+          type: string
+          format: uuid
+        alt:
+          type: string
+          description: In the requested locale, English as the fallback; empty for none.
+        width:
+          type: integer
+          description: Of the stored original; with height, the aspect ratio.
+        height:
+          type: integer
+        sizes:
+          type: array
+          description: JPEG web sizes, largest first.
+          items:
+            $ref: "#/components/schemas/ImageSize"
+      additionalProperties: false
+    Media:
+      type: object
+      required: [id, width, height, byteSize, sizes, version, createdAt, updatedAt]
+      properties:
+        id:
+          type: string
+          format: uuid
+        width:
+          type: integer
+          description: Of the stored original, upright.
+        height:
+          type: integer
+        byteSize:
+          type: integer
+          description: Of the upload.
+        alt:
+          $ref: "#/components/schemas/MediaAlt"
+        credit:
+          type: string
+        sizes:
+          type: array
+          description: JPEG web sizes, largest first.
+          items:
+            $ref: "#/components/schemas/ImageSize"
+        uploadedBy:
+          type: string
+          format: uuid
+        version:
+          $ref: "#/components/schemas/Version"
+        createdAt:
+          type: string
+          description: UTC timestamp (RFC 3339).
+          format: date-time
+        updatedAt:
+          type: string
+          description: UTC timestamp (RFC 3339).
+          format: date-time
+      additionalProperties: false
+    MediaList:
+      type: object
+      required: [items]
+      properties:
+        items:
+          type: array
+          items:
+            $ref: "#/components/schemas/Media"
+        nextCursor:
+          type: string
+      additionalProperties: false
+    MediaUpload:
+      type: object
+      required: [file]
+      properties:
+        file:
+          type: string
+          format: binary
+          description: JPEG, PNG or WebP, at most 20 MB.
+        altEn:
+          type: string
+          maxLength: 300
+        altMy:
+          type: string
+          maxLength: 300
+        credit:
+          type: string
+          maxLength: 300
+    MediaPatch:
+      type: object
+      required: [version]
+      properties:
+        version:
+          $ref: "#/components/schemas/Version"
+        alt:
+          $ref: "#/components/schemas/MediaAlt"
+        credit:
+          type: string
+          maxLength: 300
+      additionalProperties: false
+    MediaAlt:
+      type: object
+      description: Alt text per locale.
+      properties:
+        en:
+          type: string
+          maxLength: 300
+        my:
+          type: string
+          maxLength: 300
       additionalProperties: false
   responses:
     BadRequest:
@@ -4948,6 +5283,12 @@ components:
             $ref: "#/components/schemas/SlotUnavailableProblem"
     PayloadTooLarge:
       description: "`payload_too_large`."
+      content:
+        "application/problem+json":
+          schema:
+            $ref: "#/components/schemas/Problem"
+    UnsupportedMediaType:
+      description: "`unsupported_media_type`."
       content:
         "application/problem+json":
           schema:

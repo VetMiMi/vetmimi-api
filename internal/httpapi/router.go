@@ -78,6 +78,12 @@ func mountAPI(si gen.StrictServerInterface, spec *openapi3.T, deps Deps) func(ch
 		// the index enforces, so this too is a broken build.
 		panic(fmt.Sprintf("httpapi: index the OpenAPI operations: %v", err))
 	}
+	upload, mountUpload := si.(*server)
+	if mountUpload {
+		// Generation leaves uploadMedia out of the embedded spec; its entry
+		// here is the one openapi.yaml declares (TestUploadMediaIsIndexedAsDeclared).
+		ops[operationKey(http.MethodPost, uploadMediaPattern)] = uploadMediaOperation
+	}
 	validate := validateRequests(spec)
 	checkServiceKey := requireServiceKey(deps.ServiceKey, ops, log)
 	checkSession := requireSession(deps.Sessions, ops, log)
@@ -102,5 +108,13 @@ func mountAPI(si gen.StrictServerInterface, spec *openapi3.T, deps Deps) func(ch
 				checkServiceKey},
 			ErrorHandlerFunc: paramError(log),
 		})
+		// Media upload reads its own multipart body, so it skips OpenAPI
+		// validation but keeps every other check, in the same order, under
+		// a larger body cap and a longer deadline.
+		if mountUpload {
+			r.With(WithTimeout(uploadTimeout), WithBodyCap(uploadBodyCap),
+				checkServiceKey, checkSession, checkRoles, rateLimit).
+				Post(uploadMediaPattern, upload.uploadMedia)
+		}
 	}
 }

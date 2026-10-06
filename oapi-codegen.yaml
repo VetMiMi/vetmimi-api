@@ -23,9 +23,12 @@ output-options:
     - video
     - posts
     - articles
+    - media
   # The WebSocket upgrade is a plain net/http handler, not a strict operation.
   exclude-operation-ids:
     - connectVideoRoom
+    # Media upload reads its multipart body itself, under its own limits.
+    - uploadMedia
     # The dashboard and the manual meeting link arrive with their own issues.
     - getBookingDashboard
     - setAppointmentMeetingLink

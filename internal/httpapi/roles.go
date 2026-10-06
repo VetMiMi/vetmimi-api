@@ -74,8 +74,8 @@ var rolesByOperation = map[string][]auth.Role{
 	"getContactEnquiry":           bookingAdmin,
 	"markContactEnquiryHandled":   bookingAdmin,
 
-	// The publishing portal (ADR-009): editors write, submit and mark a
-	// channel posted by hand; only a site administrator reviews, schedules,
+	// The publishing portal (ADR-009): editors write, submit, and retry or
+	// mark posted by hand a channel that failed; only a site administrator reviews, schedules,
 	// publishes or archives.
 	"listPosts":             contentEditor,
 	"createPost":            contentEditor,
@@ -84,12 +84,21 @@ var rolesByOperation = map[string][]auth.Role{
 	"deletePost":            contentEditor,
 	"submitPost":            contentEditor,
 	"markPostChannelPosted": contentEditor,
+	"retryPostChannel":      contentEditor,
 	"requestPostChanges":    siteAdmin,
 	"approvePost":           siteAdmin,
 	"schedulePost":          siteAdmin,
 	"unschedulePost":        siteAdmin,
 	"publishPost":           siteAdmin,
 	"archivePost":           siteAdmin,
+
+	// The media library belongs to whoever writes posts; a delete is
+	// refused while any post uses the image.
+	"listMedia":   contentEditor,
+	"uploadMedia": contentEditor,
+	"getMedia":    contentEditor,
+	"updateMedia": contentEditor,
+	"deleteMedia": contentEditor,
 }
 
 // requireRoles answers 403 forbidden to a request for a sessionToken
