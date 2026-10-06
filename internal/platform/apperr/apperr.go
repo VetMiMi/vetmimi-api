@@ -31,9 +31,7 @@ const (
 	AcknowledgementRequired  Code = "acknowledgement_required"
 	IdempotencyKeyReused     Code = "idempotency_key_reused"
 	ActionNotAllowed         Code = "action_not_allowed"
-	ApprovalRequired         Code = "approval_required"
 	PublishRequirementsUnmet Code = "publish_requirements_unmet"
-	WebsiteNotPublished      Code = "website_not_published"
 	RateLimited              Code = "rate_limited"
 	InternalError            Code = "internal_error"
 	Unavailable              Code = "unavailable"
@@ -64,9 +62,7 @@ var kinds = map[Code]kind{
 	AcknowledgementRequired:  {422, "Acknowledgement required"},
 	IdempotencyKeyReused:     {422, "Idempotency key reused"},
 	ActionNotAllowed:         {422, "Action not allowed"},
-	ApprovalRequired:         {422, "Approval required"},
 	PublishRequirementsUnmet: {422, "Publishing requirements not met"},
-	WebsiteNotPublished:      {422, "Website content not published"},
 	RateLimited:              {429, "Too many requests"},
 	InternalError:            {500, "Internal error"},
 	Unavailable:              {503, "Service unavailable"},

@@ -22,9 +22,8 @@ var (
 // allows: docs/architecture.md, "Authentication and roles". Content editors
 // never reach booking data and booking administrators never edit content
 // (ADR-002). TestEverySessionOperationHasRoles keeps it in step with the
-// contract. Rules finer than an operation, such as settings key groups or
-// Facebook statuses past permission_pending, belong to the domain, through
-// auth.FromContext.
+// contract. Rules finer than an operation, such as settings key groups,
+// belong to the domain, through auth.FromContext.
 var rolesByOperation = map[string][]auth.Role{
 	// The settings domain decides which keys each role sees and changes.
 	"deleteCurrentSession": everyRole,
@@ -75,94 +74,22 @@ var rolesByOperation = map[string][]auth.Role{
 	"getContactEnquiry":           bookingAdmin,
 	"markContactEnquiryHandled":   bookingAdmin,
 
-	// Each kind of content: editors draft and submit; only a site
-	// administrator approves, publishes or takes it down.
-	"listStories":           contentEditor,
-	"createStory":           contentEditor,
-	"getStory":              contentEditor,
-	"updateStory":           contentEditor,
-	"submitStoryForReview":  contentEditor,
-	"listStoryVersions":     contentEditor,
-	"restoreStoryVersion":   contentEditor,
-	"listStoryRelations":    contentEditor,
-	"replaceStoryRelations": contentEditor,
-	"approveStory":          siteAdmin,
-	"requestChangesToStory": siteAdmin,
-	"publishStory":          siteAdmin,
-	"scheduleStory":         siteAdmin,
-	"unpublishStory":        siteAdmin,
-	"archiveStory":          siteAdmin,
-
-	"listServicePages":            contentEditor,
-	"createServicePage":           contentEditor,
-	"getServicePage":              contentEditor,
-	"updateServicePage":           contentEditor,
-	"submitServicePageForReview":  contentEditor,
-	"listServicePageVersions":     contentEditor,
-	"restoreServicePageVersion":   contentEditor,
-	"listServicePageRelations":    contentEditor,
-	"replaceServicePageRelations": contentEditor,
-	"approveServicePage":          siteAdmin,
-	"requestChangesToServicePage": siteAdmin,
-	"publishServicePage":          siteAdmin,
-	"scheduleServicePage":         siteAdmin,
-	"unpublishServicePage":        siteAdmin,
-	"archiveServicePage":          siteAdmin,
-
-	"listPortfolioItems":            contentEditor,
-	"createPortfolioItem":           contentEditor,
-	"getPortfolioItem":              contentEditor,
-	"updatePortfolioItem":           contentEditor,
-	"submitPortfolioItemForReview":  contentEditor,
-	"listPortfolioItemVersions":     contentEditor,
-	"restorePortfolioItemVersion":   contentEditor,
-	"listPortfolioItemRelations":    contentEditor,
-	"replacePortfolioItemRelations": contentEditor,
-	"approvePortfolioItem":          siteAdmin,
-	"requestChangesToPortfolioItem": siteAdmin,
-	"publishPortfolioItem":          siteAdmin,
-	"schedulePortfolioItem":         siteAdmin,
-	"unpublishPortfolioItem":        siteAdmin,
-	"archivePortfolioItem":          siteAdmin,
-
-	"listPages":            contentEditor,
-	"createPage":           contentEditor,
-	"getPage":              contentEditor,
-	"updatePage":           contentEditor,
-	"submitPageForReview":  contentEditor,
-	"listPageVersions":     contentEditor,
-	"restorePageVersion":   contentEditor,
-	"listPageRelations":    contentEditor,
-	"replacePageRelations": contentEditor,
-	"approvePage":          siteAdmin,
-	"requestChangesToPage": siteAdmin,
-	"publishPage":          siteAdmin,
-	"schedulePage":         siteAdmin,
-	"unpublishPage":        siteAdmin,
-	"archivePage":          siteAdmin,
-	"createPageSection":    contentEditor,
-	"reorderPageSections":  contentEditor,
-	"updatePageSection":    contentEditor,
-	"deletePageSection":    contentEditor,
-
-	"getFeaturedArea":     siteAdmin,
-	"replaceFeaturedArea": siteAdmin,
-
-	"listMedia":    contentEditor,
-	"uploadMedia":  contentEditor,
-	"getMedia":     contentEditor,
-	"updateMedia":  contentEditor,
-	"archiveMedia": contentEditor,
-	"deleteMedia":  siteAdmin,
-
-	// The content domain keeps statuses past permission_pending for site
-	// administrators.
-	"listFacebookPosts":     contentEditor,
-	"createFacebookPost":    contentEditor,
-	"getFacebookPost":       contentEditor,
-	"updateFacebookPost":    contentEditor,
-	"deleteFacebookPost":    contentEditor,
-	"setFacebookPostStatus": contentEditor,
+	// The publishing portal (ADR-009): editors write, submit and mark a
+	// channel posted by hand; only a site administrator reviews, schedules,
+	// publishes or archives.
+	"listPosts":             contentEditor,
+	"createPost":            contentEditor,
+	"getPost":               contentEditor,
+	"updatePost":            contentEditor,
+	"deletePost":            contentEditor,
+	"submitPost":            contentEditor,
+	"markPostChannelPosted": contentEditor,
+	"requestPostChanges":    siteAdmin,
+	"approvePost":           siteAdmin,
+	"schedulePost":          siteAdmin,
+	"unschedulePost":        siteAdmin,
+	"publishPost":           siteAdmin,
+	"archivePost":           siteAdmin,
 }
 
 // requireRoles answers 403 forbidden to a request for a sessionToken

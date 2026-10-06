@@ -28,6 +28,8 @@ type Querier interface {
 	CreateAvailabilityBlock(ctx context.Context, arg CreateAvailabilityBlockParams) (AvailabilityBlock, error)
 	CreateAvailabilityOverride(ctx context.Context, arg CreateAvailabilityOverrideParams) (AvailabilityOverride, error)
 	CreateAvailabilityRule(ctx context.Context, arg CreateAvailabilityRuleParams) (AvailabilityRule, error)
+	CreatePost(ctx context.Context, arg CreatePostParams) (Post, error)
+	CreatePostPublication(ctx context.Context, arg CreatePostPublicationParams) error
 	CreateService(ctx context.Context, arg CreateServiceParams) (Service, error)
 	CreateSession(ctx context.Context, arg CreateSessionParams) (pgtype.UUID, error)
 	// CreateUser and ReplaceUserCredentials store the step of the code typed at
@@ -40,6 +42,8 @@ type Querier interface {
 	// @before, so one run never holds a long lock.
 	DeleteExpiredIdempotencyKeys(ctx context.Context, arg DeleteExpiredIdempotencyKeysParams) (int64, error)
 	DeleteExpiredSessions(ctx context.Context, arg DeleteExpiredSessionsParams) (int64, error)
+	// DeletePost deletes only ideas and drafts; anything further is archived.
+	DeletePost(ctx context.Context, id pgtype.UUID) (int64, error)
 	// DeleteRetainedAppointments deletes up to @max_rows final appointments that
 	// ended before @before; their events and communications go with them by
 	// ON DELETE CASCADE. Pending and confirmed rows are never deleted.
@@ -63,7 +67,9 @@ type Querier interface {
 	// GetManagedAppointment looks a management link up by its token's hash,
 	// never by a seed or an id.
 	GetManagedAppointment(ctx context.Context, tokenHash []byte) (GetManagedAppointmentRow, error)
+	GetPost(ctx context.Context, id pgtype.UUID) (Post, error)
 	GetPractitionerID(ctx context.Context) (pgtype.UUID, error)
+	GetPublicArticle(ctx context.Context, slug pgtype.Text) (GetPublicArticleRow, error)
 	GetService(ctx context.Context, id pgtype.UUID) (Service, error)
 	GetServiceBySlug(ctx context.Context, slug string) (Service, error)
 	// GetSession returns the session a token hash names together with its user,
@@ -119,6 +125,13 @@ type Querier interface {
 	// pending holds.
 	ListOverdueHolds(ctx context.Context, arg ListOverdueHoldsParams) ([]pgtype.UUID, error)
 	ListOverlappingAppointments(ctx context.Context, period pgtype.Range[pgtype.Timestamptz]) ([]ListOverlappingAppointmentsRow, error)
+	ListPostPublications(ctx context.Context, postID pgtype.UUID) ([]PostPublication, error)
+	ListPostVersions(ctx context.Context, postID pgtype.UUID) ([]PostVersion, error)
+	// ListPosts is newest first; the page continues after (@after_at, @after_id).
+	ListPosts(ctx context.Context, arg ListPostsParams) ([]ListPostsRow, error)
+	// ListPublicArticles selects the website versions that are live: published
+	// on the website, of a post not archived.
+	ListPublicArticles(ctx context.Context, arg ListPublicArticlesParams) ([]ListPublicArticlesRow, error)
 	// ListPublicBookableServices selects only what a visitor may see.
 	ListPublicBookableServices(ctx context.Context) ([]ListPublicBookableServicesRow, error)
 	ListQueuedReminderIDs(ctx context.Context, appointmentID pgtype.UUID) ([]pgtype.UUID, error)
@@ -131,12 +144,17 @@ type Querier interface {
 	// LockCommunication skips a row another worker holds, so two workers given
 	// the same task never both send it.
 	LockCommunication(ctx context.Context, id pgtype.UUID) (Communication, error)
+	// LockPost reads a post for a change, holding it until the transaction ends.
+	LockPost(ctx context.Context, id pgtype.UUID) (Post, error)
 	// LockSchedule takes the transaction-scoped lock that availability writes and
 	// appointment creation share (docs/architecture.md, walkthrough 1, step 5),
 	// keyed by the one practitioner.
 	LockSchedule(ctx context.Context) error
 	// MarkContactEnquiryHandled leaves a handled enquiry as it is.
 	MarkContactEnquiryHandled(ctx context.Context, arg MarkContactEnquiryHandledParams) (int64, error)
+	// MarkPublicationManual records a channel Daw Mi posted herself; no row back
+	// means the channel was not waiting for her.
+	MarkPublicationManual(ctx context.Context, arg MarkPublicationManualParams) (PostPublication, error)
 	// MoveAppointment is a reschedule's one write (ADR-004): the new time is
 	// taken in the same statement that releases the old, so an overlap refuses
 	// the whole move. A pending hold never outlasts the new start.
@@ -161,6 +179,9 @@ type Querier interface {
 	// RescheduleRequestOpen reports a reschedule request newer than the last
 	// reschedule or status change, which would have answered it.
 	RescheduleRequestOpen(ctx context.Context, appointmentID pgtype.UUID) (bool, error)
+	// SavePost writes every field a change may touch; the caller holds the lock.
+	SavePost(ctx context.Context, arg SavePostParams) (Post, error)
+	SavePostVersion(ctx context.Context, arg SavePostVersionParams) error
 	SetAppointmentNote(ctx context.Context, arg SetAppointmentNoteParams) (Appointment, error)
 	// SetAppointmentStatus is the one write of a status change; the caller has
 	// checked it with booking.CanTransition. Only a pending or expired request

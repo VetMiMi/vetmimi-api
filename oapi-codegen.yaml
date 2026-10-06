@@ -21,6 +21,8 @@ output-options:
     - appointments
     - contact
     - video
+    - posts
+    - articles
   # The WebSocket upgrade is a plain net/http handler, not a strict operation.
   exclude-operation-ids:
     - connectVideoRoom

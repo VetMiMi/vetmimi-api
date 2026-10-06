@@ -139,6 +139,54 @@ type IdempotencyKey struct {
 	CreatedAt      time.Time
 }
 
+type Post struct {
+	ID                 pgtype.UUID
+	Title              string
+	Kind               string
+	Status             string
+	ScheduledAt        sql.NullTime
+	ConsentConfirmedAt sql.NullTime
+	ConsentConfirmedBy pgtype.UUID
+	ConsentNote        pgtype.Text
+	ReviewNote         pgtype.Text
+	AuthorID           pgtype.UUID
+	ApprovedAt         sql.NullTime
+	ApprovedBy         pgtype.UUID
+	PublishedAt        sql.NullTime
+	Version            int32
+	CreatedAt          time.Time
+	UpdatedAt          time.Time
+}
+
+type PostPublication struct {
+	PostID      pgtype.UUID
+	Channel     string
+	Status      string
+	ExternalID  pgtype.Text
+	Permalink   pgtype.Text
+	Error       pgtype.Text
+	Attempts    int32
+	PublishedAt sql.NullTime
+	UpdatedAt   time.Time
+}
+
+type PostVersion struct {
+	PostID         pgtype.UUID
+	Channel        string
+	Enabled        bool
+	Slug           pgtype.Text
+	Title          json.RawMessage
+	Excerpt        json.RawMessage
+	Body           json.RawMessage
+	CoverImageID   pgtype.UUID
+	SeoTitle       json.RawMessage
+	SeoDescription json.RawMessage
+	Text           pgtype.Text
+	LinkUrl        pgtype.Text
+	ImageIds       []pgtype.UUID
+	UpdatedAt      time.Time
+}
+
 type Service struct {
 	ID                  pgtype.UUID
 	Slug                string

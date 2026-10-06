@@ -83,6 +83,7 @@ func mountAPI(si gen.StrictServerInterface, spec *openapi3.T, deps Deps) func(ch
 	checkSession := requireSession(deps.Sessions, ops, log)
 	checkRoles := requireRoles(ops)
 	rateLimit := deps.RateLimits.operations(ops)
+	bodyCaps := operationBodyCaps(ops)
 	return func(r chi.Router) {
 		strict := gen.NewStrictHandlerWithOptions(si, nil, gen.StrictHTTPServerOptions{
 			RequestErrorHandlerFunc:  requestError(log),
@@ -93,11 +94,12 @@ func mountAPI(si gen.StrictServerInterface, spec *openapi3.T, deps Deps) func(ch
 			// The generated wrapper wraps each entry around the ones before
 			// it, so the last entry runs first: the key check, then the
 			// session check, then the role check, then the rate limit, then
-			// validation, just before the handler. A caller without a key, a
-			// live session or a role the operation allows learns nothing
-			// about the contract and is never counted, while a malformed
-			// request still is.
-			Middlewares:      []gen.MiddlewareFunc{validate, rateLimit, checkRoles, checkSession, checkServiceKey},
+			// the operation's body cap and validation, just before the
+			// handler. A caller without a key, a live session or a role the
+			// operation allows learns nothing about the contract and is
+			// never counted, while a malformed request still is.
+			Middlewares: []gen.MiddlewareFunc{validate, bodyCaps, rateLimit, checkRoles, checkSession,
+				checkServiceKey},
 			ErrorHandlerFunc: paramError(log),
 		})
 	}
