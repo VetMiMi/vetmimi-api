@@ -25,13 +25,14 @@ SET alt = sqlc.narg(alt), credit = sqlc.narg(credit), version = version + 1, upd
 WHERE id = @id AND version = @version
 RETURNING *;
 
--- DeleteUnusedMedia deletes an item no post version shows, whatever the
--- post's status; no row back means it is gone or in use.
+-- DeleteUnusedMedia deletes an item no post version or published article
+-- shows, whatever the post's status; no row back means it is gone or in use.
 -- name: DeleteUnusedMedia :one
 DELETE FROM media
 WHERE id = @id
   AND NOT EXISTS (SELECT 1 FROM post_versions v
                   WHERE v.cover_image_id = @id OR @id = ANY (v.image_ids))
+  AND NOT EXISTS (SELECT 1 FROM published_articles a WHERE a.cover_image_id = @id)
 RETURNING *;
 
 -- name: ExistingMedia :many

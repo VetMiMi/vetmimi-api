@@ -19,28 +19,22 @@ UPDATE post_publications pub
 SET status = 'publishing', attempts = pub.attempts + 1, updated_at = $1
 FROM posts p
 WHERE pub.post_id = $2 AND pub.channel = $3 AND p.id = pub.post_id
-  AND p.status = 'publishing' AND pub.channel <> 'website'
-  AND (pub.status = 'pending' OR (pub.status = 'publishing' AND pub.updated_at < $4))
+  AND p.status = 'publishing' AND pub.channel <> 'website' AND pub.status = 'pending'
 RETURNING pub.post_id, pub.channel, pub.status, pub.external_id, pub.permalink, pub.error, pub.attempts, pub.published_at, pub.updated_at
 `
 
 type ClaimPostPublicationParams struct {
-	Now         time.Time
-	PostID      pgtype.UUID
-	Channel     string
-	StuckBefore time.Time
+	Now     time.Time
+	PostID  pgtype.UUID
+	Channel string
 }
 
-// ClaimPostPublication takes a social channel for the publishing worker:
-// one that is pending, or stuck publishing since before @stuck_before, of a
-// post still publishing. No row back means there is nothing to do.
+// ClaimPostPublication takes a pending social channel of a post still
+// publishing for the publishing worker. One already publishing is never
+// taken again: its attempt may have posted. No row back means there is
+// nothing to do.
 func (q *Queries) ClaimPostPublication(ctx context.Context, arg ClaimPostPublicationParams) (PostPublication, error) {
-	row := q.db.QueryRow(ctx, claimPostPublication,
-		arg.Now,
-		arg.PostID,
-		arg.Channel,
-		arg.StuckBefore,
-	)
+	row := q.db.QueryRow(ctx, claimPostPublication, arg.Now, arg.PostID, arg.Channel)
 	var i PostPublication
 	err := row.Scan(
 		&i.PostID,
@@ -108,13 +102,47 @@ func (q *Queries) CreatePost(ctx context.Context, arg CreatePostParams) (Post, e
 	return i, err
 }
 
-const deletePost = `-- name: DeletePost :execrows
-DELETE FROM posts WHERE id = $1 AND status IN ('idea', 'draft')
+const deleteArticle = `-- name: DeleteArticle :exec
+DELETE FROM published_articles WHERE post_id = $1
 `
 
-// DeletePost deletes only ideas and drafts; anything further is archived.
+func (q *Queries) DeleteArticle(ctx context.Context, postID pgtype.UUID) error {
+	_, err := q.db.Exec(ctx, deleteArticle, postID)
+	return err
+}
+
+const deletePost = `-- name: DeletePost :execrows
+DELETE FROM posts p
+WHERE p.id = $1 AND p.status IN ('idea', 'draft')
+  AND NOT EXISTS (SELECT 1 FROM post_publications pub WHERE pub.post_id = p.id)
+`
+
+// DeletePost deletes only ideas and drafts that never went out; anything
+// further is archived.
 func (q *Queries) DeletePost(ctx context.Context, id pgtype.UUID) (int64, error) {
 	result, err := q.db.Exec(ctx, deletePost, id)
+	if err != nil {
+		return 0, err
+	}
+	return result.RowsAffected(), nil
+}
+
+const failStuckPostPublications = `-- name: FailStuckPostPublications :execrows
+UPDATE post_publications
+SET status = 'failed', error = 'unknown_outcome', updated_at = $1
+WHERE status = 'publishing' AND updated_at < $2
+`
+
+type FailStuckPostPublicationsParams struct {
+	Now    time.Time
+	Before time.Time
+}
+
+// FailStuckPostPublications fails channels whose attempt started before
+// @before and never finished: the worker died mid-call, so the post may or
+// may not be on the platform, and only Daw Mi can tell.
+func (q *Queries) FailStuckPostPublications(ctx context.Context, arg FailStuckPostPublicationsParams) (int64, error) {
+	result, err := q.db.Exec(ctx, failStuckPostPublications, arg.Now, arg.Before)
 	if err != nil {
 		return 0, err
 	}
@@ -196,19 +224,18 @@ func (q *Queries) GetPost(ctx context.Context, id pgtype.UUID) (Post, error) {
 }
 
 const getPublicArticle = `-- name: GetPublicArticle :one
-SELECT v.slug, p.kind, v.title, v.excerpt, v.body, v.seo_title, v.seo_description, pub.published_at,
+SELECT a.slug, p.kind, a.title, a.excerpt, a.body, a.seo_title, a.seo_description, pub.published_at,
        m.id AS cover_id, m.width AS cover_width, m.height AS cover_height,
        m.widths AS cover_widths, m.alt AS cover_alt
-FROM post_versions v
-JOIN posts p ON p.id = v.post_id
-JOIN post_publications pub ON pub.post_id = v.post_id AND pub.channel = 'website'
-LEFT JOIN media m ON m.id = v.cover_image_id
-WHERE v.channel = 'website' AND v.slug = $1 AND v.enabled
-  AND pub.status = 'published' AND p.status IN ('publishing', 'published')
+FROM published_articles a
+JOIN posts p ON p.id = a.post_id
+JOIN post_publications pub ON pub.post_id = a.post_id AND pub.channel = 'website'
+LEFT JOIN media m ON m.id = a.cover_image_id
+WHERE a.slug = $1 AND p.status <> 'archived'
 `
 
 type GetPublicArticleRow struct {
-	Slug           pgtype.Text
+	Slug           string
 	Kind           string
 	Title          json.RawMessage
 	Excerpt        json.RawMessage
@@ -223,7 +250,7 @@ type GetPublicArticleRow struct {
 	CoverAlt       json.RawMessage
 }
 
-func (q *Queries) GetPublicArticle(ctx context.Context, slug pgtype.Text) (GetPublicArticleRow, error) {
+func (q *Queries) GetPublicArticle(ctx context.Context, slug string) (GetPublicArticleRow, error) {
 	row := q.db.QueryRow(ctx, getPublicArticle, slug)
 	var i GetPublicArticleRow
 	err := row.Scan(
@@ -271,6 +298,52 @@ func (q *Queries) ListDueScheduledPosts(ctx context.Context, arg ListDueSchedule
 	for rows.Next() {
 		var i ListDueScheduledPostsRow
 		if err := rows.Scan(&i.ID, &i.ScheduledAt); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
+const listLostPostPublications = `-- name: ListLostPostPublications :many
+SELECT pub.post_id, pub.channel, pub.status, pub.external_id, pub.permalink, pub.error, pub.attempts, pub.published_at, pub.updated_at FROM post_publications pub
+JOIN posts p ON p.id = pub.post_id
+WHERE p.status = 'publishing' AND pub.channel <> 'website'
+  AND pub.status = 'pending' AND pub.updated_at < $1
+ORDER BY pub.updated_at
+LIMIT $2
+`
+
+type ListLostPostPublicationsParams struct {
+	Before  time.Time
+	MaxRows int32
+}
+
+// ListLostPostPublications finds social channels of publishing posts that
+// have waited since before @before: their task was lost.
+func (q *Queries) ListLostPostPublications(ctx context.Context, arg ListLostPostPublicationsParams) ([]PostPublication, error) {
+	rows, err := q.db.Query(ctx, listLostPostPublications, arg.Before, arg.MaxRows)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	items := []PostPublication{}
+	for rows.Next() {
+		var i PostPublication
+		if err := rows.Scan(
+			&i.PostID,
+			&i.Channel,
+			&i.Status,
+			&i.ExternalID,
+			&i.Permalink,
+			&i.Error,
+			&i.Attempts,
+			&i.PublishedAt,
+			&i.UpdatedAt,
+		); err != nil {
 			return nil, err
 		}
 		items = append(items, i)
@@ -357,7 +430,13 @@ func (q *Queries) ListPostVersions(ctx context.Context, postID pgtype.UUID) ([]P
 const listPosts = `-- name: ListPosts :many
 SELECT p.id, p.title, p.kind, p.status, p.scheduled_at, p.consent_confirmed_at, p.consent_confirmed_by, p.consent_note, p.review_note, p.author_id, p.approved_at, p.approved_by, p.published_at, p.version, p.created_at, p.updated_at,
        ARRAY(SELECT v.channel FROM post_versions v
-             WHERE v.post_id = p.id AND v.enabled ORDER BY v.channel)::text[] AS channels
+             WHERE v.post_id = p.id AND v.enabled ORDER BY v.channel)::text[] AS channels,
+       ARRAY(SELECT pub.channel FROM post_publications pub
+             JOIN post_versions v ON v.post_id = pub.post_id AND v.channel = pub.channel AND v.enabled
+             WHERE pub.post_id = p.id ORDER BY pub.channel)::text[] AS publication_channels,
+       ARRAY(SELECT pub.status FROM post_publications pub
+             JOIN post_versions v ON v.post_id = pub.post_id AND v.channel = pub.channel AND v.enabled
+             WHERE pub.post_id = p.id ORDER BY pub.channel)::text[] AS publication_statuses
 FROM posts p
 WHERE ($1::text IS NULL OR p.status = $1)
   AND ($2::text IS NULL OR p.title ILIKE $2)
@@ -376,26 +455,29 @@ type ListPostsParams struct {
 }
 
 type ListPostsRow struct {
-	ID                 pgtype.UUID
-	Title              string
-	Kind               string
-	Status             string
-	ScheduledAt        sql.NullTime
-	ConsentConfirmedAt sql.NullTime
-	ConsentConfirmedBy pgtype.UUID
-	ConsentNote        pgtype.Text
-	ReviewNote         pgtype.Text
-	AuthorID           pgtype.UUID
-	ApprovedAt         sql.NullTime
-	ApprovedBy         pgtype.UUID
-	PublishedAt        sql.NullTime
-	Version            int32
-	CreatedAt          time.Time
-	UpdatedAt          time.Time
-	Channels           []string
+	ID                  pgtype.UUID
+	Title               string
+	Kind                string
+	Status              string
+	ScheduledAt         sql.NullTime
+	ConsentConfirmedAt  sql.NullTime
+	ConsentConfirmedBy  pgtype.UUID
+	ConsentNote         pgtype.Text
+	ReviewNote          pgtype.Text
+	AuthorID            pgtype.UUID
+	ApprovedAt          sql.NullTime
+	ApprovedBy          pgtype.UUID
+	PublishedAt         sql.NullTime
+	Version             int32
+	CreatedAt           time.Time
+	UpdatedAt           time.Time
+	Channels            []string
+	PublicationChannels []string
+	PublicationStatuses []string
 }
 
 // ListPosts is newest first; the page continues after (@after_at, @after_id).
+// The publications of enabled channels come as two arrays in channel order.
 func (q *Queries) ListPosts(ctx context.Context, arg ListPostsParams) ([]ListPostsRow, error) {
 	rows, err := q.db.Query(ctx, listPosts,
 		arg.Status,
@@ -429,6 +511,8 @@ func (q *Queries) ListPosts(ctx context.Context, arg ListPostsParams) ([]ListPos
 			&i.CreatedAt,
 			&i.UpdatedAt,
 			&i.Channels,
+			&i.PublicationChannels,
+			&i.PublicationStatuses,
 		); err != nil {
 			return nil, err
 		}
@@ -441,17 +525,16 @@ func (q *Queries) ListPosts(ctx context.Context, arg ListPostsParams) ([]ListPos
 }
 
 const listPublicArticles = `-- name: ListPublicArticles :many
-SELECT v.slug, p.kind, v.title, v.excerpt, pub.published_at,
+SELECT a.slug, p.kind, a.title, a.excerpt, pub.published_at,
        m.id AS cover_id, m.width AS cover_width, m.height AS cover_height,
        m.widths AS cover_widths, m.alt AS cover_alt
-FROM post_versions v
-JOIN posts p ON p.id = v.post_id
-JOIN post_publications pub ON pub.post_id = v.post_id AND pub.channel = 'website'
-LEFT JOIN media m ON m.id = v.cover_image_id
-WHERE v.channel = 'website' AND v.enabled AND pub.status = 'published'
-  AND p.status IN ('publishing', 'published')
+FROM published_articles a
+JOIN posts p ON p.id = a.post_id
+JOIN post_publications pub ON pub.post_id = a.post_id AND pub.channel = 'website'
+LEFT JOIN media m ON m.id = a.cover_image_id
+WHERE p.status <> 'archived'
   AND ($1::text IS NULL OR p.kind = $1)
-ORDER BY pub.published_at DESC, v.post_id DESC
+ORDER BY pub.published_at DESC, a.post_id DESC
 LIMIT $2
 `
 
@@ -461,7 +544,7 @@ type ListPublicArticlesParams struct {
 }
 
 type ListPublicArticlesRow struct {
-	Slug        pgtype.Text
+	Slug        string
 	Kind        string
 	Title       json.RawMessage
 	Excerpt     json.RawMessage
@@ -473,9 +556,8 @@ type ListPublicArticlesRow struct {
 	CoverAlt    json.RawMessage
 }
 
-// ListPublicArticles selects the website versions that are live: enabled,
-// published on the website, of a post that is publishing or published (not
-// archived, nor back in review after an edit), with the cover image.
+// ListPublicArticles selects the articles visitors read: the copy taken at
+// the last publication of each post not archived, with the cover image.
 func (q *Queries) ListPublicArticles(ctx context.Context, arg ListPublicArticlesParams) ([]ListPublicArticlesRow, error) {
 	rows, err := q.db.Query(ctx, listPublicArticles, arg.Kind, arg.MaxRows)
 	if err != nil {
@@ -496,52 +578,6 @@ func (q *Queries) ListPublicArticles(ctx context.Context, arg ListPublicArticles
 			&i.CoverHeight,
 			&i.CoverWidths,
 			&i.CoverAlt,
-		); err != nil {
-			return nil, err
-		}
-		items = append(items, i)
-	}
-	if err := rows.Err(); err != nil {
-		return nil, err
-	}
-	return items, nil
-}
-
-const listStuckPostPublications = `-- name: ListStuckPostPublications :many
-SELECT pub.post_id, pub.channel, pub.status, pub.external_id, pub.permalink, pub.error, pub.attempts, pub.published_at, pub.updated_at FROM post_publications pub
-JOIN posts p ON p.id = pub.post_id
-WHERE p.status = 'publishing' AND pub.channel <> 'website'
-  AND pub.status IN ('pending', 'publishing') AND pub.updated_at < $1
-ORDER BY pub.updated_at
-LIMIT $2
-`
-
-type ListStuckPostPublicationsParams struct {
-	Before  time.Time
-	MaxRows int32
-}
-
-// ListStuckPostPublications finds social channels of publishing posts that
-// have waited or run since before @before: their task was lost.
-func (q *Queries) ListStuckPostPublications(ctx context.Context, arg ListStuckPostPublicationsParams) ([]PostPublication, error) {
-	rows, err := q.db.Query(ctx, listStuckPostPublications, arg.Before, arg.MaxRows)
-	if err != nil {
-		return nil, err
-	}
-	defer rows.Close()
-	items := []PostPublication{}
-	for rows.Next() {
-		var i PostPublication
-		if err := rows.Scan(
-			&i.PostID,
-			&i.Channel,
-			&i.Status,
-			&i.ExternalID,
-			&i.Permalink,
-			&i.Error,
-			&i.Attempts,
-			&i.PublishedAt,
-			&i.UpdatedAt,
 		); err != nil {
 			return nil, err
 		}
@@ -799,5 +835,25 @@ func (q *Queries) SavePostVersion(ctx context.Context, arg SavePostVersionParams
 		arg.ImageIds,
 		arg.Now,
 	)
+	return err
+}
+
+const snapshotArticle = `-- name: SnapshotArticle :exec
+INSERT INTO published_articles (post_id, slug, title, excerpt, body, cover_image_id, seo_title,
+                                seo_description, updated_at)
+SELECT v.post_id, v.slug, v.title, v.excerpt, v.body, v.cover_image_id, v.seo_title, v.seo_description, $1
+FROM post_versions v
+WHERE v.post_id = $2 AND v.channel = 'website'
+`
+
+type SnapshotArticleParams struct {
+	Now    time.Time
+	PostID pgtype.UUID
+}
+
+// SnapshotArticle copies the website version of post @post_id to what
+// visitors read; DeleteArticle removes the earlier copy first.
+func (q *Queries) SnapshotArticle(ctx context.Context, arg SnapshotArticleParams) error {
+	_, err := q.db.Exec(ctx, snapshotArticle, arg.Now, arg.PostID)
 	return err
 }

@@ -29,8 +29,9 @@ const (
 	// maxAttempts is a first try and three retries, which asynq spaces out
 	// with its backoff.
 	maxAttempts = 4
-	// stuckAfter is how long a channel may wait or run before the sweep
-	// enqueues it again; asynq's three retries are over well within it.
+	// stuckAfter is how long a channel may wait before the sweep enqueues
+	// it again, or run before the sweep fails it as unknown_outcome; an
+	// attempt, polling included, is over well within it.
 	stuckAfter = 10 * time.Minute
 	// scheduleGrace leaves a scheduled post that has just come due to its
 	// own task.
@@ -58,15 +59,9 @@ func (e *ChannelError) Error() string { return "content: channel not posted: " +
 // ErrNotConnected is a channel with no platform connection yet.
 var ErrNotConnected = &ChannelError{Reason: "not_connected"}
 
-// connectors posts each social channel. The Meta and LinkedIn connectors
-// arrive with #121 and #122; until then Daw Mi posts by hand.
-var connectors = map[string]Publisher{
-	"facebook":  notConnected,
-	"instagram": notConnected,
-	"linkedin":  notConnected,
-}
-
-func notConnected(context.Context, db.PostVersion) (Posted, error) { return Posted{}, ErrNotConnected }
+// NotConnected is the Publisher of a channel whose connector does not exist
+// yet (LinkedIn, until #122): Daw Mi posts it by hand.
+func NotConnected(context.Context, db.PostVersion) (Posted, error) { return Posted{}, ErrNotConnected }
 
 type postPayload struct {
 	PostID string `json:"postId"`
@@ -115,8 +110,8 @@ func PublishTasks(p Post) []platform.Task {
 }
 
 // RevalidateTasks asks the site to refresh p's article once p has been on
-// the website: after it goes live, is edited back into review, or is
-// archived.
+// the website: after it goes live, goes live again after an edit, or is
+// archived. An edit alone changes nothing visitors read.
 func RevalidateTasks(p Post) []platform.Task {
 	for _, v := range p.Versions {
 		if v.Channel == "website" && v.Slug.Valid && publication(p, "website").Status == "published" {
@@ -159,9 +154,7 @@ func PublishScheduled(ctx context.Context, pool *pgxpool.Pool, id pgtype.UUID, n
 func PublishChannel(ctx context.Context, pool *pgxpool.Pool, id pgtype.UUID, channel string, publish Publisher,
 	now time.Time) error {
 	q := db.New(pool)
-	pub, err := q.ClaimPostPublication(ctx, db.ClaimPostPublicationParams{
-		PostID: id, Channel: channel, Now: now, StuckBefore: now.Add(-stuckAfter),
-	})
+	pub, err := q.ClaimPostPublication(ctx, db.ClaimPostPublicationParams{PostID: id, Channel: channel, Now: now})
 	if errors.Is(err, pgx.ErrNoRows) {
 		return nil // done, taken by another worker, or the post moved on
 	}
@@ -223,9 +216,9 @@ func Retry(ctx context.Context, pool *pgxpool.Pool, id pgtype.UUID, channel stri
 }
 
 // DueTasks rebuilds the tasks Redis lost (ADR-006): scheduled posts past
-// their time, and social channels waiting or running for longer than
-// stuckAfter. Task ids match the ones first given, so a task still queued
-// is not added twice.
+// their time, and social channels waiting for longer than stuckAfter. Task
+// ids match the ones first given, so a task still queued is not added
+// twice.
 func DueTasks(ctx context.Context, q db.Querier, now time.Time) ([]platform.Task, error) {
 	posts, err := q.ListDueScheduledPosts(ctx, db.ListDueScheduledPostsParams{
 		Before: now.Add(-scheduleGrace), MaxRows: sweepLimit,
@@ -233,7 +226,7 @@ func DueTasks(ctx context.Context, q db.Querier, now time.Time) ([]platform.Task
 	if err != nil {
 		return nil, err
 	}
-	pubs, err := q.ListStuckPostPublications(ctx, db.ListStuckPostPublicationsParams{
+	pubs, err := q.ListLostPostPublications(ctx, db.ListLostPostPublicationsParams{
 		Before: now.Add(-stuckAfter), MaxRows: sweepLimit,
 	})
 	if err != nil {
@@ -247,4 +240,12 @@ func DueTasks(ctx context.Context, q db.Querier, now time.Time) ([]platform.Task
 		tasks = append(tasks, channelTask(pub))
 	}
 	return tasks, nil
+}
+
+// FailStuck fails as unknown_outcome every channel whose attempt has run for
+// longer than stuckAfter: its worker died mid-call, so the post may be on
+// the platform already. Sending it again could post it twice, so Daw Mi
+// checks the platform and then retries or marks it posted.
+func FailStuck(ctx context.Context, q db.Querier, now time.Time) (int64, error) {
+	return q.FailStuckPostPublications(ctx, db.FailStuckPostPublicationsParams{Before: now.Add(-stuckAfter), Now: now})
 }

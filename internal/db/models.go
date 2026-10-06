@@ -111,6 +111,21 @@ type Communication struct {
 	Message           pgtype.Text
 }
 
+type Connection struct {
+	Platform          string
+	Status            string
+	Token             []byte
+	AccountID         pgtype.Text
+	AccountName       pgtype.Text
+	InstagramID       pgtype.Text
+	InstagramUsername pgtype.Text
+	ExpiresAt         sql.NullTime
+	LastError         pgtype.Text
+	ConnectedBy       pgtype.UUID
+	ConnectedAt       time.Time
+	UpdatedAt         time.Time
+}
+
 type ContactEnquiry struct {
 	ID           pgtype.UUID
 	Reference    string
@@ -198,6 +213,18 @@ type PostVersion struct {
 	Text           pgtype.Text
 	LinkUrl        pgtype.Text
 	ImageIds       []pgtype.UUID
+	UpdatedAt      time.Time
+}
+
+type PublishedArticle struct {
+	PostID         pgtype.UUID
+	Slug           string
+	Title          json.RawMessage
+	Excerpt        json.RawMessage
+	Body           json.RawMessage
+	CoverImageID   pgtype.UUID
+	SeoTitle       json.RawMessage
+	SeoDescription json.RawMessage
 	UpdatedAt      time.Time
 }
 

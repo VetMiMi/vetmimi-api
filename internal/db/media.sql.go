@@ -64,11 +64,12 @@ DELETE FROM media
 WHERE id = $1
   AND NOT EXISTS (SELECT 1 FROM post_versions v
                   WHERE v.cover_image_id = $1 OR $1 = ANY (v.image_ids))
+  AND NOT EXISTS (SELECT 1 FROM published_articles a WHERE a.cover_image_id = $1)
 RETURNING id, width, height, widths, byte_size, alt, credit, uploaded_by, version, created_at, updated_at
 `
 
-// DeleteUnusedMedia deletes an item no post version shows, whatever the
-// post's status; no row back means it is gone or in use.
+// DeleteUnusedMedia deletes an item no post version or published article
+// shows, whatever the post's status; no row back means it is gone or in use.
 func (q *Queries) DeleteUnusedMedia(ctx context.Context, id pgtype.UUID) (Media, error) {
 	row := q.db.QueryRow(ctx, deleteUnusedMedia, id)
 	var i Media
