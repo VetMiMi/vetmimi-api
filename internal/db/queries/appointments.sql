@@ -31,3 +31,22 @@ FROM appointments a
 JOIN services s ON s.id = a.service_id
 WHERE a.status IN ('pending', 'confirmed') AND a.busy_range && @period::tstzrange
 ORDER BY a.starts_at;
+
+-- name: LockAppointment :one
+SELECT * FROM appointments WHERE id = @id FOR UPDATE;
+
+-- SetAppointmentStatus is the one write of a status change; the caller has
+-- checked it with booking.CanTransition.
+-- name: SetAppointmentStatus :one
+UPDATE appointments
+SET status = @status, status_changed_at = @now, updated_at = @now, version = version + 1
+WHERE id = @id
+RETURNING *;
+
+-- ListOverdueHolds serves booking:sweep-holds through the partial index on
+-- pending holds.
+-- name: ListOverdueHolds :many
+SELECT id FROM appointments
+WHERE status = 'pending' AND hold_expires_at <= @now::timestamptz
+ORDER BY hold_expires_at
+LIMIT @max_rows;

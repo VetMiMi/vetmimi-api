@@ -119,6 +119,40 @@ func (q *Queries) InsertAppointment(ctx context.Context, arg InsertAppointmentPa
 	return i, err
 }
 
+const listOverdueHolds = `-- name: ListOverdueHolds :many
+SELECT id FROM appointments
+WHERE status = 'pending' AND hold_expires_at <= $1::timestamptz
+ORDER BY hold_expires_at
+LIMIT $2
+`
+
+type ListOverdueHoldsParams struct {
+	Now     time.Time
+	MaxRows int32
+}
+
+// ListOverdueHolds serves booking:sweep-holds through the partial index on
+// pending holds.
+func (q *Queries) ListOverdueHolds(ctx context.Context, arg ListOverdueHoldsParams) ([]pgtype.UUID, error) {
+	rows, err := q.db.Query(ctx, listOverdueHolds, arg.Now, arg.MaxRows)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	items := []pgtype.UUID{}
+	for rows.Next() {
+		var id pgtype.UUID
+		if err := rows.Scan(&id); err != nil {
+			return nil, err
+		}
+		items = append(items, id)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
 const listOverlappingAppointments = `-- name: ListOverlappingAppointments :many
 SELECT a.id, a.reference, a.status, a.starts_at, a.ends_at, a.duration_minutes, a.timezone,
        a.format, a.source, a.visitor_name, a.hold_expires_at, a.created_at, a.updated_at,
@@ -185,6 +219,48 @@ func (q *Queries) ListOverlappingAppointments(ctx context.Context, period pgtype
 	return items, nil
 }
 
+const lockAppointment = `-- name: LockAppointment :one
+SELECT id, reference, practitioner_id, service_id, status, starts_at, ends_at, duration_minutes, busy_range, timezone, format, locale, source, visitor_name, visitor_email, visitor_phone, visitor_note, privacy_ack_at, policy_ack_at, hold_expires_at, management_token_seed, management_token_hash, meeting_link, admin_note, late_cancellation, status_changed_at, created_by, version, created_at, updated_at FROM appointments WHERE id = $1 FOR UPDATE
+`
+
+func (q *Queries) LockAppointment(ctx context.Context, id pgtype.UUID) (Appointment, error) {
+	row := q.db.QueryRow(ctx, lockAppointment, id)
+	var i Appointment
+	err := row.Scan(
+		&i.ID,
+		&i.Reference,
+		&i.PractitionerID,
+		&i.ServiceID,
+		&i.Status,
+		&i.StartsAt,
+		&i.EndsAt,
+		&i.DurationMinutes,
+		&i.BusyRange,
+		&i.Timezone,
+		&i.Format,
+		&i.Locale,
+		&i.Source,
+		&i.VisitorName,
+		&i.VisitorEmail,
+		&i.VisitorPhone,
+		&i.VisitorNote,
+		&i.PrivacyAckAt,
+		&i.PolicyAckAt,
+		&i.HoldExpiresAt,
+		&i.ManagementTokenSeed,
+		&i.ManagementTokenHash,
+		&i.MeetingLink,
+		&i.AdminNote,
+		&i.LateCancellation,
+		&i.StatusChangedAt,
+		&i.CreatedBy,
+		&i.Version,
+		&i.CreatedAt,
+		&i.UpdatedAt,
+	)
+	return i, err
+}
+
 const lockSchedule = `-- name: LockSchedule :exec
 SELECT pg_advisory_xact_lock(hashtext(
     'availability:' || coalesce((SELECT id::text FROM users WHERE is_practitioner), '')))
@@ -196,4 +272,57 @@ SELECT pg_advisory_xact_lock(hashtext(
 func (q *Queries) LockSchedule(ctx context.Context) error {
 	_, err := q.db.Exec(ctx, lockSchedule)
 	return err
+}
+
+const setAppointmentStatus = `-- name: SetAppointmentStatus :one
+UPDATE appointments
+SET status = $1, status_changed_at = $2, updated_at = $2, version = version + 1
+WHERE id = $3
+RETURNING id, reference, practitioner_id, service_id, status, starts_at, ends_at, duration_minutes, busy_range, timezone, format, locale, source, visitor_name, visitor_email, visitor_phone, visitor_note, privacy_ack_at, policy_ack_at, hold_expires_at, management_token_seed, management_token_hash, meeting_link, admin_note, late_cancellation, status_changed_at, created_by, version, created_at, updated_at
+`
+
+type SetAppointmentStatusParams struct {
+	Status string
+	Now    time.Time
+	ID     pgtype.UUID
+}
+
+// SetAppointmentStatus is the one write of a status change; the caller has
+// checked it with booking.CanTransition.
+func (q *Queries) SetAppointmentStatus(ctx context.Context, arg SetAppointmentStatusParams) (Appointment, error) {
+	row := q.db.QueryRow(ctx, setAppointmentStatus, arg.Status, arg.Now, arg.ID)
+	var i Appointment
+	err := row.Scan(
+		&i.ID,
+		&i.Reference,
+		&i.PractitionerID,
+		&i.ServiceID,
+		&i.Status,
+		&i.StartsAt,
+		&i.EndsAt,
+		&i.DurationMinutes,
+		&i.BusyRange,
+		&i.Timezone,
+		&i.Format,
+		&i.Locale,
+		&i.Source,
+		&i.VisitorName,
+		&i.VisitorEmail,
+		&i.VisitorPhone,
+		&i.VisitorNote,
+		&i.PrivacyAckAt,
+		&i.PolicyAckAt,
+		&i.HoldExpiresAt,
+		&i.ManagementTokenSeed,
+		&i.ManagementTokenHash,
+		&i.MeetingLink,
+		&i.AdminNote,
+		&i.LateCancellation,
+		&i.StatusChangedAt,
+		&i.CreatedBy,
+		&i.Version,
+		&i.CreatedAt,
+		&i.UpdatedAt,
+	)
+	return i, err
 }

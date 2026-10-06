@@ -22,7 +22,6 @@ output-options:
   exclude-operation-ids:
     - connectVideoRoom
     # Public booking and the manage link arrive with their own issues.
-    - createPublicAppointment
     - getManagedAppointment
     - cancelManagedAppointment
     - requestManagedReschedule

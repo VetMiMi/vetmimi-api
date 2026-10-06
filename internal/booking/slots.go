@@ -50,7 +50,7 @@ func slots(ctx context.Context, q db.Querier, svc db.Service, cur settings.Setti
 	if err := checkSlotRange(first, last); err != nil {
 		return Availability{}, err
 	}
-	if svc.State != "active" || (svc.BookingAction != "book" && svc.BookingAction != "request") || !svc.DurationMinutes.Valid {
+	if !bookable(svc) {
 		return Availability{}, errNotBookable
 	}
 	loc, err := cur.Location()
@@ -89,6 +89,12 @@ func slots(ctx context.Context, q db.Querier, svc db.Service, cur settings.Setti
 		in.Busy[i] = PeriodOf(b)
 	}
 	return Availability{Timezone: cur.Timezone, First: first, Last: last, Days: FreeSlots(in)}, nil
+}
+
+// bookable reports whether visitors may book or request svc.
+func bookable(svc db.Service) bool {
+	return svc.State == "active" && (svc.BookingAction == "book" || svc.BookingAction == "request") &&
+		svc.DurationMinutes.Valid
 }
 
 func checkSlotRange(first, last time.Time) error {

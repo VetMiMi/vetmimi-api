@@ -24,18 +24,19 @@ import (
 // administrators in and authenticates them; nil, signed-in operations refuse
 // every call. Pool is the database the domain handlers use. Queue takes the
 // tasks a handler enqueues after its transaction commits; nil drops them, and
-// the sweepers rebuild them (tests leave it nil). Now is the clock; nil means
-// time.Now.
+// the sweepers rebuild them (tests leave it nil). SigningSecret derives
+// management links. Now is the clock; nil means time.Now.
 type Deps struct {
-	PingPostgres func(context.Context) error
-	PingRedis    func(context.Context) error
-	Log          *slog.Logger
-	ServiceKey   string
-	RateLimits   *RateLimits
-	Sessions     *auth.Sessions
-	Pool         *pgxpool.Pool
-	Queue        *platform.Queue
-	Now          clock.Now
+	PingPostgres  func(context.Context) error
+	PingRedis     func(context.Context) error
+	Log           *slog.Logger
+	ServiceKey    string
+	RateLimits    *RateLimits
+	Sessions      *auth.Sessions
+	Pool          *pgxpool.Pool
+	Queue         *platform.Queue
+	SigningSecret []byte
+	Now           clock.Now
 }
 
 // server implements gen.StrictServerInterface.

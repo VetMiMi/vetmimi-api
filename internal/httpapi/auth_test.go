@@ -152,14 +152,15 @@ func newAuthAPI(t *testing.T) *authAPI {
 	sessions, err := auth.NewSessions(pgtest.Pool(t), a.codes, auth.NewLockout(rdb, prefix, a.clock.now), a.clock.now)
 	require.NoError(t, err)
 	a.handler = NewRouter(Deps{
-		PingPostgres: ok,
-		PingRedis:    ok,
-		Log:          log,
-		ServiceKey:   testServiceKey,
-		RateLimits:   NewRateLimits(platform.NewLimiter(rdb, prefix, a.clock.now), log, a.clock.now),
-		Sessions:     sessions,
-		Pool:         pgtest.Pool(t),
-		Now:          a.clock.now,
+		PingPostgres:  ok,
+		PingRedis:     ok,
+		Log:           log,
+		ServiceKey:    testServiceKey,
+		RateLimits:    NewRateLimits(platform.NewLimiter(rdb, prefix, a.clock.now), log, a.clock.now),
+		Sessions:      sessions,
+		Pool:          pgtest.Pool(t),
+		SigningSecret: []byte("test signing secret, 32 bytes ok"),
+		Now:           a.clock.now,
 	})
 	return a
 }

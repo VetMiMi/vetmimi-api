@@ -88,15 +88,16 @@ func runAPI(ctx context.Context, log *slog.Logger, cfg platform.Config, pool *pg
 		return err
 	}
 	srv := newServer(cfg.Port, httpapi.NewRouter(httpapi.Deps{
-		PingPostgres: pool.Ping,
-		PingRedis:    func(ctx context.Context) error { return rdb.Ping(ctx).Err() },
-		Log:          log,
-		ServiceKey:   cfg.ServiceKey,
-		RateLimits:   httpapi.NewRateLimits(platform.NewLimiter(rdb, "", time.Now), log, time.Now),
-		Sessions:     sessions,
-		Pool:         pool,
-		Queue:        platform.NewQueue(rdb, log),
-		Now:          time.Now,
+		PingPostgres:  pool.Ping,
+		PingRedis:     func(ctx context.Context) error { return rdb.Ping(ctx).Err() },
+		Log:           log,
+		ServiceKey:    cfg.ServiceKey,
+		RateLimits:    httpapi.NewRateLimits(platform.NewLimiter(rdb, "", time.Now), log, time.Now),
+		Sessions:      sessions,
+		Pool:          pool,
+		Queue:         platform.NewQueue(rdb, log),
+		SigningSecret: cfg.SigningSecret,
+		Now:           time.Now,
 	}))
 
 	errc := make(chan error, 1)

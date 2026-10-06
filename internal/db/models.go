@@ -110,6 +110,16 @@ type Communication struct {
 	CreatedAt         time.Time
 }
 
+type IdempotencyKey struct {
+	Scope          string
+	Key            string
+	RequestHash    []byte
+	ResourceID     pgtype.UUID
+	ResponseStatus pgtype.Int2
+	ResponseBody   []byte
+	CreatedAt      time.Time
+}
+
 type Service struct {
 	ID                  pgtype.UUID
 	Slug                string
