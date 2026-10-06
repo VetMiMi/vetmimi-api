@@ -13,7 +13,7 @@ import (
 	"github.com/VetMiMi/vetmimi-api/internal/platform/apperr"
 )
 
-// Article is a published website version in one locale. Body, SEOTitle and
+// Article is a post's website version as last published, in one locale. Body, SEOTitle and
 // SEODescription are empty in a list.
 type Article struct {
 	Slug           string
@@ -58,7 +58,7 @@ func ListArticles(ctx context.Context, q db.Querier, locale, kind string, limit 
 	out := make([]Article, len(rows))
 	for i, r := range rows {
 		out[i] = Article{
-			Slug: r.Slug.String, Kind: r.Kind, PublishedAt: r.PublishedAt.Time,
+			Slug: r.Slug, Kind: r.Kind, PublishedAt: r.PublishedAt.Time,
 			Title: inLocale(r.Title, locale), Excerpt: inLocale(r.Excerpt, locale),
 			Cover: cover(r.CoverID, r.CoverWidth, r.CoverHeight, r.CoverWidths, r.CoverAlt, locale),
 		}
@@ -69,7 +69,7 @@ func ListArticles(ctx context.Context, q db.Querier, locale, kind string, limit 
 // GetArticle reads one published article in locale, English as the
 // fallback. The SEO title and description default to the title and excerpt.
 func GetArticle(ctx context.Context, q db.Querier, slug, locale string) (Article, error) {
-	r, err := q.GetPublicArticle(ctx, pgtype.Text{String: slug, Valid: true})
+	r, err := q.GetPublicArticle(ctx, slug)
 	if errors.Is(err, pgx.ErrNoRows) {
 		return Article{}, errNoArticle
 	}
@@ -77,7 +77,7 @@ func GetArticle(ctx context.Context, q db.Querier, slug, locale string) (Article
 		return Article{}, err
 	}
 	a := Article{
-		Slug: r.Slug.String, Kind: r.Kind, PublishedAt: r.PublishedAt.Time,
+		Slug: r.Slug, Kind: r.Kind, PublishedAt: r.PublishedAt.Time,
 		Cover: cover(r.CoverID, r.CoverWidth, r.CoverHeight, r.CoverWidths, r.CoverAlt, locale),
 		Title: inLocale(r.Title, locale), Excerpt: inLocale(r.Excerpt, locale), Body: inLocale(r.Body, locale),
 		SEOTitle: inLocale(r.SeoTitle, locale), SEODescription: inLocale(r.SeoDescription, locale),

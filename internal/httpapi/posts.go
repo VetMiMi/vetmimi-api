@@ -63,7 +63,6 @@ func (s *server) UpdatePost(ctx context.Context, req gen.UpdatePostRequestObject
 	if err != nil {
 		return nil, err
 	}
-	s.enqueue(ctx, content.RevalidateTasks(p)...)
 	s.logPost(ctx, "post_updated", p)
 	return gen.UpdatePost200JSONResponse(postView(p)), nil
 }

@@ -145,8 +145,9 @@ var errLiveEdit = apperr.New(apperr.ActionNotAllowed,
 // UpdatePost applies e to the post as of version. Saving an approved or
 // scheduled post sends it back to review, so nothing unreviewed goes out.
 // Once publishing has started only the title and the website version can
-// change: that too goes back to review, and the article is off the site
-// until it is published again. What went out on social channels stays.
+// change: that too goes back to review, while visitors keep reading the
+// article as last published until it is published again. What went out on
+// social channels stays.
 func UpdatePost(ctx context.Context, pool *pgxpool.Pool, id pgtype.UUID, version int32, e Edit,
 	actor pgtype.UUID, now time.Time) (Post, error) {
 	return change(ctx, pool, id, version, now, func(q *db.Queries, p *db.Post) error {
@@ -176,8 +177,8 @@ func UpdatePost(ctx context.Context, pool *pgxpool.Pool, id pgtype.UUID, version
 	})
 }
 
-// DeletePost deletes an idea or a draft; anything further along is
-// archived instead, so what was reviewed or published keeps its record.
+// DeletePost deletes an idea or a draft that never went out; anything
+// further along is archived instead, so what was published keeps its record.
 func DeletePost(ctx context.Context, q db.Querier, id pgtype.UUID) error {
 	n, err := q.DeletePost(ctx, id)
 	if err != nil || n > 0 {
@@ -186,7 +187,8 @@ func DeletePost(ctx context.Context, q db.Querier, id pgtype.UUID) error {
 	if _, err := GetPost(ctx, q, id); err != nil {
 		return err
 	}
-	return apperr.New(apperr.InvalidTransition, "Only ideas and drafts can be deleted; archive the post instead.")
+	return apperr.New(apperr.InvalidTransition,
+		"Only ideas and drafts that never went out can be deleted; archive the post instead.")
 }
 
 // setConsent records who confirmed consent and when; confirming again keeps
@@ -257,10 +259,12 @@ func change(ctx context.Context, pool *pgxpool.Pool, id pgtype.UUID, version int
 }
 
 // refusal names the one constraint an author's input can break; the unique
-// index is the guard, so two drafts racing for a slug cannot both win.
+// indexes are the guard, so two drafts racing for a slug cannot both win, nor
+// can a post take the slug another's live article still has.
 func refusal(err error) error {
 	var pgErr *pgconn.PgError
-	if errors.As(err, &pgErr) && pgErr.ConstraintName == "post_versions_slug_key" {
+	if errors.As(err, &pgErr) && (pgErr.ConstraintName == "post_versions_slug_key" ||
+		pgErr.ConstraintName == "published_articles_slug_key") {
 		return errSlugTaken
 	}
 	return err

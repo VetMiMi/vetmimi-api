@@ -147,8 +147,9 @@ func TestTransientFailureRetriesThreeTimes(t *testing.T) {
 }
 
 // The sweep rebuilds what Redis lost: a scheduled post past its time, and
-// a channel left waiting or running for ten minutes, which the worker then
-// takes again.
+// a channel left waiting for ten minutes. A channel left running is never
+// sent again, since it may have posted: the sweep fails it as
+// unknown_outcome for Daw Mi to check, then retry or mark posted.
 func TestSweepRebuildsLostTasks(t *testing.T) {
 	scheduled := newPost(t, "insight", website("swept-article"))
 	require.NoError(t, scheduled.submit())
@@ -177,13 +178,23 @@ func TestSweepRebuildsLostTasks(t *testing.T) {
 	_, err := pgtest.Pool(t).Exec(ctx, `UPDATE post_publications SET status = 'publishing'
 		WHERE post_id = $1 AND channel = 'facebook'`, stuck.post.ID)
 	require.NoError(t, err)
+	sent := 0
+	send := func(context.Context, db.PostVersion) (content.Posted, error) {
+		sent++
+		return content.Posted{ExternalID: "1_2"}, nil
+	}
 	task := payload(t, content.PublishTasks(stuck.post)[0])
-	now := stuck.now.Add(5 * time.Minute)
-	require.NoError(t, worker(t, &now, nil).PublishChannel(ctx, task))
-	require.Equal(t, "publishing", publication(reload(t, stuck.post.ID), "facebook").Status, "may still be running")
-	now = stuck.now.Add(11 * time.Minute)
-	require.NoError(t, worker(t, &now, nil).PublishChannel(ctx, task))
-	require.Equal(t, "not_connected", publication(reload(t, stuck.post.ID), "facebook").Error.String)
+	now := stuck.now.Add(11 * time.Minute)
+	require.NoError(t, worker(t, &now, send).PublishChannel(ctx, task))
+	require.Zero(t, sent, "a running attempt is never sent again")
+	require.NotContains(t, ids(now), channelID)
+
+	require.NoError(t, worker(t, &now, send).Sweep(ctx, nil))
+	fb := publication(reload(t, stuck.post.ID), "facebook")
+	require.Equal(t, "failed", fb.Status)
+	require.Equal(t, "unknown_outcome", fb.Error.String)
+	require.NotContains(t, ids(now.Add(time.Hour)), channelID, "failed waits for Daw Mi")
+	require.Zero(t, sent)
 }
 
 // The website channel asks the site to revalidate the articles list and the
@@ -215,9 +226,10 @@ func TestRevalidateCallsTheSite(t *testing.T) {
 	require.Error(t, w.Revalidate(ctx, task), "retried by asynq")
 }
 
-// A published article may be corrected: the edit goes back to review and
-// off the site, and publishing again republishes the website only, keeping
-// its first publication time; what went out on Facebook stays.
+// A published article may be corrected: the edit goes back to review while
+// visitors keep reading the article as published, and publishing again
+// republishes the website only, keeping its first publication time; what
+// went out on Facebook stays. A post that went out is never deleted.
 func TestEditingAPublishedArticleRepublishesTheWebsite(t *testing.T) {
 	f := newPost(t, "insight", website("corrected-article"), facebook("Read the new article.")).published()
 	pool := pgtest.Pool(t)
@@ -233,9 +245,17 @@ func TestEditingAPublishedArticleRepublishesTheWebsite(t *testing.T) {
 	f.now = f.now.Add(time.Hour)
 	require.NoError(t, f.edit(content.Edit{Versions: []db.SavePostVersionParams{corrected}}))
 	require.Equal(t, "in_review", f.post.Status)
-	require.Len(t, content.RevalidateTasks(f.post), 1, "the site drops the article")
+	article, err := content.GetArticle(ctx, db.New(pool), "corrected-article", "en")
+	require.NoError(t, err, "still live while in review")
+	require.Equal(t, "# Calm\n\nBreathe.", article.Body)
+	p, err = content.RequestChanges(ctx, pool, f.post.ID, f.post.Version, "One more line.", f.now)
+	require.NoError(t, err)
+	require.Equal(t, "draft", p.Status)
+	requireCode(t, apperr.InvalidTransition, content.DeletePost(ctx, db.New(pool), p.ID))
+	f.post = p
+	require.NoError(t, f.submit())
 	_, err = content.GetArticle(ctx, db.New(pool), "corrected-article", "en")
-	requireCode(t, apperr.NotFound, err)
+	require.NoError(t, err)
 
 	require.NoError(t, f.approve())
 	require.NoError(t, f.publish())
@@ -243,7 +263,7 @@ func TestEditingAPublishedArticleRepublishesTheWebsite(t *testing.T) {
 	require.Equal(t, firstPublished, publication(f.post, "website").PublishedAt)
 	require.Equal(t, "manual", publication(f.post, "facebook").Status)
 	require.Empty(t, content.PublishTasks(f.post))
-	article, err := content.GetArticle(ctx, db.New(pool), "corrected-article", "en")
+	article, err = content.GetArticle(ctx, db.New(pool), "corrected-article", "en")
 	require.NoError(t, err)
 	require.Equal(t, "# Calm\n\nBreathe slowly.", article.Body)
 }

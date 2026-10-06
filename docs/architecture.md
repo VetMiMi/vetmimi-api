@@ -49,6 +49,7 @@ errors from `internal/platform/apperr`, and never import `net/http`.
 | `video` | Video rooms, join tokens, room tickets, TURN credentials, the in-memory room hub and the WebSocket signaling loop, room closing. |
 | `content` | The publishing portal (ADR-009): posts, their channel versions and publications, the workflow (`workflow.go`), approval checks per platform, public articles. |
 | `media` | Uploads, type sniffing, web-sized derivatives, object storage, usage checks. |
+| `meta` | The Facebook Page connection (Facebook Login, the sealed Page token, the linked Instagram account) and the Graph API calls that post the facebook and instagram channels (docs/meta-setup.md). |
 | `comms` | Communication records, templates (`comms/templates/<kind>.<locale>.tmpl`), delivery through Resend, the sweeper, contact enquiries. |
 | `db` | sqlc output (generated, committed) and `db/queries/*.sql`. |
 
@@ -169,6 +170,7 @@ prefix of the email.
 | `/admin/contact-enquiries` | no | yes | yes |
 | `/admin/posts`: list, get, create, patch, delete, submit, mark a channel posted | yes | no | yes |
 | `/admin/posts/{id}`: request-changes, approve, schedule, unschedule, publish, archive | no | no | yes |
+| `/admin/connections/meta`: read, Facebook Login, choose the Page, disconnect | no | no | yes |
 
 The table is `rolesByOperation` in `internal/httpapi/roles.go`, one row per
 `sessionToken` operation; `TestEverySessionOperationHasRoles` fails when an
@@ -310,18 +312,22 @@ content. Daw Mi holds all three roles.
    give `422 publish_requirements_unmet` listing each one.
 3. She publishes now, or schedules a future time (`content:publish-scheduled`
    does the same at that time). Publishing opens a `post_publications` row per
-   enabled channel: the website's is `published` at once, so
-   `GET /public/articles/{slug}` serves it, and `content:revalidate` asks the
-   site to refresh it; social ones are `pending` and the post is `publishing`.
+   enabled channel: the website's is `published` at once and the website
+   version is copied to `published_articles`, which `GET /public/articles/{slug}`
+   serves, and `content:revalidate` asks the site to refresh it; social ones are
+   `pending` and the post is `publishing`.
 4. Each social channel is its own `content:publish-channel` task, calling that
-   platform's connector (`internal/content/publish.go`). Until the Meta and
-   LinkedIn connectors exist each fails `not_connected`; a transient failure
-   is retried three times. A failed channel can be retried, or Daw Mi posts it
-   herself (copy & open) and marks it posted. When every channel is
-   `published` or `manual`, the post is `published`.
+   platform's connector: `internal/meta` for Facebook and Instagram once the
+   Page is connected, otherwise (and for LinkedIn, until its connector)
+   `not_connected`. A transient failure is retried three times. An attempt
+   whose answer is lost on the call that posts, or that is still `publishing`
+   after 10 minutes (its worker died), fails as `unknown_outcome` and is never
+   sent again by itself, since it may have posted. A failed channel can be
+   retried, or Daw Mi posts it herself (copy & open) and marks it posted. When
+   every channel is `published` or `manual`, the post is `published`.
 5. Editing an `approved` or `scheduled` post sends it back to `in_review`; so
-   does editing a published post's website version, which takes the article
-   off the site until it is published again.
+   does editing a published post's website version, while visitors keep
+   reading the copy in `published_articles` until it is published again.
 
 ## Time handling rules
 
@@ -361,9 +367,9 @@ content. Daw Mi holds all three roles.
 | `booking:expire-hold` | Appointment created as `pending` | At `hold_expires_at` | Task id `hold:<id>`; acts only if still `pending` and the hold has passed; writes `expired`, event and `request_expired` email in one transaction |
 | `booking:sweep-holds` | asynq periodic | Every 5 minutes | Runs the same expiry for any overdue `pending` row |
 | `content:publish-scheduled` | `schedule` action | At `scheduled_at` | Task id `post:<id>:<scheduled_at>`; runs the same start of publishing as Publish now, only if the post is still `scheduled` and due |
-| `content:publish-channel` | Publishing starts; `retry` action | Immediate | Task id `publish:<post>:<channel>:<attempts>`; claims the row only while `pending` (or `publishing` for over 10 minutes) and the post `publishing`; up to 4 attempts, then `failed` |
-| `content:revalidate` | An article goes live, is edited back into review, or archived | Immediate | `POST {SITE_URL}/api/revalidate` with `X-Revalidate-Secret`, tags `articles` and `article:<slug>`; skipped without `SITE_REVALIDATE_SECRET`; revalidating twice is harmless |
-| `content:sweep` | asynq periodic | Every 5 minutes | Re-enqueues scheduled posts past due and channels waiting or running for over 10 minutes, with the same task ids |
+| `content:publish-channel` | Publishing starts; `retry` action | Immediate | Task id `publish:<post>:<channel>:<attempts>`; claims the row only while `pending` and the post `publishing`, never one already `publishing`; up to 4 attempts, then `failed` |
+| `content:revalidate` | An article goes live, goes live again after an edit, or is archived | Immediate | `POST {SITE_URL}/api/revalidate` with `X-Revalidate-Secret`, tags `articles` and `article:<slug>`; skipped without `SITE_REVALIDATE_SECRET`; revalidating twice is harmless |
+| `content:sweep` | asynq periodic | Every 5 minutes | Re-enqueues scheduled posts past due and channels `pending` for over 10 minutes, with the same task ids; fails channels `publishing` for over 10 minutes as `unknown_outcome` |
 | `video:close-room` | Room created or moved | At `closes_at` | Task id `room:<id>:<closes_at>`; ends the room only if still open and the window has passed |
 | `video:sweep-rooms` | asynq periodic | Every 5 minutes | Ends only rooms still open past `closes_at`; ending twice is a no-op |
 | `booking:purge-retention` | asynq periodic | Daily 03:00 practice time (`CRON_TZ`, from `settings.timezone` when the worker starts) | Deletes final appointments and contact enquiries past `retention_months`, 500 rows a statement; deleting twice deletes nothing |
@@ -400,6 +406,9 @@ values for secrets.
 | `MEDIA_PUBLIC_URL` | Base URL the bucket's `public/` prefix is served from. |
 | `TURN_HOST` | coturn `host:port`. Empty in development: room tickets offer STUN only. |
 | `TURN_SECRET` | coturn `static-auth-secret` for time-limited credentials. |
+| `META_APP_ID`, `META_APP_SECRET` | The Meta app that publishes to Daw Mi's Facebook Page and Instagram (docs/meta-setup.md); set together. Empty: those channels are posted by hand. |
+| `META_CONFIG_ID` | The Facebook Login for Business configuration naming the permissions; empty, the dialog asks for them as scopes. |
+| `META_GRAPH_VERSION` | Graph API version the connector calls (default `v24.0`). |
 | `METRICS_ADDR` | Optional `127.0.0.1:9090`; serves counters at `/debug/vars`. Empty disables. |
 
 ## Observability

@@ -147,12 +147,16 @@ func MarkPosted(ctx context.Context, pool *pgxpool.Pool, id pgtype.UUID, channel
 
 // startPublishing opens a publication for every enabled channel, for
 // Publish now and for the scheduled task alike. The website goes live at
-// once; social channels wait as pending for the publishing worker (Tasks),
-// or for Daw Mi to post them by hand. A post published before and edited
-// since republishes its website only.
+// once, its article copied to what visitors read; social channels wait as
+// pending for the publishing worker (Tasks), or for Daw Mi to post them by
+// hand. A post published before and edited since republishes its website
+// only, and one whose website was switched off since leaves the site.
 func startPublishing(ctx context.Context, q *db.Queries, p *db.Post, now time.Time) error {
 	versions, err := q.ListPostVersions(ctx, p.ID)
 	if err != nil {
+		return err
+	}
+	if err := q.DeleteArticle(ctx, p.ID); err != nil {
 		return err
 	}
 	for _, v := range versions {
@@ -162,6 +166,9 @@ func startPublishing(ctx context.Context, q *db.Queries, p *db.Post, now time.Ti
 		pub := db.OpenPostPublicationParams{PostID: p.ID, Channel: v.Channel, Status: "pending", Now: now}
 		if v.Channel == "website" {
 			pub.Status, pub.PublishedAt = "published", sql.NullTime{Time: now, Valid: true}
+			if err := q.SnapshotArticle(ctx, db.SnapshotArticleParams{PostID: p.ID, Now: now}); err != nil {
+				return err
+			}
 		}
 		if err := q.OpenPostPublication(ctx, pub); err != nil {
 			return err

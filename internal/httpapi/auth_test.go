@@ -24,6 +24,7 @@ import (
 
 	"github.com/VetMiMi/vetmimi-api/internal/auth"
 	"github.com/VetMiMi/vetmimi-api/internal/db"
+	"github.com/VetMiMi/vetmimi-api/internal/meta"
 	"github.com/VetMiMi/vetmimi-api/internal/platform"
 	"github.com/VetMiMi/vetmimi-api/internal/platform/clock"
 	"github.com/VetMiMi/vetmimi-api/internal/platform/pgtest"
@@ -128,6 +129,8 @@ type authAPI struct {
 	clock   *fakeClock
 	codes   *auth.TOTP
 	logs    *bytes.Buffer
+	// meta is the Meta connector, its GraphURL set by a test that calls it.
+	meta *meta.Connector
 	// visitors numbers sign-ins, each from its own address, so the sign-in
 	// limit of five a minute never interferes.
 	visitors int
@@ -151,6 +154,9 @@ func newAuthAPI(t *testing.T) *authAPI {
 	}))
 	sessions, err := auth.NewSessions(pgtest.Pool(t), a.codes, auth.NewLockout(rdb, prefix, a.clock.now), a.clock.now)
 	require.NoError(t, err)
+	a.meta = &meta.Connector{Pool: pgtest.Pool(t), Tokens: a.codes, AppID: "app-1", AppSecret: "app-secret",
+		Version: "v24.0", RedirectURL: siteOrigin + "/admin/settings/connections",
+		SigningSecret: []byte("test signing secret, 32 bytes ok"), Log: log, Now: a.clock.now}
 	a.handler = NewRouter(Deps{
 		PingPostgres:   ok,
 		PingRedis:      ok,
@@ -164,6 +170,7 @@ func newAuthAPI(t *testing.T) *authAPI {
 		SiteURL:        siteOrigin,
 		Media:          acceptingBucket(t),
 		MediaPublicURL: "https://media.vetmimi.example",
+		Meta:           a.meta,
 		Now:            a.clock.now,
 	})
 	return a

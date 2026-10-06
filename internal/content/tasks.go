@@ -24,7 +24,8 @@ type Tasks struct {
 	Pool *pgxpool.Pool
 	// Queue takes the tasks a handler leads to; nil drops them, as in tests.
 	Queue *platform.Queue
-	// Publishers replaces the connectors, in tests.
+	// Publishers posts each social channel; a channel missing from it is
+	// not connected.
 	Publishers map[string]Publisher
 	// SiteURL and RevalidateSecret reach the site's POST /api/revalidate;
 	// without the secret, as in development, revalidation is skipped.
@@ -68,23 +69,25 @@ func (t *Tasks) PublishChannel(ctx context.Context, payload []byte) error {
 		return err
 	}
 	publish, ok := t.Publishers[p.Channel]
-	if t.Publishers == nil {
-		publish, ok = connectors[p.Channel]
-	}
 	if !ok {
-		return fmt.Errorf("content: no publisher for channel %q", p.Channel)
+		publish = NotConnected
 	}
 	return PublishChannel(ctx, t.Pool, id, p.Channel, publish, t.Now())
 }
 
-// Sweep enqueues DueTasks.
+// Sweep fails the channels FailStuck finds and enqueues DueTasks.
 func (t *Tasks) Sweep(ctx context.Context, _ []byte) error {
-	tasks, err := DueTasks(ctx, db.New(t.Pool), t.Now())
+	q := db.New(t.Pool)
+	failed, err := FailStuck(ctx, q, t.Now())
+	if err != nil {
+		return err
+	}
+	tasks, err := DueTasks(ctx, q, t.Now())
 	if err != nil {
 		return err
 	}
 	t.enqueue(ctx, tasks...)
-	t.Log.InfoContext(ctx, "publishing swept", "found", len(tasks))
+	t.Log.InfoContext(ctx, "publishing swept", "found", len(tasks), "unknown_outcome", failed)
 	return nil
 }
 
