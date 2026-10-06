@@ -1,0 +1,21 @@
+{{/* DRAFT: machine-drafted Burmese (Unicode, Western digits, glossary from vetmimi-next messages/README.md), awaiting review by Daw Mi. */}}
+{{define "subject"}}ဝန်ဆောင်မှုခံယူသူက ပယ်ဖျက် - {{.ServiceName}}၊ {{.Start}}{{end}}
+
+{{define "text"}}
+ဝန်ဆောင်မှုခံယူသူက ဒီချိန်းဆိုမှုကို ပယ်ဖျက်လိုက်ပါတယ်။ ဒီအချိန် ပြန်လည် လွတ်သွားပါပြီ။
+
+{{template "details_text" .}}
+အခြေအနေ - {{.Status}}
+
+{{template "visitor_text" .}}
+
+{{template "admin_text" .}}
+{{end}}
+
+{{define "html"}}{{template "open_html" .}}
+<p>ဝန်ဆောင်မှုခံယူသူက ဒီချိန်းဆိုမှုကို ပယ်ဖျက်လိုက်ပါတယ်။ ဒီအချိန် ပြန်လည် လွတ်သွားပါပြီ။</p>
+{{template "details_html" .}}
+<p>အခြေအနေ - {{.Status}}</p>
+{{template "visitor_html" .}}
+{{template "admin_html" .}}
+{{template "close_html" .}}{{end}}

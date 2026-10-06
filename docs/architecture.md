@@ -269,6 +269,11 @@ content. Daw Mi holds all three roles.
    becomes `cancelled` with the reason in `error`.
 4. It renders the reminder with the join link (VetMiMi room) or `meeting_link`
    (manual mode), sends, and records the result as in walkthrough 2.
+5. When Daw Mi changes `reminder_hours`, `comms:reschedule-reminders` moves every
+   `queued` reminder to `start − reminder_hours` and replaces its task, so each
+   confirmed appointment still gets exactly one reminder at the new offset. A
+   task still holding an old, earlier time finds the row not yet due and leaves
+   it.
 
 ### 4. Video join
 
@@ -356,6 +361,7 @@ content. Daw Mi holds all three roles.
 |---|---|---|---|
 | `comms:deliver` | After commit of any communication row; reminder rows at `scheduled_for` | Immediate or `ProcessAt` | Task id `comms:<id>`; worker locks the row and skips unless `queued`; Resend idempotency key = row id |
 | `comms:sweep` | asynq periodic | Every 5 minutes | Enqueues `queued` rows due more than a minute ago with the same task ids |
+| `comms:reschedule-reminders` | After `updateSettings` changes `reminder_hours` | Immediate | Task id `reminders:<settings version>`; rewrites only `queued` reminder rows and replaces their tasks |
 | `booking:expire-hold` | Appointment created as `pending` | At `hold_expires_at` | Task id `hold:<id>`; acts only if still `pending` and the hold has passed; writes `expired`, event and `request_expired` email in one transaction |
 | `booking:sweep-holds` | asynq periodic | Every 5 minutes | Runs the same expiry for any overdue `pending` row |
 | `content:publish-scheduled` | `schedule` action | At `publish_at` | Task id `publish:<type>:<id>:<version>`; acts only if still `scheduled` with the same `publish_at` |

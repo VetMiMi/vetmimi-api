@@ -73,7 +73,7 @@ func run(ctx context.Context, log *slog.Logger, cfg platform.Config, mode string
 	defer rdb.Close()
 
 	if mode == "worker" {
-		return runWorker(ctx, log, pool, rdb)
+		return runWorker(ctx, log, cfg, pool, rdb)
 	}
 	return runAPI(ctx, log, cfg, pool, rdb)
 }
@@ -95,6 +95,7 @@ func runAPI(ctx context.Context, log *slog.Logger, cfg platform.Config, pool *pg
 		RateLimits:   httpapi.NewRateLimits(platform.NewLimiter(rdb, "", time.Now), log, time.Now),
 		Sessions:     sessions,
 		Pool:         pool,
+		Queue:        platform.NewQueue(rdb, log),
 		Now:          time.Now,
 	}))
 

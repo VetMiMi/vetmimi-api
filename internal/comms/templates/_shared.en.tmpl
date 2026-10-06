@@ -1,0 +1,107 @@
+{{/* Blocks every English message may use. Plain, warm and short. */}}
+
+{{define "format"}}{{if eq .Format "in_person"}}In person{{else}}Online{{end}}{{end}}
+
+{{define "details_text"}}
+Service: {{.ServiceName}}
+Date and time: {{.Start}}
+Duration: {{.DurationMinutes}} minutes
+Format: {{template "format" .}}
+Reference: {{.Reference}}
+{{end}}
+
+{{define "details_html"}}
+<table role="presentation" style="border-collapse:collapse;margin:16px 0">
+<tr><td style="padding:4px 16px 4px 0;color:#6b6259">Service</td><td style="padding:4px 0">{{.ServiceName}}</td></tr>
+<tr><td style="padding:4px 16px 4px 0;color:#6b6259">Date and time</td><td style="padding:4px 0"><strong>{{.Start}}</strong></td></tr>
+<tr><td style="padding:4px 16px 4px 0;color:#6b6259">Duration</td><td style="padding:4px 0">{{.DurationMinutes}} minutes</td></tr>
+<tr><td style="padding:4px 16px 4px 0;color:#6b6259">Format</td><td style="padding:4px 0">{{template "format" .}}</td></tr>
+<tr><td style="padding:4px 16px 4px 0;color:#6b6259">Reference</td><td style="padding:4px 0">{{.Reference}}</td></tr>
+</table>
+{{end}}
+
+{{define "join_text"}}
+{{if .JoinURL}}Join your session here: {{.JoinURL}}{{else if .MeetingLink}}Join your session here: {{.MeetingLink}}{{end}}
+{{end}}
+
+{{define "join_html"}}
+{{if .JoinURL}}<p><a href="{{.JoinURL}}">Join your session</a></p>{{else if .MeetingLink}}<p><a href="{{.MeetingLink}}">Join your session</a></p>{{end}}
+{{end}}
+
+{{define "manage_text"}}
+{{if .ManageURL}}To view, change or cancel your appointment: {{.ManageURL}}{{end}}
+{{end}}
+
+{{define "manage_html"}}
+{{if .ManageURL}}<p><a href="{{.ManageURL}}">View, change or cancel your appointment</a></p>{{end}}
+{{end}}
+
+{{define "methods"}}{{range $i, $m := .PaymentMethods}}{{if $i}} or {{end}}{{if eq $m "card"}}card{{else}}bank transfer{{end}}{{end}}{{end}}
+
+{{define "payment_text"}}
+{{if .FeeText}}Fee: {{.FeeText}}{{end}}
+Daw Mi sends an invoice after the session, payable by {{template "methods" .}}.
+{{end}}
+
+{{define "payment_html"}}
+<p>{{if .FeeText}}Fee: {{.FeeText}}<br>{{end}}
+Daw Mi sends an invoice after the session, payable by {{template "methods" .}}.</p>
+{{end}}
+
+{{define "policy"}}If you need to cancel or change your appointment, please let us know at least {{.Policy.NoticeHours}} hours before it starts.{{if gt .Policy.LateFeePercent 0}} With less notice, a fee of {{.Policy.LateFeePercent}}% of the session fee may apply{{if .Policy.FirstWaived}}, though your first late cancellation is free{{end}}.{{end}}{{if gt .Policy.NoShowFeePercent 0}} If you miss the appointment without letting us know, {{.Policy.NoShowFeePercent}}% of the fee may apply.{{end}}{{end}}
+
+{{define "preparation_text"}}
+{{if .PreparationText}}Before your session: {{.PreparationText}}{{end}}
+{{end}}
+
+{{define "preparation_html"}}
+{{if .PreparationText}}<p>Before your session: {{.PreparationText}}</p>{{end}}
+{{end}}
+
+{{define "signoff_text"}}
+If you have any questions, just reply to this email or write to {{.ContactEmail}}.
+
+Warm regards,
+Daw Mi
+VetMiMi
+{{end}}
+
+{{define "signoff_html"}}
+<p>If you have any questions, just reply to this email or write to <a href="mailto:{{.ContactEmail}}">{{.ContactEmail}}</a>.</p>
+<p>Warm regards,<br>Daw Mi<br>VetMiMi</p>
+{{end}}
+
+{{define "open_html"}}<!doctype html>
+<html lang="en">
+<head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1"></head>
+<body style="margin:0;padding:24px;background:#faf7f2;color:#2f2a25;font-family:Georgia,'Times New Roman',serif;font-size:16px;line-height:1.6">
+<div style="max-width:560px;margin:0 auto">
+{{end}}
+
+{{define "close_html"}}
+</div>
+</body>
+</html>
+{{end}}
+
+{{define "visitor_text"}}
+Name: {{.VisitorName}}
+Email: {{.VisitorEmail}}
+{{if .VisitorPhone}}Phone: {{.VisitorPhone}}{{end}}
+{{if .VisitorNote}}Note: {{.VisitorNote}}{{end}}
+{{end}}
+
+{{define "visitor_html"}}
+<p>Name: {{.VisitorName}}<br>
+Email: <a href="mailto:{{.VisitorEmail}}">{{.VisitorEmail}}</a>
+{{if .VisitorPhone}}<br>Phone: {{.VisitorPhone}}{{end}}
+{{if .VisitorNote}}<br>Note: {{.VisitorNote}}{{end}}</p>
+{{end}}
+
+{{define "admin_text"}}
+Open it in admin: {{.AdminURL}}
+{{end}}
+
+{{define "admin_html"}}
+<p><a href="{{.AdminURL}}">Open it in admin</a></p>
+{{end}}

@@ -1,0 +1,28 @@
+{{/* DRAFT: machine-drafted Burmese (Unicode, Western digits, glossary from vetmimi-next messages/README.md), awaiting review by Daw Mi. */}}
+{{define "subject"}}တောင်းဆိုချက် လက်ခံရရှိပါပြီ - {{.ServiceName}}၊ {{.Start}}{{end}}
+
+{{define "text"}}
+မင်္ဂလာပါ {{.VisitorName}}၊
+
+ချိန်းဆိုမှု တောင်းဆိုချက် ပေးပို့တဲ့အတွက် ကျေးဇူးတင်ပါတယ်။ သင့်တောင်းဆိုချက်ကို လက်ခံရရှိပါပြီ။
+
+အခြေအနေ - စောင့်ဆိုင်းဆဲ (Status: Pending)။ သင့်ချိန်းဆိုမှုကို အတည်မပြုရသေးပါ။
+
+{{template "details_text" .}}
+
+နောက်တစ်ဆင့် - ဒေါ်မိက သင့်တောင်းဆိုချက်ကို ပြန်လည်သုံးသပ်ပြီး အတည်ပြုရန် အီးမေးလ် ပို့ပေးပါမယ်။ {{.ResponseTime}}။
+
+{{template "manage_text" .}}
+
+{{template "signoff_text" .}}
+{{end}}
+
+{{define "html"}}{{template "open_html" .}}
+<p>မင်္ဂလာပါ {{.VisitorName}}၊</p>
+<p>ချိန်းဆိုမှု တောင်းဆိုချက် ပေးပို့တဲ့အတွက် ကျေးဇူးတင်ပါတယ်။ သင့်တောင်းဆိုချက်ကို လက်ခံရရှိပါပြီ။</p>
+<p style="padding:12px 16px;background:#fff4dc;border-radius:8px"><strong>အခြေအနေ - စောင့်ဆိုင်းဆဲ (Status: Pending)။</strong> သင့်ချိန်းဆိုမှုကို အတည်မပြုရသေးပါ။</p>
+{{template "details_html" .}}
+<p>နောက်တစ်ဆင့် - ဒေါ်မိက သင့်တောင်းဆိုချက်ကို ပြန်လည်သုံးသပ်ပြီး အတည်ပြုရန် အီးမေးလ် ပို့ပေးပါမယ်။ {{.ResponseTime}}။</p>
+{{template "manage_html" .}}
+{{template "signoff_html" .}}
+{{template "close_html" .}}{{end}}

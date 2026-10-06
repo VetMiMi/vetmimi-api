@@ -1,0 +1,23 @@
+Hello Thandar,
+
+A gentle reminder of your appointment with Daw Mi.
+
+Service: Individual Art Therapy
+Date and time: Monday 5 October 2026, 10:00 am AEDT
+Duration: 60 minutes
+Format: Online
+Reference: VM-7KQ2PX
+
+Join your session here: https://vetmimi.example/join/example-token
+
+Before your session: Please find a quiet, private space with a few art materials nearby.
+
+If you need to cancel or change your appointment, please let us know at least 48 hours before it starts. With less notice, a fee of 50% of the session fee may apply, though your first late cancellation is free. If you miss the appointment without letting us know, 100% of the fee may apply.
+
+To view, change or cancel your appointment: https://vetmimi.example/manage/example-token
+
+If you have any questions, just reply to this email or write to hello@vetmimi.example.
+
+Warm regards,
+Daw Mi
+VetMiMi

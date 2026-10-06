@@ -9,6 +9,7 @@ import (
 	"github.com/redis/go-redis/v9"
 
 	"github.com/VetMiMi/vetmimi-api/internal/auth"
+	"github.com/VetMiMi/vetmimi-api/internal/comms"
 	"github.com/VetMiMi/vetmimi-api/internal/db"
 	"github.com/VetMiMi/vetmimi-api/internal/platform"
 )
@@ -19,12 +20,24 @@ const taskCleanup = "platform:cleanup"
 
 // runWorker processes background tasks until ctx is done. Domain packages
 // register their task handlers and periodic tasks here as they arrive.
-func runWorker(ctx context.Context, log *slog.Logger, pool *pgxpool.Pool, rdb *redis.Client) error {
+func runWorker(ctx context.Context, log *slog.Logger, cfg platform.Config, pool *pgxpool.Pool, rdb *redis.Client) error {
 	w := platform.NewWorker(rdb, log)
 	w.Handle(taskCleanup, func(ctx context.Context, _ []byte) error {
 		return cleanup(ctx, log, db.New(pool), time.Now())
 	})
 	w.Every("@hourly", taskCleanup)
+
+	resend, err := comms.NewResend(cfg.ResendAPIKey, "")
+	if err != nil {
+		return err
+	}
+	queue := platform.NewQueue(rdb, log)
+	(&comms.Tasks{
+		Pool: pool, Queue: queue, Resend: resend, From: cfg.EmailFrom, SiteURL: cfg.SiteURL,
+		Log: log, Now: time.Now,
+	}).Register(w)
+	// Rebuild at once any delivery task Redis lost while the worker was down.
+	queue.Enqueue(ctx, platform.Task{Type: comms.TaskSweep})
 	return w.Run(ctx)
 }
 

@@ -1,0 +1,33 @@
+{{define "subject"}}Confirmed: {{.ServiceName}}, {{.Start}}{{end}}
+
+{{define "text"}}
+Hello {{.VisitorName}},
+
+Your appointment is confirmed. Daw Mi looks forward to seeing you.
+
+{{template "details_text" .}}
+
+{{template "join_text" .}}
+
+{{template "preparation_text" .}}
+
+{{template "payment_text" .}}
+
+{{template "policy" .}}
+
+{{template "manage_text" .}}
+
+{{template "signoff_text" .}}
+{{end}}
+
+{{define "html"}}{{template "open_html" .}}
+<p>Hello {{.VisitorName}},</p>
+<p>Your appointment is <strong>confirmed</strong>. Daw Mi looks forward to seeing you.</p>
+{{template "details_html" .}}
+{{template "join_html" .}}
+{{template "preparation_html" .}}
+{{template "payment_html" .}}
+<p>{{template "policy" .}}</p>
+{{template "manage_html" .}}
+{{template "signoff_html" .}}
+{{template "close_html" .}}{{end}}

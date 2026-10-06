@@ -1,0 +1,30 @@
+{{define "subject"}}Reminder: {{.ServiceName}}, {{.Start}}{{end}}
+
+{{define "text"}}
+Hello {{.VisitorName}},
+
+A gentle reminder of your appointment with Daw Mi.
+
+{{template "details_text" .}}
+
+{{template "join_text" .}}
+
+{{template "preparation_text" .}}
+
+{{template "policy" .}}
+
+{{template "manage_text" .}}
+
+{{template "signoff_text" .}}
+{{end}}
+
+{{define "html"}}{{template "open_html" .}}
+<p>Hello {{.VisitorName}},</p>
+<p>A gentle reminder of your appointment with Daw Mi.</p>
+{{template "details_html" .}}
+{{template "join_html" .}}
+{{template "preparation_html" .}}
+<p>{{template "policy" .}}</p>
+{{template "manage_html" .}}
+{{template "signoff_html" .}}
+{{template "close_html" .}}{{end}}

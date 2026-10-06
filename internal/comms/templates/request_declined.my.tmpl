@@ -1,0 +1,27 @@
+{{/* DRAFT: machine-drafted Burmese (Unicode, Western digits, glossary from vetmimi-next messages/README.md), awaiting review by Daw Mi. */}}
+{{define "subject"}}{{.Start}} အတွက် သင့်တောင်းဆိုချက်နှင့် ပတ်သက်၍{{end}}
+
+{{define "text"}}
+မင်္ဂလာပါ {{.VisitorName}}၊
+
+တောင်းဆိုချက်အတွက် ကျေးဇူးတင်ပါတယ်။ ဝမ်းနည်းစွာဖြင့် ဒီချိန်းဆိုမှုကို ဒေါ်မိ လက်ခံနိုင်ခြင်း မရှိသောကြောင့် ဆက်လက် ပြုလုပ်မည် မဟုတ်ပါ။
+
+{{template "details_text" .}}
+
+{{if .MessageToVisitor}}ဒေါ်မိထံမှ စာ -
+{{.MessageToVisitor}}{{end}}
+
+အခြားအချိန်တစ်ခု ရွေးချယ်နိုင်ပါတယ် - {{.BookURL}}
+
+{{template "signoff_text" .}}
+{{end}}
+
+{{define "html"}}{{template "open_html" .}}
+<p>မင်္ဂလာပါ {{.VisitorName}}၊</p>
+<p>တောင်းဆိုချက်အတွက် ကျေးဇူးတင်ပါတယ်။ ဝမ်းနည်းစွာဖြင့် ဒီချိန်းဆိုမှုကို ဒေါ်မိ လက်ခံနိုင်ခြင်း မရှိသောကြောင့် ဆက်လက် ပြုလုပ်မည် မဟုတ်ပါ။</p>
+{{template "details_html" .}}
+{{if .MessageToVisitor}}<p>ဒေါ်မိထံမှ စာ -</p>
+<blockquote style="margin:0 0 16px;padding-left:12px;border-left:3px solid #d8cfc4">{{.MessageToVisitor}}</blockquote>{{end}}
+<p><a href="{{.BookURL}}">အခြားအချိန်တစ်ခု ရွေးချယ်ရန်</a></p>
+{{template "signoff_html" .}}
+{{template "close_html" .}}{{end}}

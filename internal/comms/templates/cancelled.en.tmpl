@@ -1,0 +1,26 @@
+{{define "subject"}}Cancelled: {{.ServiceName}}, {{.Start}}{{end}}
+
+{{define "text"}}
+Hello {{.VisitorName}},
+
+Your appointment has been cancelled and will no longer take place.
+
+{{template "details_text" .}}
+
+{{if .MessageToVisitor}}A message from Daw Mi:
+{{.MessageToVisitor}}{{end}}
+
+If you would like to book another time: {{.BookURL}}
+
+{{template "signoff_text" .}}
+{{end}}
+
+{{define "html"}}{{template "open_html" .}}
+<p>Hello {{.VisitorName}},</p>
+<p>Your appointment has been <strong>cancelled</strong> and will no longer take place.</p>
+{{template "details_html" .}}
+{{if .MessageToVisitor}}<p>A message from Daw Mi:</p>
+<blockquote style="margin:0 0 16px;padding-left:12px;border-left:3px solid #d8cfc4">{{.MessageToVisitor}}</blockquote>{{end}}
+<p><a href="{{.BookURL}}">Book another time</a></p>
+{{template "signoff_html" .}}
+{{template "close_html" .}}{{end}}
