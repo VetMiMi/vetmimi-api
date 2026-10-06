@@ -111,7 +111,8 @@ Index: `on_date`. Closing a whole date is a block, not an override.
 | reason, created_by | text, uuid | yes | — | private, never returned by public routes, ≤ 500 |
 
 Index: GiST `period`. A block overlapping pending or confirmed appointments is saved and the response lists them
-as `conflicts`; nothing is cancelled automatically. Block writes and appointment creation share an advisory lock.
+as `conflicts`; nothing is cancelled automatically. Every availability write (rules, overrides, blocks) and
+appointment creation share one advisory lock, `pg_advisory_xact_lock(hashtext('availability:' || practitioner_id))`.
 
 ## Appointments
 

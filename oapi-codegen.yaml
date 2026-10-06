@@ -15,9 +15,13 @@ output-options:
     - health
     - auth
     - settings
+    - services
+    - availability
   # The WebSocket upgrade is a plain net/http handler, not a strict operation.
   exclude-operation-ids:
     - connectVideoRoom
+    # Slot generation arrives with VetMiMi/vetmimi-api#31.
+    - previewAvailability
 compatibility:
   # Keep each operationId as openapi.yaml spells it in the embedded spec, which
   # the operation index reads, so its ids match the contract and the docs.

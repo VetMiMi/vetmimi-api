@@ -9,6 +9,7 @@ import (
 	"context"
 	"encoding/base64"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"net/http"
 	"net/url"
@@ -18,8 +19,141 @@ import (
 
 	"github.com/getkin/kin-openapi/openapi3"
 	"github.com/go-chi/chi/v5"
+	"github.com/oapi-codegen/runtime"
 	openapi_types "github.com/oapi-codegen/runtime/types"
 )
+
+// Defines values for AppointmentStatus.
+const (
+	CancelledByClient       AppointmentStatus = "cancelled_by_client"
+	CancelledByPractitioner AppointmentStatus = "cancelled_by_practitioner"
+	Completed               AppointmentStatus = "completed"
+	Confirmed               AppointmentStatus = "confirmed"
+	Declined                AppointmentStatus = "declined"
+	Expired                 AppointmentStatus = "expired"
+	NoShow                  AppointmentStatus = "no_show"
+	Pending                 AppointmentStatus = "pending"
+)
+
+// Valid indicates whether the value is a known member of the AppointmentStatus enum.
+func (e AppointmentStatus) Valid() bool {
+	switch e {
+	case CancelledByClient:
+		return true
+	case CancelledByPractitioner:
+		return true
+	case Completed:
+		return true
+	case Confirmed:
+		return true
+	case Declined:
+		return true
+	case Expired:
+		return true
+	case NoShow:
+		return true
+	case Pending:
+		return true
+	default:
+		return false
+	}
+}
+
+// Defines values for AppointmentSummarySource.
+const (
+	Manual  AppointmentSummarySource = "manual"
+	Website AppointmentSummarySource = "website"
+)
+
+// Valid indicates whether the value is a known member of the AppointmentSummarySource enum.
+func (e AppointmentSummarySource) Valid() bool {
+	switch e {
+	case Manual:
+		return true
+	case Website:
+		return true
+	default:
+		return false
+	}
+}
+
+// Defines values for AvailabilityOverrideKind.
+const (
+	AvailabilityOverrideKindOpen    AvailabilityOverrideKind = "open"
+	AvailabilityOverrideKindReplace AvailabilityOverrideKind = "replace"
+)
+
+// Valid indicates whether the value is a known member of the AvailabilityOverrideKind enum.
+func (e AvailabilityOverrideKind) Valid() bool {
+	switch e {
+	case AvailabilityOverrideKindOpen:
+		return true
+	case AvailabilityOverrideKindReplace:
+		return true
+	default:
+		return false
+	}
+}
+
+// Defines values for AvailabilityOverrideInputKind.
+const (
+	AvailabilityOverrideInputKindOpen    AvailabilityOverrideInputKind = "open"
+	AvailabilityOverrideInputKindReplace AvailabilityOverrideInputKind = "replace"
+)
+
+// Valid indicates whether the value is a known member of the AvailabilityOverrideInputKind enum.
+func (e AvailabilityOverrideInputKind) Valid() bool {
+	switch e {
+	case AvailabilityOverrideInputKindOpen:
+		return true
+	case AvailabilityOverrideInputKindReplace:
+		return true
+	default:
+		return false
+	}
+}
+
+// Defines values for BookingAction.
+const (
+	Book        BookingAction = "book"
+	EnquiryOnly BookingAction = "enquiry_only"
+	NotBookable BookingAction = "not_bookable"
+	Request     BookingAction = "request"
+)
+
+// Valid indicates whether the value is a known member of the BookingAction enum.
+func (e BookingAction) Valid() bool {
+	switch e {
+	case Book:
+		return true
+	case EnquiryOnly:
+		return true
+	case NotBookable:
+		return true
+	case Request:
+		return true
+	default:
+		return false
+	}
+}
+
+// Defines values for Format.
+const (
+	InPerson Format = "in_person"
+	Online   Format = "online"
+)
+
+// Valid indicates whether the value is a known member of the Format enum.
+func (e Format) Valid() bool {
+	switch e {
+	case InPerson:
+		return true
+	case Online:
+		return true
+	default:
+		return false
+	}
+}
 
 // Defines values for HealthStatus.
 const (
@@ -105,6 +239,27 @@ func (e Role) Valid() bool {
 	case ContentEditor:
 		return true
 	case SiteAdmin:
+		return true
+	default:
+		return false
+	}
+}
+
+// Defines values for ServiceState.
+const (
+	Active   ServiceState = "active"
+	Archived ServiceState = "archived"
+	Paused   ServiceState = "paused"
+)
+
+// Valid indicates whether the value is a known member of the ServiceState enum.
+func (e ServiceState) Valid() bool {
+	switch e {
+	case Active:
+		return true
+	case Archived:
+		return true
+	case Paused:
 		return true
 	default:
 		return false
@@ -249,6 +404,191 @@ func (e SettingsPatchPaymentMethods) Valid() bool {
 	}
 }
 
+// AppointmentStatus defines model for AppointmentStatus.
+type AppointmentStatus string
+
+// AppointmentSummary defines model for AppointmentSummary.
+type AppointmentSummary struct {
+	// CreatedAt UTC timestamp (RFC 3339).
+	CreatedAt       time.Time `json:"createdAt"`
+	DurationMinutes int       `json:"durationMinutes"`
+
+	// EndsAt UTC timestamp (RFC 3339).
+	EndsAt time.Time `json:"endsAt"`
+
+	// Format Appointment format. Online only at launch.
+	Format Format `json:"format"`
+
+	// HoldExpiresAt Set while pending.
+	HoldExpiresAt *time.Time               `json:"holdExpiresAt,omitempty"`
+	Id            openapi_types.UUID       `json:"id"`
+	Reference     string                   `json:"reference"`
+	Service       ServiceRef               `json:"service"`
+	Source        AppointmentSummarySource `json:"source"`
+
+	// StartsAt UTC timestamp (RFC 3339).
+	StartsAt time.Time         `json:"startsAt"`
+	Status   AppointmentStatus `json:"status"`
+
+	// Timezone IANA timezone name of the practice.
+	//
+	// Examples: Australia/Sydney
+	Timezone Timezone `json:"timezone"`
+
+	// UpdatedAt UTC timestamp (RFC 3339).
+	UpdatedAt   time.Time `json:"updatedAt"`
+	VisitorName string    `json:"visitorName"`
+}
+
+// AppointmentSummarySource defines model for AppointmentSummary.Source.
+type AppointmentSummarySource string
+
+// AvailabilityBlock defines model for AvailabilityBlock.
+type AvailabilityBlock struct {
+	// AllDay Created as whole local days; display only.
+	AllDay *bool `json:"allDay,omitempty"`
+
+	// CreatedAt UTC timestamp (RFC 3339).
+	CreatedAt time.Time `json:"createdAt"`
+
+	// EndsAt UTC timestamp (RFC 3339).
+	EndsAt time.Time          `json:"endsAt"`
+	Id     openapi_types.UUID `json:"id"`
+
+	// Reason Private; never shown publicly.
+	Reason *string `json:"reason,omitempty"`
+
+	// StartsAt UTC timestamp (RFC 3339).
+	StartsAt time.Time `json:"startsAt"`
+}
+
+// AvailabilityBlockInput defines model for AvailabilityBlockInput.
+type AvailabilityBlockInput struct {
+	// AllDay Created as whole local days; display only.
+	AllDay *bool `json:"allDay,omitempty"`
+
+	// EndsAt UTC timestamp (RFC 3339).
+	EndsAt time.Time `json:"endsAt"`
+
+	// Reason Private; never shown publicly.
+	Reason *string `json:"reason,omitempty"`
+
+	// StartsAt UTC timestamp (RFC 3339).
+	StartsAt time.Time `json:"startsAt"`
+}
+
+// AvailabilityBlockList defines model for AvailabilityBlockList.
+type AvailabilityBlockList struct {
+	Items []AvailabilityBlock `json:"items"`
+
+	// Timezone IANA timezone name of the practice.
+	//
+	// Examples: Australia/Sydney
+	Timezone Timezone `json:"timezone"`
+}
+
+// AvailabilityBlockSaved defines model for AvailabilityBlockSaved.
+type AvailabilityBlockSaved struct {
+	Block AvailabilityBlock `json:"block"`
+
+	// Conflicts Pending or confirmed appointments the block overlaps. They are not changed.
+	Conflicts []AppointmentSummary `json:"conflicts"`
+}
+
+// AvailabilityOverride defines model for AvailabilityOverride.
+type AvailabilityOverride struct {
+	// CreatedAt UTC timestamp (RFC 3339).
+	CreatedAt time.Time `json:"createdAt"`
+
+	// EndsAt UTC timestamp (RFC 3339).
+	EndsAt time.Time          `json:"endsAt"`
+	Id     openapi_types.UUID `json:"id"`
+
+	// Kind `open` adds time on the date; `replace` rows replace that date's weekly hours.
+	Kind AvailabilityOverrideKind `json:"kind"`
+
+	// Note Private.
+	Note *string `json:"note,omitempty"`
+
+	// OnDate Calendar date in the practice timezone.
+	OnDate openapi_types.Date `json:"onDate"`
+
+	// StartsAt UTC timestamp (RFC 3339).
+	StartsAt time.Time `json:"startsAt"`
+}
+
+// AvailabilityOverrideKind `open` adds time on the date; `replace` rows replace that date's weekly hours.
+type AvailabilityOverrideKind string
+
+// AvailabilityOverrideInput defines model for AvailabilityOverrideInput.
+type AvailabilityOverrideInput struct {
+	// EndsAt UTC timestamp (RFC 3339).
+	EndsAt time.Time `json:"endsAt"`
+
+	// Kind `open` adds time on the date; `replace` rows replace that date's weekly hours.
+	Kind AvailabilityOverrideInputKind `json:"kind"`
+
+	// Note Private.
+	Note *string `json:"note,omitempty"`
+
+	// OnDate Calendar date in the practice timezone.
+	OnDate openapi_types.Date `json:"onDate"`
+
+	// StartsAt UTC timestamp (RFC 3339).
+	StartsAt time.Time `json:"startsAt"`
+}
+
+// AvailabilityOverrideInputKind `open` adds time on the date; `replace` rows replace that date's weekly hours.
+type AvailabilityOverrideInputKind string
+
+// AvailabilityOverrideList defines model for AvailabilityOverrideList.
+type AvailabilityOverrideList struct {
+	Items []AvailabilityOverride `json:"items"`
+
+	// Timezone IANA timezone name of the practice.
+	//
+	// Examples: Australia/Sydney
+	Timezone Timezone `json:"timezone"`
+}
+
+// AvailabilityRule defines model for AvailabilityRule.
+type AvailabilityRule struct {
+	// EndTime Local time `HH:MM` in the practice timezone.
+	EndTime string             `json:"endTime"`
+	Id      openapi_types.UUID `json:"id"`
+
+	// StartTime Local time `HH:MM` in the practice timezone.
+	StartTime string `json:"startTime"`
+
+	// Weekday ISO weekday, 1 = Monday … 7 = Sunday.
+	Weekday int `json:"weekday"`
+}
+
+// AvailabilityRuleInput defines model for AvailabilityRuleInput.
+type AvailabilityRuleInput struct {
+	// EndTime Local time `HH:MM` in the practice timezone.
+	EndTime string `json:"endTime"`
+
+	// StartTime Local time `HH:MM` in the practice timezone.
+	StartTime string `json:"startTime"`
+
+	// Weekday ISO weekday, 1 = Monday … 7 = Sunday.
+	Weekday int `json:"weekday"`
+}
+
+// AvailabilityRuleList defines model for AvailabilityRuleList.
+type AvailabilityRuleList struct {
+	Items []AvailabilityRule `json:"items"`
+
+	// Timezone IANA timezone name of the practice.
+	//
+	// Examples: Australia/Sydney
+	Timezone Timezone `json:"timezone"`
+}
+
+// BookingAction defines model for BookingAction.
+type BookingAction string
+
 // CurrentUser defines model for CurrentUser.
 type CurrentUser struct {
 	DisplayName    string              `json:"displayName"`
@@ -257,6 +597,9 @@ type CurrentUser struct {
 	IsPractitioner bool                `json:"isPractitioner"`
 	Roles          []Role              `json:"roles"`
 }
+
+// Format Appointment format. Online only at launch.
+type Format string
 
 // Health defines model for Health.
 type Health struct {
@@ -317,6 +660,107 @@ type ReadinessStatus string
 
 // Role defines model for Role.
 type Role string
+
+// Service defines model for Service.
+type Service struct {
+	BookingAction       BookingAction `json:"bookingAction"`
+	BufferAfterMinutes  int           `json:"bufferAfterMinutes"`
+	BufferBeforeMinutes int           `json:"bufferBeforeMinutes"`
+
+	// CreatedAt UTC timestamp (RFC 3339).
+	CreatedAt time.Time `json:"createdAt"`
+
+	// Description Text per locale. Required fields need `en`.
+	Description     *LocalizedText `json:"description,omitempty"`
+	DurationMinutes *int           `json:"durationMinutes,omitempty"`
+
+	// FeeText Text per locale. Required fields need `en`.
+	FeeText *LocalizedText     `json:"feeText,omitempty"`
+	Formats []Format           `json:"formats"`
+	Id      openapi_types.UUID `json:"id"`
+
+	// Name Text per locale. Required fields need `en`.
+	Name LocalizedText `json:"name"`
+
+	// PreparationText Text per locale. Required fields need `en`.
+	PreparationText *LocalizedText `json:"preparationText,omitempty"`
+	Slug            string         `json:"slug"`
+	SortOrder       int            `json:"sortOrder"`
+	State           ServiceState   `json:"state"`
+
+	// UpdatedAt UTC timestamp (RFC 3339).
+	UpdatedAt time.Time `json:"updatedAt"`
+
+	// Version Row version for optimistic concurrency.
+	Version Version `json:"version"`
+}
+
+// ServiceCreate defines model for ServiceCreate.
+type ServiceCreate struct {
+	BookingAction       BookingAction `json:"bookingAction"`
+	BufferAfterMinutes  *int          `json:"bufferAfterMinutes,omitempty"`
+	BufferBeforeMinutes *int          `json:"bufferBeforeMinutes,omitempty"`
+
+	// Description Text per locale. Required fields need `en`.
+	Description     *LocalizedText `json:"description,omitempty"`
+	DurationMinutes *int           `json:"durationMinutes,omitempty"`
+
+	// FeeText Text per locale. Required fields need `en`.
+	FeeText *LocalizedText `json:"feeText,omitempty"`
+	Formats *[]Format      `json:"formats,omitempty"`
+
+	// Name Text per locale. Required fields need `en`.
+	Name LocalizedText `json:"name"`
+
+	// PreparationText Text per locale. Required fields need `en`.
+	PreparationText *LocalizedText `json:"preparationText,omitempty"`
+	Slug            string         `json:"slug"`
+	SortOrder       *int           `json:"sortOrder,omitempty"`
+}
+
+// ServiceList defines model for ServiceList.
+type ServiceList struct {
+	Items []Service `json:"items"`
+}
+
+// ServicePatch defines model for ServicePatch.
+type ServicePatch struct {
+	BookingAction       *BookingAction `json:"bookingAction,omitempty"`
+	BufferAfterMinutes  *int           `json:"bufferAfterMinutes,omitempty"`
+	BufferBeforeMinutes *int           `json:"bufferBeforeMinutes,omitempty"`
+
+	// Description Text per locale. Required fields need `en`.
+	Description     *LocalizedText `json:"description,omitempty"`
+	DurationMinutes *int           `json:"durationMinutes,omitempty"`
+
+	// FeeText Text per locale. Required fields need `en`.
+	FeeText *LocalizedText `json:"feeText,omitempty"`
+	Formats *[]Format      `json:"formats,omitempty"`
+
+	// Name Text per locale. Required fields need `en`.
+	Name *LocalizedText `json:"name,omitempty"`
+
+	// PreparationText Text per locale. Required fields need `en`.
+	PreparationText *LocalizedText `json:"preparationText,omitempty"`
+	Slug            *string        `json:"slug,omitempty"`
+	SortOrder       *int           `json:"sortOrder,omitempty"`
+	State           *ServiceState  `json:"state,omitempty"`
+
+	// Version Row version for optimistic concurrency.
+	Version Version `json:"version"`
+}
+
+// ServiceRef defines model for ServiceRef.
+type ServiceRef struct {
+	Id openapi_types.UUID `json:"id"`
+
+	// Name Text per locale. Required fields need `en`.
+	Name LocalizedText `json:"name"`
+	Slug string        `json:"slug"`
+}
+
+// ServiceState defines model for ServiceState.
+type ServiceState string
 
 // SessionCreate defines model for SessionCreate.
 type SessionCreate struct {
@@ -427,14 +871,41 @@ type SettingsPatchPaymentMethods string
 // Examples: Australia/Sydney
 type Timezone = string
 
+// Version Row version for optimistic concurrency.
+type Version = int
+
+// VersionedAction defines model for VersionedAction.
+type VersionedAction struct {
+	// Version Row version for optimistic concurrency.
+	Version Version `json:"version"`
+}
+
+// BlockId defines model for BlockId.
+type BlockId = openapi_types.UUID
+
+// OverrideId defines model for OverrideId.
+type OverrideId = openapi_types.UUID
+
+// RuleId defines model for RuleId.
+type RuleId = openapi_types.UUID
+
+// ServiceId defines model for ServiceId.
+type ServiceId = openapi_types.UUID
+
 // BadRequest RFC 9457 problem details, returned by every 4xx and 5xx response.
 type BadRequest = Problem
+
+// Conflict RFC 9457 problem details, returned by every 4xx and 5xx response.
+type Conflict = Problem
 
 // Forbidden RFC 9457 problem details, returned by every 4xx and 5xx response.
 type Forbidden = Problem
 
 // InternalError RFC 9457 problem details, returned by every 4xx and 5xx response.
 type InternalError = Problem
+
+// NotFound RFC 9457 problem details, returned by every 4xx and 5xx response.
+type NotFound = Problem
 
 // TooManyRequests RFC 9457 problem details, returned by every 4xx and 5xx response.
 type TooManyRequests = Problem
@@ -445,6 +916,54 @@ type Unauthorized = Problem
 // UnprocessableEntity RFC 9457 problem details, returned by every 4xx and 5xx response.
 type UnprocessableEntity = Problem
 
+// ListAvailabilityBlocksParams defines parameters for ListAvailabilityBlocks.
+type ListAvailabilityBlocksParams struct {
+	// From First local date to include.
+	From *openapi_types.Date `form:"from,omitempty" json:"from,omitempty"`
+
+	// To Last local date to include.
+	To *openapi_types.Date `form:"to,omitempty" json:"to,omitempty"`
+}
+
+// ListAvailabilityOverridesParams defines parameters for ListAvailabilityOverrides.
+type ListAvailabilityOverridesParams struct {
+	// From First local date to include.
+	From *openapi_types.Date `form:"from,omitempty" json:"from,omitempty"`
+
+	// To Last local date to include.
+	To *openapi_types.Date `form:"to,omitempty" json:"to,omitempty"`
+}
+
+// CreateAvailabilityBlockJSONRequestBody defines body for CreateAvailabilityBlock for application/json ContentType.
+type CreateAvailabilityBlockJSONRequestBody = AvailabilityBlockInput
+
+// UpdateAvailabilityBlockJSONRequestBody defines body for UpdateAvailabilityBlock for application/json ContentType.
+type UpdateAvailabilityBlockJSONRequestBody = AvailabilityBlockInput
+
+// CreateAvailabilityOverrideJSONRequestBody defines body for CreateAvailabilityOverride for application/json ContentType.
+type CreateAvailabilityOverrideJSONRequestBody = AvailabilityOverrideInput
+
+// UpdateAvailabilityOverrideJSONRequestBody defines body for UpdateAvailabilityOverride for application/json ContentType.
+type UpdateAvailabilityOverrideJSONRequestBody = AvailabilityOverrideInput
+
+// CreateAvailabilityRuleJSONRequestBody defines body for CreateAvailabilityRule for application/json ContentType.
+type CreateAvailabilityRuleJSONRequestBody = AvailabilityRuleInput
+
+// UpdateAvailabilityRuleJSONRequestBody defines body for UpdateAvailabilityRule for application/json ContentType.
+type UpdateAvailabilityRuleJSONRequestBody = AvailabilityRuleInput
+
+// CreateServiceJSONRequestBody defines body for CreateService for application/json ContentType.
+type CreateServiceJSONRequestBody = ServiceCreate
+
+// UpdateServiceJSONRequestBody defines body for UpdateService for application/json ContentType.
+type UpdateServiceJSONRequestBody = ServicePatch
+
+// PauseServiceJSONRequestBody defines body for PauseService for application/json ContentType.
+type PauseServiceJSONRequestBody = VersionedAction
+
+// ResumeServiceJSONRequestBody defines body for ResumeService for application/json ContentType.
+type ResumeServiceJSONRequestBody = VersionedAction
+
 // UpdateSettingsJSONRequestBody defines body for UpdateSettings for application/json ContentType.
 type UpdateSettingsJSONRequestBody = SettingsPatch
 
@@ -453,6 +972,63 @@ type CreateSessionJSONRequestBody = SessionCreate
 
 // ServerInterface represents all server handlers.
 type ServerInterface interface {
+	// ListAvailabilityBlocks List blocked time
+	// (GET /admin/availability/blocks)
+	ListAvailabilityBlocks(w http.ResponseWriter, r *http.Request, params ListAvailabilityBlocksParams)
+	// CreateAvailabilityBlock Create blocked time
+	// (POST /admin/availability/blocks)
+	CreateAvailabilityBlock(w http.ResponseWriter, r *http.Request)
+	// DeleteAvailabilityBlock Delete blocked time
+	// (DELETE /admin/availability/blocks/{blockId})
+	DeleteAvailabilityBlock(w http.ResponseWriter, r *http.Request, blockId BlockId)
+	// UpdateAvailabilityBlock Replace blocked time
+	// (PUT /admin/availability/blocks/{blockId})
+	UpdateAvailabilityBlock(w http.ResponseWriter, r *http.Request, blockId BlockId)
+	// ListAvailabilityOverrides List one-off openings and date changes
+	// (GET /admin/availability/overrides)
+	ListAvailabilityOverrides(w http.ResponseWriter, r *http.Request, params ListAvailabilityOverridesParams)
+	// CreateAvailabilityOverride Create a one-off opening or date change
+	// (POST /admin/availability/overrides)
+	CreateAvailabilityOverride(w http.ResponseWriter, r *http.Request)
+	// DeleteAvailabilityOverride Delete a one-off opening or date change
+	// (DELETE /admin/availability/overrides/{overrideId})
+	DeleteAvailabilityOverride(w http.ResponseWriter, r *http.Request, overrideId OverrideId)
+	// UpdateAvailabilityOverride Replace a one-off opening or date change
+	// (PUT /admin/availability/overrides/{overrideId})
+	UpdateAvailabilityOverride(w http.ResponseWriter, r *http.Request, overrideId OverrideId)
+	// ListAvailabilityRules List weekly availability periods
+	// (GET /admin/availability/rules)
+	ListAvailabilityRules(w http.ResponseWriter, r *http.Request)
+	// CreateAvailabilityRule Create a weekly availability period
+	// (POST /admin/availability/rules)
+	CreateAvailabilityRule(w http.ResponseWriter, r *http.Request)
+	// DeleteAvailabilityRule Delete a weekly availability period
+	// (DELETE /admin/availability/rules/{ruleId})
+	DeleteAvailabilityRule(w http.ResponseWriter, r *http.Request, ruleId RuleId)
+	// UpdateAvailabilityRule Replace a weekly availability period
+	// (PUT /admin/availability/rules/{ruleId})
+	UpdateAvailabilityRule(w http.ResponseWriter, r *http.Request, ruleId RuleId)
+	// ListServices List services
+	// (GET /admin/services)
+	ListServices(w http.ResponseWriter, r *http.Request)
+	// CreateService Create a service
+	// (POST /admin/services)
+	CreateService(w http.ResponseWriter, r *http.Request)
+	// DeleteService Delete a service
+	// (DELETE /admin/services/{serviceId})
+	DeleteService(w http.ResponseWriter, r *http.Request, serviceId ServiceId)
+	// GetService Get a service
+	// (GET /admin/services/{serviceId})
+	GetService(w http.ResponseWriter, r *http.Request, serviceId ServiceId)
+	// UpdateService Change a service
+	// (PATCH /admin/services/{serviceId})
+	UpdateService(w http.ResponseWriter, r *http.Request, serviceId ServiceId)
+	// PauseService Pause bookings for a service
+	// (POST /admin/services/{serviceId}/pause)
+	PauseService(w http.ResponseWriter, r *http.Request, serviceId ServiceId)
+	// ResumeService Resume bookings for a service
+	// (POST /admin/services/{serviceId}/resume)
+	ResumeService(w http.ResponseWriter, r *http.Request, serviceId ServiceId)
 	// GetSettings Get settings
 	// (GET /admin/settings)
 	GetSettings(w http.ResponseWriter, r *http.Request)
@@ -479,6 +1055,120 @@ type ServerInterface interface {
 // Unimplemented server implementation that returns http.StatusNotImplemented for each endpoint.
 
 type Unimplemented struct{}
+
+// ListAvailabilityBlocks List blocked time
+// (GET /admin/availability/blocks)
+func (_ Unimplemented) ListAvailabilityBlocks(w http.ResponseWriter, r *http.Request, params ListAvailabilityBlocksParams) {
+	w.WriteHeader(http.StatusNotImplemented)
+}
+
+// CreateAvailabilityBlock Create blocked time
+// (POST /admin/availability/blocks)
+func (_ Unimplemented) CreateAvailabilityBlock(w http.ResponseWriter, r *http.Request) {
+	w.WriteHeader(http.StatusNotImplemented)
+}
+
+// DeleteAvailabilityBlock Delete blocked time
+// (DELETE /admin/availability/blocks/{blockId})
+func (_ Unimplemented) DeleteAvailabilityBlock(w http.ResponseWriter, r *http.Request, blockId BlockId) {
+	w.WriteHeader(http.StatusNotImplemented)
+}
+
+// UpdateAvailabilityBlock Replace blocked time
+// (PUT /admin/availability/blocks/{blockId})
+func (_ Unimplemented) UpdateAvailabilityBlock(w http.ResponseWriter, r *http.Request, blockId BlockId) {
+	w.WriteHeader(http.StatusNotImplemented)
+}
+
+// ListAvailabilityOverrides List one-off openings and date changes
+// (GET /admin/availability/overrides)
+func (_ Unimplemented) ListAvailabilityOverrides(w http.ResponseWriter, r *http.Request, params ListAvailabilityOverridesParams) {
+	w.WriteHeader(http.StatusNotImplemented)
+}
+
+// CreateAvailabilityOverride Create a one-off opening or date change
+// (POST /admin/availability/overrides)
+func (_ Unimplemented) CreateAvailabilityOverride(w http.ResponseWriter, r *http.Request) {
+	w.WriteHeader(http.StatusNotImplemented)
+}
+
+// DeleteAvailabilityOverride Delete a one-off opening or date change
+// (DELETE /admin/availability/overrides/{overrideId})
+func (_ Unimplemented) DeleteAvailabilityOverride(w http.ResponseWriter, r *http.Request, overrideId OverrideId) {
+	w.WriteHeader(http.StatusNotImplemented)
+}
+
+// UpdateAvailabilityOverride Replace a one-off opening or date change
+// (PUT /admin/availability/overrides/{overrideId})
+func (_ Unimplemented) UpdateAvailabilityOverride(w http.ResponseWriter, r *http.Request, overrideId OverrideId) {
+	w.WriteHeader(http.StatusNotImplemented)
+}
+
+// ListAvailabilityRules List weekly availability periods
+// (GET /admin/availability/rules)
+func (_ Unimplemented) ListAvailabilityRules(w http.ResponseWriter, r *http.Request) {
+	w.WriteHeader(http.StatusNotImplemented)
+}
+
+// CreateAvailabilityRule Create a weekly availability period
+// (POST /admin/availability/rules)
+func (_ Unimplemented) CreateAvailabilityRule(w http.ResponseWriter, r *http.Request) {
+	w.WriteHeader(http.StatusNotImplemented)
+}
+
+// DeleteAvailabilityRule Delete a weekly availability period
+// (DELETE /admin/availability/rules/{ruleId})
+func (_ Unimplemented) DeleteAvailabilityRule(w http.ResponseWriter, r *http.Request, ruleId RuleId) {
+	w.WriteHeader(http.StatusNotImplemented)
+}
+
+// UpdateAvailabilityRule Replace a weekly availability period
+// (PUT /admin/availability/rules/{ruleId})
+func (_ Unimplemented) UpdateAvailabilityRule(w http.ResponseWriter, r *http.Request, ruleId RuleId) {
+	w.WriteHeader(http.StatusNotImplemented)
+}
+
+// ListServices List services
+// (GET /admin/services)
+func (_ Unimplemented) ListServices(w http.ResponseWriter, r *http.Request) {
+	w.WriteHeader(http.StatusNotImplemented)
+}
+
+// CreateService Create a service
+// (POST /admin/services)
+func (_ Unimplemented) CreateService(w http.ResponseWriter, r *http.Request) {
+	w.WriteHeader(http.StatusNotImplemented)
+}
+
+// DeleteService Delete a service
+// (DELETE /admin/services/{serviceId})
+func (_ Unimplemented) DeleteService(w http.ResponseWriter, r *http.Request, serviceId ServiceId) {
+	w.WriteHeader(http.StatusNotImplemented)
+}
+
+// GetService Get a service
+// (GET /admin/services/{serviceId})
+func (_ Unimplemented) GetService(w http.ResponseWriter, r *http.Request, serviceId ServiceId) {
+	w.WriteHeader(http.StatusNotImplemented)
+}
+
+// UpdateService Change a service
+// (PATCH /admin/services/{serviceId})
+func (_ Unimplemented) UpdateService(w http.ResponseWriter, r *http.Request, serviceId ServiceId) {
+	w.WriteHeader(http.StatusNotImplemented)
+}
+
+// PauseService Pause bookings for a service
+// (POST /admin/services/{serviceId}/pause)
+func (_ Unimplemented) PauseService(w http.ResponseWriter, r *http.Request, serviceId ServiceId) {
+	w.WriteHeader(http.StatusNotImplemented)
+}
+
+// ResumeService Resume bookings for a service
+// (POST /admin/services/{serviceId}/resume)
+func (_ Unimplemented) ResumeService(w http.ResponseWriter, r *http.Request, serviceId ServiceId) {
+	w.WriteHeader(http.StatusNotImplemented)
+}
 
 // GetSettings Get settings
 // (GET /admin/settings)
@@ -530,6 +1220,468 @@ type ServerInterfaceWrapper struct {
 }
 
 type MiddlewareFunc func(http.Handler) http.Handler
+
+// ListAvailabilityBlocks operation middleware
+func (siw *ServerInterfaceWrapper) ListAvailabilityBlocks(w http.ResponseWriter, r *http.Request) {
+
+	var err error
+	_ = err
+
+	// Parameter object where we will unmarshal all parameters from the context
+	var params ListAvailabilityBlocksParams
+
+	// ------------- Optional query parameter "from" -------------
+
+	err = runtime.BindQueryParameterWithOptions("form", true, false, "from", r.URL.Query(), &params.From, runtime.BindQueryParameterOptions{Type: "string", Format: "date"})
+	if err != nil {
+		var requiredError *runtime.RequiredParameterError
+		if errors.As(err, &requiredError) {
+			siw.ErrorHandlerFunc(w, r, &RequiredParamError{ParamName: "from"})
+		} else {
+			siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "from", Err: err})
+		}
+		return
+	}
+
+	// ------------- Optional query parameter "to" -------------
+
+	err = runtime.BindQueryParameterWithOptions("form", true, false, "to", r.URL.Query(), &params.To, runtime.BindQueryParameterOptions{Type: "string", Format: "date"})
+	if err != nil {
+		var requiredError *runtime.RequiredParameterError
+		if errors.As(err, &requiredError) {
+			siw.ErrorHandlerFunc(w, r, &RequiredParamError{ParamName: "to"})
+		} else {
+			siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "to", Err: err})
+		}
+		return
+	}
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.ListAvailabilityBlocks(w, r, params)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
+// CreateAvailabilityBlock operation middleware
+func (siw *ServerInterfaceWrapper) CreateAvailabilityBlock(w http.ResponseWriter, r *http.Request) {
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.CreateAvailabilityBlock(w, r)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
+// DeleteAvailabilityBlock operation middleware
+func (siw *ServerInterfaceWrapper) DeleteAvailabilityBlock(w http.ResponseWriter, r *http.Request) {
+
+	var err error
+	_ = err
+
+	// ------------- Path parameter "blockId" -------------
+	var blockId BlockId
+
+	err = runtime.BindStyledParameterWithOptions("simple", "blockId", chi.URLParam(r, "blockId"), &blockId, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "string", Format: "uuid", ValueIsUnescaped: r.URL.RawPath == ""})
+	if err != nil {
+		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "blockId", Err: err})
+		return
+	}
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.DeleteAvailabilityBlock(w, r, blockId)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
+// UpdateAvailabilityBlock operation middleware
+func (siw *ServerInterfaceWrapper) UpdateAvailabilityBlock(w http.ResponseWriter, r *http.Request) {
+
+	var err error
+	_ = err
+
+	// ------------- Path parameter "blockId" -------------
+	var blockId BlockId
+
+	err = runtime.BindStyledParameterWithOptions("simple", "blockId", chi.URLParam(r, "blockId"), &blockId, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "string", Format: "uuid", ValueIsUnescaped: r.URL.RawPath == ""})
+	if err != nil {
+		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "blockId", Err: err})
+		return
+	}
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.UpdateAvailabilityBlock(w, r, blockId)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
+// ListAvailabilityOverrides operation middleware
+func (siw *ServerInterfaceWrapper) ListAvailabilityOverrides(w http.ResponseWriter, r *http.Request) {
+
+	var err error
+	_ = err
+
+	// Parameter object where we will unmarshal all parameters from the context
+	var params ListAvailabilityOverridesParams
+
+	// ------------- Optional query parameter "from" -------------
+
+	err = runtime.BindQueryParameterWithOptions("form", true, false, "from", r.URL.Query(), &params.From, runtime.BindQueryParameterOptions{Type: "string", Format: "date"})
+	if err != nil {
+		var requiredError *runtime.RequiredParameterError
+		if errors.As(err, &requiredError) {
+			siw.ErrorHandlerFunc(w, r, &RequiredParamError{ParamName: "from"})
+		} else {
+			siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "from", Err: err})
+		}
+		return
+	}
+
+	// ------------- Optional query parameter "to" -------------
+
+	err = runtime.BindQueryParameterWithOptions("form", true, false, "to", r.URL.Query(), &params.To, runtime.BindQueryParameterOptions{Type: "string", Format: "date"})
+	if err != nil {
+		var requiredError *runtime.RequiredParameterError
+		if errors.As(err, &requiredError) {
+			siw.ErrorHandlerFunc(w, r, &RequiredParamError{ParamName: "to"})
+		} else {
+			siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "to", Err: err})
+		}
+		return
+	}
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.ListAvailabilityOverrides(w, r, params)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
+// CreateAvailabilityOverride operation middleware
+func (siw *ServerInterfaceWrapper) CreateAvailabilityOverride(w http.ResponseWriter, r *http.Request) {
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.CreateAvailabilityOverride(w, r)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
+// DeleteAvailabilityOverride operation middleware
+func (siw *ServerInterfaceWrapper) DeleteAvailabilityOverride(w http.ResponseWriter, r *http.Request) {
+
+	var err error
+	_ = err
+
+	// ------------- Path parameter "overrideId" -------------
+	var overrideId OverrideId
+
+	err = runtime.BindStyledParameterWithOptions("simple", "overrideId", chi.URLParam(r, "overrideId"), &overrideId, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "string", Format: "uuid", ValueIsUnescaped: r.URL.RawPath == ""})
+	if err != nil {
+		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "overrideId", Err: err})
+		return
+	}
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.DeleteAvailabilityOverride(w, r, overrideId)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
+// UpdateAvailabilityOverride operation middleware
+func (siw *ServerInterfaceWrapper) UpdateAvailabilityOverride(w http.ResponseWriter, r *http.Request) {
+
+	var err error
+	_ = err
+
+	// ------------- Path parameter "overrideId" -------------
+	var overrideId OverrideId
+
+	err = runtime.BindStyledParameterWithOptions("simple", "overrideId", chi.URLParam(r, "overrideId"), &overrideId, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "string", Format: "uuid", ValueIsUnescaped: r.URL.RawPath == ""})
+	if err != nil {
+		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "overrideId", Err: err})
+		return
+	}
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.UpdateAvailabilityOverride(w, r, overrideId)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
+// ListAvailabilityRules operation middleware
+func (siw *ServerInterfaceWrapper) ListAvailabilityRules(w http.ResponseWriter, r *http.Request) {
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.ListAvailabilityRules(w, r)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
+// CreateAvailabilityRule operation middleware
+func (siw *ServerInterfaceWrapper) CreateAvailabilityRule(w http.ResponseWriter, r *http.Request) {
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.CreateAvailabilityRule(w, r)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
+// DeleteAvailabilityRule operation middleware
+func (siw *ServerInterfaceWrapper) DeleteAvailabilityRule(w http.ResponseWriter, r *http.Request) {
+
+	var err error
+	_ = err
+
+	// ------------- Path parameter "ruleId" -------------
+	var ruleId RuleId
+
+	err = runtime.BindStyledParameterWithOptions("simple", "ruleId", chi.URLParam(r, "ruleId"), &ruleId, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "string", Format: "uuid", ValueIsUnescaped: r.URL.RawPath == ""})
+	if err != nil {
+		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "ruleId", Err: err})
+		return
+	}
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.DeleteAvailabilityRule(w, r, ruleId)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
+// UpdateAvailabilityRule operation middleware
+func (siw *ServerInterfaceWrapper) UpdateAvailabilityRule(w http.ResponseWriter, r *http.Request) {
+
+	var err error
+	_ = err
+
+	// ------------- Path parameter "ruleId" -------------
+	var ruleId RuleId
+
+	err = runtime.BindStyledParameterWithOptions("simple", "ruleId", chi.URLParam(r, "ruleId"), &ruleId, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "string", Format: "uuid", ValueIsUnescaped: r.URL.RawPath == ""})
+	if err != nil {
+		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "ruleId", Err: err})
+		return
+	}
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.UpdateAvailabilityRule(w, r, ruleId)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
+// ListServices operation middleware
+func (siw *ServerInterfaceWrapper) ListServices(w http.ResponseWriter, r *http.Request) {
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.ListServices(w, r)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
+// CreateService operation middleware
+func (siw *ServerInterfaceWrapper) CreateService(w http.ResponseWriter, r *http.Request) {
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.CreateService(w, r)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
+// DeleteService operation middleware
+func (siw *ServerInterfaceWrapper) DeleteService(w http.ResponseWriter, r *http.Request) {
+
+	var err error
+	_ = err
+
+	// ------------- Path parameter "serviceId" -------------
+	var serviceId ServiceId
+
+	err = runtime.BindStyledParameterWithOptions("simple", "serviceId", chi.URLParam(r, "serviceId"), &serviceId, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "string", Format: "uuid", ValueIsUnescaped: r.URL.RawPath == ""})
+	if err != nil {
+		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "serviceId", Err: err})
+		return
+	}
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.DeleteService(w, r, serviceId)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
+// GetService operation middleware
+func (siw *ServerInterfaceWrapper) GetService(w http.ResponseWriter, r *http.Request) {
+
+	var err error
+	_ = err
+
+	// ------------- Path parameter "serviceId" -------------
+	var serviceId ServiceId
+
+	err = runtime.BindStyledParameterWithOptions("simple", "serviceId", chi.URLParam(r, "serviceId"), &serviceId, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "string", Format: "uuid", ValueIsUnescaped: r.URL.RawPath == ""})
+	if err != nil {
+		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "serviceId", Err: err})
+		return
+	}
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.GetService(w, r, serviceId)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
+// UpdateService operation middleware
+func (siw *ServerInterfaceWrapper) UpdateService(w http.ResponseWriter, r *http.Request) {
+
+	var err error
+	_ = err
+
+	// ------------- Path parameter "serviceId" -------------
+	var serviceId ServiceId
+
+	err = runtime.BindStyledParameterWithOptions("simple", "serviceId", chi.URLParam(r, "serviceId"), &serviceId, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "string", Format: "uuid", ValueIsUnescaped: r.URL.RawPath == ""})
+	if err != nil {
+		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "serviceId", Err: err})
+		return
+	}
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.UpdateService(w, r, serviceId)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
+// PauseService operation middleware
+func (siw *ServerInterfaceWrapper) PauseService(w http.ResponseWriter, r *http.Request) {
+
+	var err error
+	_ = err
+
+	// ------------- Path parameter "serviceId" -------------
+	var serviceId ServiceId
+
+	err = runtime.BindStyledParameterWithOptions("simple", "serviceId", chi.URLParam(r, "serviceId"), &serviceId, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "string", Format: "uuid", ValueIsUnescaped: r.URL.RawPath == ""})
+	if err != nil {
+		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "serviceId", Err: err})
+		return
+	}
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.PauseService(w, r, serviceId)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
+// ResumeService operation middleware
+func (siw *ServerInterfaceWrapper) ResumeService(w http.ResponseWriter, r *http.Request) {
+
+	var err error
+	_ = err
+
+	// ------------- Path parameter "serviceId" -------------
+	var serviceId ServiceId
+
+	err = runtime.BindStyledParameterWithOptions("simple", "serviceId", chi.URLParam(r, "serviceId"), &serviceId, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "string", Format: "uuid", ValueIsUnescaped: r.URL.RawPath == ""})
+	if err != nil {
+		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "serviceId", Err: err})
+		return
+	}
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.ResumeService(w, r, serviceId)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
 
 // GetSettings operation middleware
 func (siw *ServerInterfaceWrapper) GetSettings(w http.ResponseWriter, r *http.Request) {
@@ -763,15 +1915,76 @@ func HandlerWithOptions(si ServerInterface, options ChiServerOptions) http.Handl
 	r.Group(func(r chi.Router) {
 		r.Patch(options.BaseURL+"/admin/settings", wrapper.UpdateSettings)
 	})
+	r.Group(func(r chi.Router) {
+		r.Get(options.BaseURL+"/admin/services", wrapper.ListServices)
+	})
+	r.Group(func(r chi.Router) {
+		r.Post(options.BaseURL+"/admin/services", wrapper.CreateService)
+	})
+	r.Group(func(r chi.Router) {
+		r.Delete(options.BaseURL+"/admin/services/{serviceId}", wrapper.DeleteService)
+	})
+	r.Group(func(r chi.Router) {
+		r.Get(options.BaseURL+"/admin/services/{serviceId}", wrapper.GetService)
+	})
+	r.Group(func(r chi.Router) {
+		r.Patch(options.BaseURL+"/admin/services/{serviceId}", wrapper.UpdateService)
+	})
+	r.Group(func(r chi.Router) {
+		r.Post(options.BaseURL+"/admin/services/{serviceId}/pause", wrapper.PauseService)
+	})
+	r.Group(func(r chi.Router) {
+		r.Post(options.BaseURL+"/admin/services/{serviceId}/resume", wrapper.ResumeService)
+	})
+	r.Group(func(r chi.Router) {
+		r.Get(options.BaseURL+"/admin/availability/rules", wrapper.ListAvailabilityRules)
+	})
+	r.Group(func(r chi.Router) {
+		r.Post(options.BaseURL+"/admin/availability/rules", wrapper.CreateAvailabilityRule)
+	})
+	r.Group(func(r chi.Router) {
+		r.Delete(options.BaseURL+"/admin/availability/rules/{ruleId}", wrapper.DeleteAvailabilityRule)
+	})
+	r.Group(func(r chi.Router) {
+		r.Put(options.BaseURL+"/admin/availability/rules/{ruleId}", wrapper.UpdateAvailabilityRule)
+	})
+	r.Group(func(r chi.Router) {
+		r.Get(options.BaseURL+"/admin/availability/overrides", wrapper.ListAvailabilityOverrides)
+	})
+	r.Group(func(r chi.Router) {
+		r.Post(options.BaseURL+"/admin/availability/overrides", wrapper.CreateAvailabilityOverride)
+	})
+	r.Group(func(r chi.Router) {
+		r.Delete(options.BaseURL+"/admin/availability/overrides/{overrideId}", wrapper.DeleteAvailabilityOverride)
+	})
+	r.Group(func(r chi.Router) {
+		r.Put(options.BaseURL+"/admin/availability/overrides/{overrideId}", wrapper.UpdateAvailabilityOverride)
+	})
+	r.Group(func(r chi.Router) {
+		r.Get(options.BaseURL+"/admin/availability/blocks", wrapper.ListAvailabilityBlocks)
+	})
+	r.Group(func(r chi.Router) {
+		r.Post(options.BaseURL+"/admin/availability/blocks", wrapper.CreateAvailabilityBlock)
+	})
+	r.Group(func(r chi.Router) {
+		r.Delete(options.BaseURL+"/admin/availability/blocks/{blockId}", wrapper.DeleteAvailabilityBlock)
+	})
+	r.Group(func(r chi.Router) {
+		r.Put(options.BaseURL+"/admin/availability/blocks/{blockId}", wrapper.UpdateAvailabilityBlock)
+	})
 
 	return r
 }
 
 type BadRequestApplicationProblemPlusJSONResponse Problem
 
+type ConflictApplicationProblemPlusJSONResponse Problem
+
 type ForbiddenApplicationProblemPlusJSONResponse Problem
 
 type InternalErrorApplicationProblemPlusJSONResponse Problem
+
+type NotFoundApplicationProblemPlusJSONResponse Problem
 
 type TooManyRequestsResponseHeaders struct {
 	RetryAfter *int
@@ -785,6 +1998,2365 @@ type TooManyRequestsApplicationProblemPlusJSONResponse struct {
 type UnauthorizedApplicationProblemPlusJSONResponse Problem
 
 type UnprocessableEntityApplicationProblemPlusJSONResponse Problem
+
+type ListAvailabilityBlocksRequestObject struct {
+	Params ListAvailabilityBlocksParams
+}
+
+type ListAvailabilityBlocksResponseObject interface {
+	VisitListAvailabilityBlocksResponse(w http.ResponseWriter) error
+}
+
+type ListAvailabilityBlocks200JSONResponse AvailabilityBlockList
+
+func (response ListAvailabilityBlocks200JSONResponse) VisitListAvailabilityBlocksResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(200)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type ListAvailabilityBlocks400ApplicationProblemPlusJSONResponse struct {
+	BadRequestApplicationProblemPlusJSONResponse
+}
+
+func (response ListAvailabilityBlocks400ApplicationProblemPlusJSONResponse) VisitListAvailabilityBlocksResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/problem+json")
+	w.WriteHeader(400)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type ListAvailabilityBlocks401ApplicationProblemPlusJSONResponse struct {
+	UnauthorizedApplicationProblemPlusJSONResponse
+}
+
+func (response ListAvailabilityBlocks401ApplicationProblemPlusJSONResponse) VisitListAvailabilityBlocksResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/problem+json")
+	w.WriteHeader(401)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type ListAvailabilityBlocks403ApplicationProblemPlusJSONResponse struct {
+	ForbiddenApplicationProblemPlusJSONResponse
+}
+
+func (response ListAvailabilityBlocks403ApplicationProblemPlusJSONResponse) VisitListAvailabilityBlocksResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/problem+json")
+	w.WriteHeader(403)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type ListAvailabilityBlocks429ApplicationProblemPlusJSONResponse struct {
+	TooManyRequestsApplicationProblemPlusJSONResponse
+}
+
+func (response ListAvailabilityBlocks429ApplicationProblemPlusJSONResponse) VisitListAvailabilityBlocksResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response.Body); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/problem+json")
+	if response.Headers.RetryAfter != nil {
+		w.Header().Set("Retry-After", fmt.Sprint(*response.Headers.RetryAfter))
+	}
+	w.WriteHeader(429)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type ListAvailabilityBlocks500ApplicationProblemPlusJSONResponse struct {
+	InternalErrorApplicationProblemPlusJSONResponse
+}
+
+func (response ListAvailabilityBlocks500ApplicationProblemPlusJSONResponse) VisitListAvailabilityBlocksResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/problem+json")
+	w.WriteHeader(500)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type CreateAvailabilityBlockRequestObject struct {
+	Body *CreateAvailabilityBlockJSONRequestBody
+}
+
+type CreateAvailabilityBlockResponseObject interface {
+	VisitCreateAvailabilityBlockResponse(w http.ResponseWriter) error
+}
+
+type CreateAvailabilityBlock201JSONResponse AvailabilityBlockSaved
+
+func (response CreateAvailabilityBlock201JSONResponse) VisitCreateAvailabilityBlockResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(201)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type CreateAvailabilityBlock400ApplicationProblemPlusJSONResponse struct {
+	BadRequestApplicationProblemPlusJSONResponse
+}
+
+func (response CreateAvailabilityBlock400ApplicationProblemPlusJSONResponse) VisitCreateAvailabilityBlockResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/problem+json")
+	w.WriteHeader(400)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type CreateAvailabilityBlock401ApplicationProblemPlusJSONResponse struct {
+	UnauthorizedApplicationProblemPlusJSONResponse
+}
+
+func (response CreateAvailabilityBlock401ApplicationProblemPlusJSONResponse) VisitCreateAvailabilityBlockResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/problem+json")
+	w.WriteHeader(401)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type CreateAvailabilityBlock403ApplicationProblemPlusJSONResponse struct {
+	ForbiddenApplicationProblemPlusJSONResponse
+}
+
+func (response CreateAvailabilityBlock403ApplicationProblemPlusJSONResponse) VisitCreateAvailabilityBlockResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/problem+json")
+	w.WriteHeader(403)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type CreateAvailabilityBlock422ApplicationProblemPlusJSONResponse struct {
+	UnprocessableEntityApplicationProblemPlusJSONResponse
+}
+
+func (response CreateAvailabilityBlock422ApplicationProblemPlusJSONResponse) VisitCreateAvailabilityBlockResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/problem+json")
+	w.WriteHeader(422)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type CreateAvailabilityBlock429ApplicationProblemPlusJSONResponse struct {
+	TooManyRequestsApplicationProblemPlusJSONResponse
+}
+
+func (response CreateAvailabilityBlock429ApplicationProblemPlusJSONResponse) VisitCreateAvailabilityBlockResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response.Body); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/problem+json")
+	if response.Headers.RetryAfter != nil {
+		w.Header().Set("Retry-After", fmt.Sprint(*response.Headers.RetryAfter))
+	}
+	w.WriteHeader(429)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type CreateAvailabilityBlock500ApplicationProblemPlusJSONResponse struct {
+	InternalErrorApplicationProblemPlusJSONResponse
+}
+
+func (response CreateAvailabilityBlock500ApplicationProblemPlusJSONResponse) VisitCreateAvailabilityBlockResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/problem+json")
+	w.WriteHeader(500)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type DeleteAvailabilityBlockRequestObject struct {
+	BlockId BlockId `json:"blockId"`
+}
+
+type DeleteAvailabilityBlockResponseObject interface {
+	VisitDeleteAvailabilityBlockResponse(w http.ResponseWriter) error
+}
+
+type DeleteAvailabilityBlock204Response struct {
+}
+
+func (response DeleteAvailabilityBlock204Response) VisitDeleteAvailabilityBlockResponse(w http.ResponseWriter) error {
+	w.WriteHeader(204)
+	return nil
+}
+
+type DeleteAvailabilityBlock400ApplicationProblemPlusJSONResponse struct {
+	BadRequestApplicationProblemPlusJSONResponse
+}
+
+func (response DeleteAvailabilityBlock400ApplicationProblemPlusJSONResponse) VisitDeleteAvailabilityBlockResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/problem+json")
+	w.WriteHeader(400)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type DeleteAvailabilityBlock401ApplicationProblemPlusJSONResponse struct {
+	UnauthorizedApplicationProblemPlusJSONResponse
+}
+
+func (response DeleteAvailabilityBlock401ApplicationProblemPlusJSONResponse) VisitDeleteAvailabilityBlockResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/problem+json")
+	w.WriteHeader(401)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type DeleteAvailabilityBlock403ApplicationProblemPlusJSONResponse struct {
+	ForbiddenApplicationProblemPlusJSONResponse
+}
+
+func (response DeleteAvailabilityBlock403ApplicationProblemPlusJSONResponse) VisitDeleteAvailabilityBlockResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/problem+json")
+	w.WriteHeader(403)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type DeleteAvailabilityBlock404ApplicationProblemPlusJSONResponse struct {
+	NotFoundApplicationProblemPlusJSONResponse
+}
+
+func (response DeleteAvailabilityBlock404ApplicationProblemPlusJSONResponse) VisitDeleteAvailabilityBlockResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/problem+json")
+	w.WriteHeader(404)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type DeleteAvailabilityBlock429ApplicationProblemPlusJSONResponse struct {
+	TooManyRequestsApplicationProblemPlusJSONResponse
+}
+
+func (response DeleteAvailabilityBlock429ApplicationProblemPlusJSONResponse) VisitDeleteAvailabilityBlockResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response.Body); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/problem+json")
+	if response.Headers.RetryAfter != nil {
+		w.Header().Set("Retry-After", fmt.Sprint(*response.Headers.RetryAfter))
+	}
+	w.WriteHeader(429)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type DeleteAvailabilityBlock500ApplicationProblemPlusJSONResponse struct {
+	InternalErrorApplicationProblemPlusJSONResponse
+}
+
+func (response DeleteAvailabilityBlock500ApplicationProblemPlusJSONResponse) VisitDeleteAvailabilityBlockResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/problem+json")
+	w.WriteHeader(500)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type UpdateAvailabilityBlockRequestObject struct {
+	BlockId BlockId `json:"blockId"`
+	Body    *UpdateAvailabilityBlockJSONRequestBody
+}
+
+type UpdateAvailabilityBlockResponseObject interface {
+	VisitUpdateAvailabilityBlockResponse(w http.ResponseWriter) error
+}
+
+type UpdateAvailabilityBlock200JSONResponse AvailabilityBlockSaved
+
+func (response UpdateAvailabilityBlock200JSONResponse) VisitUpdateAvailabilityBlockResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(200)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type UpdateAvailabilityBlock400ApplicationProblemPlusJSONResponse struct {
+	BadRequestApplicationProblemPlusJSONResponse
+}
+
+func (response UpdateAvailabilityBlock400ApplicationProblemPlusJSONResponse) VisitUpdateAvailabilityBlockResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/problem+json")
+	w.WriteHeader(400)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type UpdateAvailabilityBlock401ApplicationProblemPlusJSONResponse struct {
+	UnauthorizedApplicationProblemPlusJSONResponse
+}
+
+func (response UpdateAvailabilityBlock401ApplicationProblemPlusJSONResponse) VisitUpdateAvailabilityBlockResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/problem+json")
+	w.WriteHeader(401)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type UpdateAvailabilityBlock403ApplicationProblemPlusJSONResponse struct {
+	ForbiddenApplicationProblemPlusJSONResponse
+}
+
+func (response UpdateAvailabilityBlock403ApplicationProblemPlusJSONResponse) VisitUpdateAvailabilityBlockResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/problem+json")
+	w.WriteHeader(403)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type UpdateAvailabilityBlock404ApplicationProblemPlusJSONResponse struct {
+	NotFoundApplicationProblemPlusJSONResponse
+}
+
+func (response UpdateAvailabilityBlock404ApplicationProblemPlusJSONResponse) VisitUpdateAvailabilityBlockResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/problem+json")
+	w.WriteHeader(404)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type UpdateAvailabilityBlock422ApplicationProblemPlusJSONResponse struct {
+	UnprocessableEntityApplicationProblemPlusJSONResponse
+}
+
+func (response UpdateAvailabilityBlock422ApplicationProblemPlusJSONResponse) VisitUpdateAvailabilityBlockResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/problem+json")
+	w.WriteHeader(422)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type UpdateAvailabilityBlock429ApplicationProblemPlusJSONResponse struct {
+	TooManyRequestsApplicationProblemPlusJSONResponse
+}
+
+func (response UpdateAvailabilityBlock429ApplicationProblemPlusJSONResponse) VisitUpdateAvailabilityBlockResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response.Body); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/problem+json")
+	if response.Headers.RetryAfter != nil {
+		w.Header().Set("Retry-After", fmt.Sprint(*response.Headers.RetryAfter))
+	}
+	w.WriteHeader(429)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type UpdateAvailabilityBlock500ApplicationProblemPlusJSONResponse struct {
+	InternalErrorApplicationProblemPlusJSONResponse
+}
+
+func (response UpdateAvailabilityBlock500ApplicationProblemPlusJSONResponse) VisitUpdateAvailabilityBlockResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/problem+json")
+	w.WriteHeader(500)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type ListAvailabilityOverridesRequestObject struct {
+	Params ListAvailabilityOverridesParams
+}
+
+type ListAvailabilityOverridesResponseObject interface {
+	VisitListAvailabilityOverridesResponse(w http.ResponseWriter) error
+}
+
+type ListAvailabilityOverrides200JSONResponse AvailabilityOverrideList
+
+func (response ListAvailabilityOverrides200JSONResponse) VisitListAvailabilityOverridesResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(200)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type ListAvailabilityOverrides400ApplicationProblemPlusJSONResponse struct {
+	BadRequestApplicationProblemPlusJSONResponse
+}
+
+func (response ListAvailabilityOverrides400ApplicationProblemPlusJSONResponse) VisitListAvailabilityOverridesResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/problem+json")
+	w.WriteHeader(400)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type ListAvailabilityOverrides401ApplicationProblemPlusJSONResponse struct {
+	UnauthorizedApplicationProblemPlusJSONResponse
+}
+
+func (response ListAvailabilityOverrides401ApplicationProblemPlusJSONResponse) VisitListAvailabilityOverridesResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/problem+json")
+	w.WriteHeader(401)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type ListAvailabilityOverrides403ApplicationProblemPlusJSONResponse struct {
+	ForbiddenApplicationProblemPlusJSONResponse
+}
+
+func (response ListAvailabilityOverrides403ApplicationProblemPlusJSONResponse) VisitListAvailabilityOverridesResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/problem+json")
+	w.WriteHeader(403)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type ListAvailabilityOverrides429ApplicationProblemPlusJSONResponse struct {
+	TooManyRequestsApplicationProblemPlusJSONResponse
+}
+
+func (response ListAvailabilityOverrides429ApplicationProblemPlusJSONResponse) VisitListAvailabilityOverridesResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response.Body); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/problem+json")
+	if response.Headers.RetryAfter != nil {
+		w.Header().Set("Retry-After", fmt.Sprint(*response.Headers.RetryAfter))
+	}
+	w.WriteHeader(429)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type ListAvailabilityOverrides500ApplicationProblemPlusJSONResponse struct {
+	InternalErrorApplicationProblemPlusJSONResponse
+}
+
+func (response ListAvailabilityOverrides500ApplicationProblemPlusJSONResponse) VisitListAvailabilityOverridesResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/problem+json")
+	w.WriteHeader(500)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type CreateAvailabilityOverrideRequestObject struct {
+	Body *CreateAvailabilityOverrideJSONRequestBody
+}
+
+type CreateAvailabilityOverrideResponseObject interface {
+	VisitCreateAvailabilityOverrideResponse(w http.ResponseWriter) error
+}
+
+type CreateAvailabilityOverride201JSONResponse AvailabilityOverride
+
+func (response CreateAvailabilityOverride201JSONResponse) VisitCreateAvailabilityOverrideResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(201)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type CreateAvailabilityOverride400ApplicationProblemPlusJSONResponse struct {
+	BadRequestApplicationProblemPlusJSONResponse
+}
+
+func (response CreateAvailabilityOverride400ApplicationProblemPlusJSONResponse) VisitCreateAvailabilityOverrideResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/problem+json")
+	w.WriteHeader(400)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type CreateAvailabilityOverride401ApplicationProblemPlusJSONResponse struct {
+	UnauthorizedApplicationProblemPlusJSONResponse
+}
+
+func (response CreateAvailabilityOverride401ApplicationProblemPlusJSONResponse) VisitCreateAvailabilityOverrideResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/problem+json")
+	w.WriteHeader(401)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type CreateAvailabilityOverride403ApplicationProblemPlusJSONResponse struct {
+	ForbiddenApplicationProblemPlusJSONResponse
+}
+
+func (response CreateAvailabilityOverride403ApplicationProblemPlusJSONResponse) VisitCreateAvailabilityOverrideResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/problem+json")
+	w.WriteHeader(403)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type CreateAvailabilityOverride422ApplicationProblemPlusJSONResponse struct {
+	UnprocessableEntityApplicationProblemPlusJSONResponse
+}
+
+func (response CreateAvailabilityOverride422ApplicationProblemPlusJSONResponse) VisitCreateAvailabilityOverrideResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/problem+json")
+	w.WriteHeader(422)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type CreateAvailabilityOverride429ApplicationProblemPlusJSONResponse struct {
+	TooManyRequestsApplicationProblemPlusJSONResponse
+}
+
+func (response CreateAvailabilityOverride429ApplicationProblemPlusJSONResponse) VisitCreateAvailabilityOverrideResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response.Body); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/problem+json")
+	if response.Headers.RetryAfter != nil {
+		w.Header().Set("Retry-After", fmt.Sprint(*response.Headers.RetryAfter))
+	}
+	w.WriteHeader(429)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type CreateAvailabilityOverride500ApplicationProblemPlusJSONResponse struct {
+	InternalErrorApplicationProblemPlusJSONResponse
+}
+
+func (response CreateAvailabilityOverride500ApplicationProblemPlusJSONResponse) VisitCreateAvailabilityOverrideResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/problem+json")
+	w.WriteHeader(500)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type DeleteAvailabilityOverrideRequestObject struct {
+	OverrideId OverrideId `json:"overrideId"`
+}
+
+type DeleteAvailabilityOverrideResponseObject interface {
+	VisitDeleteAvailabilityOverrideResponse(w http.ResponseWriter) error
+}
+
+type DeleteAvailabilityOverride204Response struct {
+}
+
+func (response DeleteAvailabilityOverride204Response) VisitDeleteAvailabilityOverrideResponse(w http.ResponseWriter) error {
+	w.WriteHeader(204)
+	return nil
+}
+
+type DeleteAvailabilityOverride400ApplicationProblemPlusJSONResponse struct {
+	BadRequestApplicationProblemPlusJSONResponse
+}
+
+func (response DeleteAvailabilityOverride400ApplicationProblemPlusJSONResponse) VisitDeleteAvailabilityOverrideResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/problem+json")
+	w.WriteHeader(400)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type DeleteAvailabilityOverride401ApplicationProblemPlusJSONResponse struct {
+	UnauthorizedApplicationProblemPlusJSONResponse
+}
+
+func (response DeleteAvailabilityOverride401ApplicationProblemPlusJSONResponse) VisitDeleteAvailabilityOverrideResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/problem+json")
+	w.WriteHeader(401)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type DeleteAvailabilityOverride403ApplicationProblemPlusJSONResponse struct {
+	ForbiddenApplicationProblemPlusJSONResponse
+}
+
+func (response DeleteAvailabilityOverride403ApplicationProblemPlusJSONResponse) VisitDeleteAvailabilityOverrideResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/problem+json")
+	w.WriteHeader(403)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type DeleteAvailabilityOverride404ApplicationProblemPlusJSONResponse struct {
+	NotFoundApplicationProblemPlusJSONResponse
+}
+
+func (response DeleteAvailabilityOverride404ApplicationProblemPlusJSONResponse) VisitDeleteAvailabilityOverrideResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/problem+json")
+	w.WriteHeader(404)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type DeleteAvailabilityOverride429ApplicationProblemPlusJSONResponse struct {
+	TooManyRequestsApplicationProblemPlusJSONResponse
+}
+
+func (response DeleteAvailabilityOverride429ApplicationProblemPlusJSONResponse) VisitDeleteAvailabilityOverrideResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response.Body); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/problem+json")
+	if response.Headers.RetryAfter != nil {
+		w.Header().Set("Retry-After", fmt.Sprint(*response.Headers.RetryAfter))
+	}
+	w.WriteHeader(429)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type DeleteAvailabilityOverride500ApplicationProblemPlusJSONResponse struct {
+	InternalErrorApplicationProblemPlusJSONResponse
+}
+
+func (response DeleteAvailabilityOverride500ApplicationProblemPlusJSONResponse) VisitDeleteAvailabilityOverrideResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/problem+json")
+	w.WriteHeader(500)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type UpdateAvailabilityOverrideRequestObject struct {
+	OverrideId OverrideId `json:"overrideId"`
+	Body       *UpdateAvailabilityOverrideJSONRequestBody
+}
+
+type UpdateAvailabilityOverrideResponseObject interface {
+	VisitUpdateAvailabilityOverrideResponse(w http.ResponseWriter) error
+}
+
+type UpdateAvailabilityOverride200JSONResponse AvailabilityOverride
+
+func (response UpdateAvailabilityOverride200JSONResponse) VisitUpdateAvailabilityOverrideResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(200)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type UpdateAvailabilityOverride400ApplicationProblemPlusJSONResponse struct {
+	BadRequestApplicationProblemPlusJSONResponse
+}
+
+func (response UpdateAvailabilityOverride400ApplicationProblemPlusJSONResponse) VisitUpdateAvailabilityOverrideResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/problem+json")
+	w.WriteHeader(400)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type UpdateAvailabilityOverride401ApplicationProblemPlusJSONResponse struct {
+	UnauthorizedApplicationProblemPlusJSONResponse
+}
+
+func (response UpdateAvailabilityOverride401ApplicationProblemPlusJSONResponse) VisitUpdateAvailabilityOverrideResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/problem+json")
+	w.WriteHeader(401)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type UpdateAvailabilityOverride403ApplicationProblemPlusJSONResponse struct {
+	ForbiddenApplicationProblemPlusJSONResponse
+}
+
+func (response UpdateAvailabilityOverride403ApplicationProblemPlusJSONResponse) VisitUpdateAvailabilityOverrideResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/problem+json")
+	w.WriteHeader(403)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type UpdateAvailabilityOverride404ApplicationProblemPlusJSONResponse struct {
+	NotFoundApplicationProblemPlusJSONResponse
+}
+
+func (response UpdateAvailabilityOverride404ApplicationProblemPlusJSONResponse) VisitUpdateAvailabilityOverrideResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/problem+json")
+	w.WriteHeader(404)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type UpdateAvailabilityOverride422ApplicationProblemPlusJSONResponse struct {
+	UnprocessableEntityApplicationProblemPlusJSONResponse
+}
+
+func (response UpdateAvailabilityOverride422ApplicationProblemPlusJSONResponse) VisitUpdateAvailabilityOverrideResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/problem+json")
+	w.WriteHeader(422)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type UpdateAvailabilityOverride429ApplicationProblemPlusJSONResponse struct {
+	TooManyRequestsApplicationProblemPlusJSONResponse
+}
+
+func (response UpdateAvailabilityOverride429ApplicationProblemPlusJSONResponse) VisitUpdateAvailabilityOverrideResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response.Body); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/problem+json")
+	if response.Headers.RetryAfter != nil {
+		w.Header().Set("Retry-After", fmt.Sprint(*response.Headers.RetryAfter))
+	}
+	w.WriteHeader(429)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type UpdateAvailabilityOverride500ApplicationProblemPlusJSONResponse struct {
+	InternalErrorApplicationProblemPlusJSONResponse
+}
+
+func (response UpdateAvailabilityOverride500ApplicationProblemPlusJSONResponse) VisitUpdateAvailabilityOverrideResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/problem+json")
+	w.WriteHeader(500)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type ListAvailabilityRulesRequestObject struct {
+}
+
+type ListAvailabilityRulesResponseObject interface {
+	VisitListAvailabilityRulesResponse(w http.ResponseWriter) error
+}
+
+type ListAvailabilityRules200JSONResponse AvailabilityRuleList
+
+func (response ListAvailabilityRules200JSONResponse) VisitListAvailabilityRulesResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(200)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type ListAvailabilityRules401ApplicationProblemPlusJSONResponse struct {
+	UnauthorizedApplicationProblemPlusJSONResponse
+}
+
+func (response ListAvailabilityRules401ApplicationProblemPlusJSONResponse) VisitListAvailabilityRulesResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/problem+json")
+	w.WriteHeader(401)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type ListAvailabilityRules403ApplicationProblemPlusJSONResponse struct {
+	ForbiddenApplicationProblemPlusJSONResponse
+}
+
+func (response ListAvailabilityRules403ApplicationProblemPlusJSONResponse) VisitListAvailabilityRulesResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/problem+json")
+	w.WriteHeader(403)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type ListAvailabilityRules429ApplicationProblemPlusJSONResponse struct {
+	TooManyRequestsApplicationProblemPlusJSONResponse
+}
+
+func (response ListAvailabilityRules429ApplicationProblemPlusJSONResponse) VisitListAvailabilityRulesResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response.Body); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/problem+json")
+	if response.Headers.RetryAfter != nil {
+		w.Header().Set("Retry-After", fmt.Sprint(*response.Headers.RetryAfter))
+	}
+	w.WriteHeader(429)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type ListAvailabilityRules500ApplicationProblemPlusJSONResponse struct {
+	InternalErrorApplicationProblemPlusJSONResponse
+}
+
+func (response ListAvailabilityRules500ApplicationProblemPlusJSONResponse) VisitListAvailabilityRulesResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/problem+json")
+	w.WriteHeader(500)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type CreateAvailabilityRuleRequestObject struct {
+	Body *CreateAvailabilityRuleJSONRequestBody
+}
+
+type CreateAvailabilityRuleResponseObject interface {
+	VisitCreateAvailabilityRuleResponse(w http.ResponseWriter) error
+}
+
+type CreateAvailabilityRule201JSONResponse AvailabilityRule
+
+func (response CreateAvailabilityRule201JSONResponse) VisitCreateAvailabilityRuleResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(201)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type CreateAvailabilityRule400ApplicationProblemPlusJSONResponse struct {
+	BadRequestApplicationProblemPlusJSONResponse
+}
+
+func (response CreateAvailabilityRule400ApplicationProblemPlusJSONResponse) VisitCreateAvailabilityRuleResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/problem+json")
+	w.WriteHeader(400)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type CreateAvailabilityRule401ApplicationProblemPlusJSONResponse struct {
+	UnauthorizedApplicationProblemPlusJSONResponse
+}
+
+func (response CreateAvailabilityRule401ApplicationProblemPlusJSONResponse) VisitCreateAvailabilityRuleResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/problem+json")
+	w.WriteHeader(401)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type CreateAvailabilityRule403ApplicationProblemPlusJSONResponse struct {
+	ForbiddenApplicationProblemPlusJSONResponse
+}
+
+func (response CreateAvailabilityRule403ApplicationProblemPlusJSONResponse) VisitCreateAvailabilityRuleResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/problem+json")
+	w.WriteHeader(403)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type CreateAvailabilityRule409ApplicationProblemPlusJSONResponse struct {
+	ConflictApplicationProblemPlusJSONResponse
+}
+
+func (response CreateAvailabilityRule409ApplicationProblemPlusJSONResponse) VisitCreateAvailabilityRuleResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/problem+json")
+	w.WriteHeader(409)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type CreateAvailabilityRule422ApplicationProblemPlusJSONResponse struct {
+	UnprocessableEntityApplicationProblemPlusJSONResponse
+}
+
+func (response CreateAvailabilityRule422ApplicationProblemPlusJSONResponse) VisitCreateAvailabilityRuleResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/problem+json")
+	w.WriteHeader(422)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type CreateAvailabilityRule429ApplicationProblemPlusJSONResponse struct {
+	TooManyRequestsApplicationProblemPlusJSONResponse
+}
+
+func (response CreateAvailabilityRule429ApplicationProblemPlusJSONResponse) VisitCreateAvailabilityRuleResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response.Body); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/problem+json")
+	if response.Headers.RetryAfter != nil {
+		w.Header().Set("Retry-After", fmt.Sprint(*response.Headers.RetryAfter))
+	}
+	w.WriteHeader(429)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type CreateAvailabilityRule500ApplicationProblemPlusJSONResponse struct {
+	InternalErrorApplicationProblemPlusJSONResponse
+}
+
+func (response CreateAvailabilityRule500ApplicationProblemPlusJSONResponse) VisitCreateAvailabilityRuleResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/problem+json")
+	w.WriteHeader(500)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type DeleteAvailabilityRuleRequestObject struct {
+	RuleId RuleId `json:"ruleId"`
+}
+
+type DeleteAvailabilityRuleResponseObject interface {
+	VisitDeleteAvailabilityRuleResponse(w http.ResponseWriter) error
+}
+
+type DeleteAvailabilityRule204Response struct {
+}
+
+func (response DeleteAvailabilityRule204Response) VisitDeleteAvailabilityRuleResponse(w http.ResponseWriter) error {
+	w.WriteHeader(204)
+	return nil
+}
+
+type DeleteAvailabilityRule400ApplicationProblemPlusJSONResponse struct {
+	BadRequestApplicationProblemPlusJSONResponse
+}
+
+func (response DeleteAvailabilityRule400ApplicationProblemPlusJSONResponse) VisitDeleteAvailabilityRuleResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/problem+json")
+	w.WriteHeader(400)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type DeleteAvailabilityRule401ApplicationProblemPlusJSONResponse struct {
+	UnauthorizedApplicationProblemPlusJSONResponse
+}
+
+func (response DeleteAvailabilityRule401ApplicationProblemPlusJSONResponse) VisitDeleteAvailabilityRuleResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/problem+json")
+	w.WriteHeader(401)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type DeleteAvailabilityRule403ApplicationProblemPlusJSONResponse struct {
+	ForbiddenApplicationProblemPlusJSONResponse
+}
+
+func (response DeleteAvailabilityRule403ApplicationProblemPlusJSONResponse) VisitDeleteAvailabilityRuleResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/problem+json")
+	w.WriteHeader(403)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type DeleteAvailabilityRule404ApplicationProblemPlusJSONResponse struct {
+	NotFoundApplicationProblemPlusJSONResponse
+}
+
+func (response DeleteAvailabilityRule404ApplicationProblemPlusJSONResponse) VisitDeleteAvailabilityRuleResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/problem+json")
+	w.WriteHeader(404)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type DeleteAvailabilityRule429ApplicationProblemPlusJSONResponse struct {
+	TooManyRequestsApplicationProblemPlusJSONResponse
+}
+
+func (response DeleteAvailabilityRule429ApplicationProblemPlusJSONResponse) VisitDeleteAvailabilityRuleResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response.Body); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/problem+json")
+	if response.Headers.RetryAfter != nil {
+		w.Header().Set("Retry-After", fmt.Sprint(*response.Headers.RetryAfter))
+	}
+	w.WriteHeader(429)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type DeleteAvailabilityRule500ApplicationProblemPlusJSONResponse struct {
+	InternalErrorApplicationProblemPlusJSONResponse
+}
+
+func (response DeleteAvailabilityRule500ApplicationProblemPlusJSONResponse) VisitDeleteAvailabilityRuleResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/problem+json")
+	w.WriteHeader(500)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type UpdateAvailabilityRuleRequestObject struct {
+	RuleId RuleId `json:"ruleId"`
+	Body   *UpdateAvailabilityRuleJSONRequestBody
+}
+
+type UpdateAvailabilityRuleResponseObject interface {
+	VisitUpdateAvailabilityRuleResponse(w http.ResponseWriter) error
+}
+
+type UpdateAvailabilityRule200JSONResponse AvailabilityRule
+
+func (response UpdateAvailabilityRule200JSONResponse) VisitUpdateAvailabilityRuleResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(200)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type UpdateAvailabilityRule400ApplicationProblemPlusJSONResponse struct {
+	BadRequestApplicationProblemPlusJSONResponse
+}
+
+func (response UpdateAvailabilityRule400ApplicationProblemPlusJSONResponse) VisitUpdateAvailabilityRuleResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/problem+json")
+	w.WriteHeader(400)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type UpdateAvailabilityRule401ApplicationProblemPlusJSONResponse struct {
+	UnauthorizedApplicationProblemPlusJSONResponse
+}
+
+func (response UpdateAvailabilityRule401ApplicationProblemPlusJSONResponse) VisitUpdateAvailabilityRuleResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/problem+json")
+	w.WriteHeader(401)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type UpdateAvailabilityRule403ApplicationProblemPlusJSONResponse struct {
+	ForbiddenApplicationProblemPlusJSONResponse
+}
+
+func (response UpdateAvailabilityRule403ApplicationProblemPlusJSONResponse) VisitUpdateAvailabilityRuleResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/problem+json")
+	w.WriteHeader(403)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type UpdateAvailabilityRule404ApplicationProblemPlusJSONResponse struct {
+	NotFoundApplicationProblemPlusJSONResponse
+}
+
+func (response UpdateAvailabilityRule404ApplicationProblemPlusJSONResponse) VisitUpdateAvailabilityRuleResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/problem+json")
+	w.WriteHeader(404)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type UpdateAvailabilityRule409ApplicationProblemPlusJSONResponse struct {
+	ConflictApplicationProblemPlusJSONResponse
+}
+
+func (response UpdateAvailabilityRule409ApplicationProblemPlusJSONResponse) VisitUpdateAvailabilityRuleResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/problem+json")
+	w.WriteHeader(409)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type UpdateAvailabilityRule422ApplicationProblemPlusJSONResponse struct {
+	UnprocessableEntityApplicationProblemPlusJSONResponse
+}
+
+func (response UpdateAvailabilityRule422ApplicationProblemPlusJSONResponse) VisitUpdateAvailabilityRuleResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/problem+json")
+	w.WriteHeader(422)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type UpdateAvailabilityRule429ApplicationProblemPlusJSONResponse struct {
+	TooManyRequestsApplicationProblemPlusJSONResponse
+}
+
+func (response UpdateAvailabilityRule429ApplicationProblemPlusJSONResponse) VisitUpdateAvailabilityRuleResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response.Body); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/problem+json")
+	if response.Headers.RetryAfter != nil {
+		w.Header().Set("Retry-After", fmt.Sprint(*response.Headers.RetryAfter))
+	}
+	w.WriteHeader(429)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type UpdateAvailabilityRule500ApplicationProblemPlusJSONResponse struct {
+	InternalErrorApplicationProblemPlusJSONResponse
+}
+
+func (response UpdateAvailabilityRule500ApplicationProblemPlusJSONResponse) VisitUpdateAvailabilityRuleResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/problem+json")
+	w.WriteHeader(500)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type ListServicesRequestObject struct {
+}
+
+type ListServicesResponseObject interface {
+	VisitListServicesResponse(w http.ResponseWriter) error
+}
+
+type ListServices200JSONResponse ServiceList
+
+func (response ListServices200JSONResponse) VisitListServicesResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(200)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type ListServices401ApplicationProblemPlusJSONResponse struct {
+	UnauthorizedApplicationProblemPlusJSONResponse
+}
+
+func (response ListServices401ApplicationProblemPlusJSONResponse) VisitListServicesResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/problem+json")
+	w.WriteHeader(401)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type ListServices403ApplicationProblemPlusJSONResponse struct {
+	ForbiddenApplicationProblemPlusJSONResponse
+}
+
+func (response ListServices403ApplicationProblemPlusJSONResponse) VisitListServicesResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/problem+json")
+	w.WriteHeader(403)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type ListServices429ApplicationProblemPlusJSONResponse struct {
+	TooManyRequestsApplicationProblemPlusJSONResponse
+}
+
+func (response ListServices429ApplicationProblemPlusJSONResponse) VisitListServicesResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response.Body); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/problem+json")
+	if response.Headers.RetryAfter != nil {
+		w.Header().Set("Retry-After", fmt.Sprint(*response.Headers.RetryAfter))
+	}
+	w.WriteHeader(429)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type ListServices500ApplicationProblemPlusJSONResponse struct {
+	InternalErrorApplicationProblemPlusJSONResponse
+}
+
+func (response ListServices500ApplicationProblemPlusJSONResponse) VisitListServicesResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/problem+json")
+	w.WriteHeader(500)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type CreateServiceRequestObject struct {
+	Body *CreateServiceJSONRequestBody
+}
+
+type CreateServiceResponseObject interface {
+	VisitCreateServiceResponse(w http.ResponseWriter) error
+}
+
+type CreateService201JSONResponse Service
+
+func (response CreateService201JSONResponse) VisitCreateServiceResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(201)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type CreateService400ApplicationProblemPlusJSONResponse struct {
+	BadRequestApplicationProblemPlusJSONResponse
+}
+
+func (response CreateService400ApplicationProblemPlusJSONResponse) VisitCreateServiceResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/problem+json")
+	w.WriteHeader(400)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type CreateService401ApplicationProblemPlusJSONResponse struct {
+	UnauthorizedApplicationProblemPlusJSONResponse
+}
+
+func (response CreateService401ApplicationProblemPlusJSONResponse) VisitCreateServiceResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/problem+json")
+	w.WriteHeader(401)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type CreateService403ApplicationProblemPlusJSONResponse struct {
+	ForbiddenApplicationProblemPlusJSONResponse
+}
+
+func (response CreateService403ApplicationProblemPlusJSONResponse) VisitCreateServiceResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/problem+json")
+	w.WriteHeader(403)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type CreateService409ApplicationProblemPlusJSONResponse struct {
+	ConflictApplicationProblemPlusJSONResponse
+}
+
+func (response CreateService409ApplicationProblemPlusJSONResponse) VisitCreateServiceResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/problem+json")
+	w.WriteHeader(409)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type CreateService422ApplicationProblemPlusJSONResponse struct {
+	UnprocessableEntityApplicationProblemPlusJSONResponse
+}
+
+func (response CreateService422ApplicationProblemPlusJSONResponse) VisitCreateServiceResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/problem+json")
+	w.WriteHeader(422)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type CreateService429ApplicationProblemPlusJSONResponse struct {
+	TooManyRequestsApplicationProblemPlusJSONResponse
+}
+
+func (response CreateService429ApplicationProblemPlusJSONResponse) VisitCreateServiceResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response.Body); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/problem+json")
+	if response.Headers.RetryAfter != nil {
+		w.Header().Set("Retry-After", fmt.Sprint(*response.Headers.RetryAfter))
+	}
+	w.WriteHeader(429)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type CreateService500ApplicationProblemPlusJSONResponse struct {
+	InternalErrorApplicationProblemPlusJSONResponse
+}
+
+func (response CreateService500ApplicationProblemPlusJSONResponse) VisitCreateServiceResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/problem+json")
+	w.WriteHeader(500)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type DeleteServiceRequestObject struct {
+	ServiceId ServiceId `json:"serviceId"`
+}
+
+type DeleteServiceResponseObject interface {
+	VisitDeleteServiceResponse(w http.ResponseWriter) error
+}
+
+type DeleteService204Response struct {
+}
+
+func (response DeleteService204Response) VisitDeleteServiceResponse(w http.ResponseWriter) error {
+	w.WriteHeader(204)
+	return nil
+}
+
+type DeleteService400ApplicationProblemPlusJSONResponse struct {
+	BadRequestApplicationProblemPlusJSONResponse
+}
+
+func (response DeleteService400ApplicationProblemPlusJSONResponse) VisitDeleteServiceResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/problem+json")
+	w.WriteHeader(400)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type DeleteService401ApplicationProblemPlusJSONResponse struct {
+	UnauthorizedApplicationProblemPlusJSONResponse
+}
+
+func (response DeleteService401ApplicationProblemPlusJSONResponse) VisitDeleteServiceResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/problem+json")
+	w.WriteHeader(401)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type DeleteService403ApplicationProblemPlusJSONResponse struct {
+	ForbiddenApplicationProblemPlusJSONResponse
+}
+
+func (response DeleteService403ApplicationProblemPlusJSONResponse) VisitDeleteServiceResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/problem+json")
+	w.WriteHeader(403)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type DeleteService404ApplicationProblemPlusJSONResponse struct {
+	NotFoundApplicationProblemPlusJSONResponse
+}
+
+func (response DeleteService404ApplicationProblemPlusJSONResponse) VisitDeleteServiceResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/problem+json")
+	w.WriteHeader(404)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type DeleteService409ApplicationProblemPlusJSONResponse struct {
+	ConflictApplicationProblemPlusJSONResponse
+}
+
+func (response DeleteService409ApplicationProblemPlusJSONResponse) VisitDeleteServiceResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/problem+json")
+	w.WriteHeader(409)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type DeleteService429ApplicationProblemPlusJSONResponse struct {
+	TooManyRequestsApplicationProblemPlusJSONResponse
+}
+
+func (response DeleteService429ApplicationProblemPlusJSONResponse) VisitDeleteServiceResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response.Body); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/problem+json")
+	if response.Headers.RetryAfter != nil {
+		w.Header().Set("Retry-After", fmt.Sprint(*response.Headers.RetryAfter))
+	}
+	w.WriteHeader(429)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type DeleteService500ApplicationProblemPlusJSONResponse struct {
+	InternalErrorApplicationProblemPlusJSONResponse
+}
+
+func (response DeleteService500ApplicationProblemPlusJSONResponse) VisitDeleteServiceResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/problem+json")
+	w.WriteHeader(500)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type GetServiceRequestObject struct {
+	ServiceId ServiceId `json:"serviceId"`
+}
+
+type GetServiceResponseObject interface {
+	VisitGetServiceResponse(w http.ResponseWriter) error
+}
+
+type GetService200JSONResponse Service
+
+func (response GetService200JSONResponse) VisitGetServiceResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(200)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type GetService400ApplicationProblemPlusJSONResponse struct {
+	BadRequestApplicationProblemPlusJSONResponse
+}
+
+func (response GetService400ApplicationProblemPlusJSONResponse) VisitGetServiceResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/problem+json")
+	w.WriteHeader(400)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type GetService401ApplicationProblemPlusJSONResponse struct {
+	UnauthorizedApplicationProblemPlusJSONResponse
+}
+
+func (response GetService401ApplicationProblemPlusJSONResponse) VisitGetServiceResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/problem+json")
+	w.WriteHeader(401)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type GetService403ApplicationProblemPlusJSONResponse struct {
+	ForbiddenApplicationProblemPlusJSONResponse
+}
+
+func (response GetService403ApplicationProblemPlusJSONResponse) VisitGetServiceResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/problem+json")
+	w.WriteHeader(403)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type GetService404ApplicationProblemPlusJSONResponse struct {
+	NotFoundApplicationProblemPlusJSONResponse
+}
+
+func (response GetService404ApplicationProblemPlusJSONResponse) VisitGetServiceResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/problem+json")
+	w.WriteHeader(404)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type GetService429ApplicationProblemPlusJSONResponse struct {
+	TooManyRequestsApplicationProblemPlusJSONResponse
+}
+
+func (response GetService429ApplicationProblemPlusJSONResponse) VisitGetServiceResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response.Body); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/problem+json")
+	if response.Headers.RetryAfter != nil {
+		w.Header().Set("Retry-After", fmt.Sprint(*response.Headers.RetryAfter))
+	}
+	w.WriteHeader(429)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type GetService500ApplicationProblemPlusJSONResponse struct {
+	InternalErrorApplicationProblemPlusJSONResponse
+}
+
+func (response GetService500ApplicationProblemPlusJSONResponse) VisitGetServiceResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/problem+json")
+	w.WriteHeader(500)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type UpdateServiceRequestObject struct {
+	ServiceId ServiceId `json:"serviceId"`
+	Body      *UpdateServiceJSONRequestBody
+}
+
+type UpdateServiceResponseObject interface {
+	VisitUpdateServiceResponse(w http.ResponseWriter) error
+}
+
+type UpdateService200JSONResponse Service
+
+func (response UpdateService200JSONResponse) VisitUpdateServiceResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(200)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type UpdateService400ApplicationProblemPlusJSONResponse struct {
+	BadRequestApplicationProblemPlusJSONResponse
+}
+
+func (response UpdateService400ApplicationProblemPlusJSONResponse) VisitUpdateServiceResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/problem+json")
+	w.WriteHeader(400)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type UpdateService401ApplicationProblemPlusJSONResponse struct {
+	UnauthorizedApplicationProblemPlusJSONResponse
+}
+
+func (response UpdateService401ApplicationProblemPlusJSONResponse) VisitUpdateServiceResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/problem+json")
+	w.WriteHeader(401)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type UpdateService403ApplicationProblemPlusJSONResponse struct {
+	ForbiddenApplicationProblemPlusJSONResponse
+}
+
+func (response UpdateService403ApplicationProblemPlusJSONResponse) VisitUpdateServiceResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/problem+json")
+	w.WriteHeader(403)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type UpdateService404ApplicationProblemPlusJSONResponse struct {
+	NotFoundApplicationProblemPlusJSONResponse
+}
+
+func (response UpdateService404ApplicationProblemPlusJSONResponse) VisitUpdateServiceResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/problem+json")
+	w.WriteHeader(404)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type UpdateService409ApplicationProblemPlusJSONResponse struct {
+	ConflictApplicationProblemPlusJSONResponse
+}
+
+func (response UpdateService409ApplicationProblemPlusJSONResponse) VisitUpdateServiceResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/problem+json")
+	w.WriteHeader(409)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type UpdateService422ApplicationProblemPlusJSONResponse struct {
+	UnprocessableEntityApplicationProblemPlusJSONResponse
+}
+
+func (response UpdateService422ApplicationProblemPlusJSONResponse) VisitUpdateServiceResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/problem+json")
+	w.WriteHeader(422)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type UpdateService429ApplicationProblemPlusJSONResponse struct {
+	TooManyRequestsApplicationProblemPlusJSONResponse
+}
+
+func (response UpdateService429ApplicationProblemPlusJSONResponse) VisitUpdateServiceResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response.Body); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/problem+json")
+	if response.Headers.RetryAfter != nil {
+		w.Header().Set("Retry-After", fmt.Sprint(*response.Headers.RetryAfter))
+	}
+	w.WriteHeader(429)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type UpdateService500ApplicationProblemPlusJSONResponse struct {
+	InternalErrorApplicationProblemPlusJSONResponse
+}
+
+func (response UpdateService500ApplicationProblemPlusJSONResponse) VisitUpdateServiceResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/problem+json")
+	w.WriteHeader(500)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type PauseServiceRequestObject struct {
+	ServiceId ServiceId `json:"serviceId"`
+	Body      *PauseServiceJSONRequestBody
+}
+
+type PauseServiceResponseObject interface {
+	VisitPauseServiceResponse(w http.ResponseWriter) error
+}
+
+type PauseService200JSONResponse Service
+
+func (response PauseService200JSONResponse) VisitPauseServiceResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(200)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type PauseService400ApplicationProblemPlusJSONResponse struct {
+	BadRequestApplicationProblemPlusJSONResponse
+}
+
+func (response PauseService400ApplicationProblemPlusJSONResponse) VisitPauseServiceResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/problem+json")
+	w.WriteHeader(400)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type PauseService401ApplicationProblemPlusJSONResponse struct {
+	UnauthorizedApplicationProblemPlusJSONResponse
+}
+
+func (response PauseService401ApplicationProblemPlusJSONResponse) VisitPauseServiceResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/problem+json")
+	w.WriteHeader(401)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type PauseService403ApplicationProblemPlusJSONResponse struct {
+	ForbiddenApplicationProblemPlusJSONResponse
+}
+
+func (response PauseService403ApplicationProblemPlusJSONResponse) VisitPauseServiceResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/problem+json")
+	w.WriteHeader(403)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type PauseService404ApplicationProblemPlusJSONResponse struct {
+	NotFoundApplicationProblemPlusJSONResponse
+}
+
+func (response PauseService404ApplicationProblemPlusJSONResponse) VisitPauseServiceResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/problem+json")
+	w.WriteHeader(404)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type PauseService409ApplicationProblemPlusJSONResponse struct {
+	ConflictApplicationProblemPlusJSONResponse
+}
+
+func (response PauseService409ApplicationProblemPlusJSONResponse) VisitPauseServiceResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/problem+json")
+	w.WriteHeader(409)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type PauseService429ApplicationProblemPlusJSONResponse struct {
+	TooManyRequestsApplicationProblemPlusJSONResponse
+}
+
+func (response PauseService429ApplicationProblemPlusJSONResponse) VisitPauseServiceResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response.Body); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/problem+json")
+	if response.Headers.RetryAfter != nil {
+		w.Header().Set("Retry-After", fmt.Sprint(*response.Headers.RetryAfter))
+	}
+	w.WriteHeader(429)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type PauseService500ApplicationProblemPlusJSONResponse struct {
+	InternalErrorApplicationProblemPlusJSONResponse
+}
+
+func (response PauseService500ApplicationProblemPlusJSONResponse) VisitPauseServiceResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/problem+json")
+	w.WriteHeader(500)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type ResumeServiceRequestObject struct {
+	ServiceId ServiceId `json:"serviceId"`
+	Body      *ResumeServiceJSONRequestBody
+}
+
+type ResumeServiceResponseObject interface {
+	VisitResumeServiceResponse(w http.ResponseWriter) error
+}
+
+type ResumeService200JSONResponse Service
+
+func (response ResumeService200JSONResponse) VisitResumeServiceResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(200)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type ResumeService400ApplicationProblemPlusJSONResponse struct {
+	BadRequestApplicationProblemPlusJSONResponse
+}
+
+func (response ResumeService400ApplicationProblemPlusJSONResponse) VisitResumeServiceResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/problem+json")
+	w.WriteHeader(400)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type ResumeService401ApplicationProblemPlusJSONResponse struct {
+	UnauthorizedApplicationProblemPlusJSONResponse
+}
+
+func (response ResumeService401ApplicationProblemPlusJSONResponse) VisitResumeServiceResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/problem+json")
+	w.WriteHeader(401)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type ResumeService403ApplicationProblemPlusJSONResponse struct {
+	ForbiddenApplicationProblemPlusJSONResponse
+}
+
+func (response ResumeService403ApplicationProblemPlusJSONResponse) VisitResumeServiceResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/problem+json")
+	w.WriteHeader(403)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type ResumeService404ApplicationProblemPlusJSONResponse struct {
+	NotFoundApplicationProblemPlusJSONResponse
+}
+
+func (response ResumeService404ApplicationProblemPlusJSONResponse) VisitResumeServiceResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/problem+json")
+	w.WriteHeader(404)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type ResumeService409ApplicationProblemPlusJSONResponse struct {
+	ConflictApplicationProblemPlusJSONResponse
+}
+
+func (response ResumeService409ApplicationProblemPlusJSONResponse) VisitResumeServiceResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/problem+json")
+	w.WriteHeader(409)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type ResumeService429ApplicationProblemPlusJSONResponse struct {
+	TooManyRequestsApplicationProblemPlusJSONResponse
+}
+
+func (response ResumeService429ApplicationProblemPlusJSONResponse) VisitResumeServiceResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response.Body); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/problem+json")
+	if response.Headers.RetryAfter != nil {
+		w.Header().Set("Retry-After", fmt.Sprint(*response.Headers.RetryAfter))
+	}
+	w.WriteHeader(429)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type ResumeService500ApplicationProblemPlusJSONResponse struct {
+	InternalErrorApplicationProblemPlusJSONResponse
+}
+
+func (response ResumeService500ApplicationProblemPlusJSONResponse) VisitResumeServiceResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/problem+json")
+	w.WriteHeader(500)
+	_, err := buf.WriteTo(w)
+	return err
+}
 
 type GetSettingsRequestObject struct {
 }
@@ -1344,6 +4916,63 @@ func (response GetReadyz503JSONResponse) VisitGetReadyzResponse(w http.ResponseW
 
 // StrictServerInterface represents all server handlers.
 type StrictServerInterface interface {
+	// ListAvailabilityBlocks List blocked time
+	// (GET /admin/availability/blocks)
+	ListAvailabilityBlocks(ctx context.Context, request ListAvailabilityBlocksRequestObject) (ListAvailabilityBlocksResponseObject, error)
+	// CreateAvailabilityBlock Create blocked time
+	// (POST /admin/availability/blocks)
+	CreateAvailabilityBlock(ctx context.Context, request CreateAvailabilityBlockRequestObject) (CreateAvailabilityBlockResponseObject, error)
+	// DeleteAvailabilityBlock Delete blocked time
+	// (DELETE /admin/availability/blocks/{blockId})
+	DeleteAvailabilityBlock(ctx context.Context, request DeleteAvailabilityBlockRequestObject) (DeleteAvailabilityBlockResponseObject, error)
+	// UpdateAvailabilityBlock Replace blocked time
+	// (PUT /admin/availability/blocks/{blockId})
+	UpdateAvailabilityBlock(ctx context.Context, request UpdateAvailabilityBlockRequestObject) (UpdateAvailabilityBlockResponseObject, error)
+	// ListAvailabilityOverrides List one-off openings and date changes
+	// (GET /admin/availability/overrides)
+	ListAvailabilityOverrides(ctx context.Context, request ListAvailabilityOverridesRequestObject) (ListAvailabilityOverridesResponseObject, error)
+	// CreateAvailabilityOverride Create a one-off opening or date change
+	// (POST /admin/availability/overrides)
+	CreateAvailabilityOverride(ctx context.Context, request CreateAvailabilityOverrideRequestObject) (CreateAvailabilityOverrideResponseObject, error)
+	// DeleteAvailabilityOverride Delete a one-off opening or date change
+	// (DELETE /admin/availability/overrides/{overrideId})
+	DeleteAvailabilityOverride(ctx context.Context, request DeleteAvailabilityOverrideRequestObject) (DeleteAvailabilityOverrideResponseObject, error)
+	// UpdateAvailabilityOverride Replace a one-off opening or date change
+	// (PUT /admin/availability/overrides/{overrideId})
+	UpdateAvailabilityOverride(ctx context.Context, request UpdateAvailabilityOverrideRequestObject) (UpdateAvailabilityOverrideResponseObject, error)
+	// ListAvailabilityRules List weekly availability periods
+	// (GET /admin/availability/rules)
+	ListAvailabilityRules(ctx context.Context, request ListAvailabilityRulesRequestObject) (ListAvailabilityRulesResponseObject, error)
+	// CreateAvailabilityRule Create a weekly availability period
+	// (POST /admin/availability/rules)
+	CreateAvailabilityRule(ctx context.Context, request CreateAvailabilityRuleRequestObject) (CreateAvailabilityRuleResponseObject, error)
+	// DeleteAvailabilityRule Delete a weekly availability period
+	// (DELETE /admin/availability/rules/{ruleId})
+	DeleteAvailabilityRule(ctx context.Context, request DeleteAvailabilityRuleRequestObject) (DeleteAvailabilityRuleResponseObject, error)
+	// UpdateAvailabilityRule Replace a weekly availability period
+	// (PUT /admin/availability/rules/{ruleId})
+	UpdateAvailabilityRule(ctx context.Context, request UpdateAvailabilityRuleRequestObject) (UpdateAvailabilityRuleResponseObject, error)
+	// ListServices List services
+	// (GET /admin/services)
+	ListServices(ctx context.Context, request ListServicesRequestObject) (ListServicesResponseObject, error)
+	// CreateService Create a service
+	// (POST /admin/services)
+	CreateService(ctx context.Context, request CreateServiceRequestObject) (CreateServiceResponseObject, error)
+	// DeleteService Delete a service
+	// (DELETE /admin/services/{serviceId})
+	DeleteService(ctx context.Context, request DeleteServiceRequestObject) (DeleteServiceResponseObject, error)
+	// GetService Get a service
+	// (GET /admin/services/{serviceId})
+	GetService(ctx context.Context, request GetServiceRequestObject) (GetServiceResponseObject, error)
+	// UpdateService Change a service
+	// (PATCH /admin/services/{serviceId})
+	UpdateService(ctx context.Context, request UpdateServiceRequestObject) (UpdateServiceResponseObject, error)
+	// PauseService Pause bookings for a service
+	// (POST /admin/services/{serviceId}/pause)
+	PauseService(ctx context.Context, request PauseServiceRequestObject) (PauseServiceResponseObject, error)
+	// ResumeService Resume bookings for a service
+	// (POST /admin/services/{serviceId}/resume)
+	ResumeService(ctx context.Context, request ResumeServiceRequestObject) (ResumeServiceResponseObject, error)
 	// GetSettings Get settings
 	// (GET /admin/settings)
 	GetSettings(ctx context.Context, request GetSettingsRequestObject) (GetSettingsResponseObject, error)
@@ -1404,6 +5033,558 @@ type strictHandler struct {
 	ssi         StrictServerInterface
 	middlewares []StrictMiddlewareFunc
 	options     StrictHTTPServerOptions
+}
+
+// ListAvailabilityBlocks operation middleware
+func (sh *strictHandler) ListAvailabilityBlocks(w http.ResponseWriter, r *http.Request, params ListAvailabilityBlocksParams) {
+	var request ListAvailabilityBlocksRequestObject
+
+	request.Params = params
+
+	handler := func(ctx context.Context, w http.ResponseWriter, r *http.Request, request interface{}) (interface{}, error) {
+		return sh.ssi.ListAvailabilityBlocks(ctx, request.(ListAvailabilityBlocksRequestObject))
+	}
+	for _, middleware := range sh.middlewares {
+		handler = middleware(handler, "ListAvailabilityBlocks")
+	}
+
+	response, err := handler(r.Context(), w, r, request)
+
+	if err != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, err)
+	} else if validResponse, ok := response.(ListAvailabilityBlocksResponseObject); ok {
+		if err := validResponse.VisitListAvailabilityBlocksResponse(w); err != nil {
+			sh.options.ResponseErrorHandlerFunc(w, r, err)
+		}
+	} else if response != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, fmt.Errorf("unexpected response type: %T", response))
+	}
+}
+
+// CreateAvailabilityBlock operation middleware
+func (sh *strictHandler) CreateAvailabilityBlock(w http.ResponseWriter, r *http.Request) {
+	var request CreateAvailabilityBlockRequestObject
+
+	var body CreateAvailabilityBlockJSONRequestBody
+	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
+		sh.options.RequestErrorHandlerFunc(w, r, fmt.Errorf("can't decode JSON body: %w", err))
+		return
+	}
+	request.Body = &body
+
+	handler := func(ctx context.Context, w http.ResponseWriter, r *http.Request, request interface{}) (interface{}, error) {
+		return sh.ssi.CreateAvailabilityBlock(ctx, request.(CreateAvailabilityBlockRequestObject))
+	}
+	for _, middleware := range sh.middlewares {
+		handler = middleware(handler, "CreateAvailabilityBlock")
+	}
+
+	response, err := handler(r.Context(), w, r, request)
+
+	if err != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, err)
+	} else if validResponse, ok := response.(CreateAvailabilityBlockResponseObject); ok {
+		if err := validResponse.VisitCreateAvailabilityBlockResponse(w); err != nil {
+			sh.options.ResponseErrorHandlerFunc(w, r, err)
+		}
+	} else if response != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, fmt.Errorf("unexpected response type: %T", response))
+	}
+}
+
+// DeleteAvailabilityBlock operation middleware
+func (sh *strictHandler) DeleteAvailabilityBlock(w http.ResponseWriter, r *http.Request, blockId BlockId) {
+	var request DeleteAvailabilityBlockRequestObject
+
+	request.BlockId = blockId
+
+	handler := func(ctx context.Context, w http.ResponseWriter, r *http.Request, request interface{}) (interface{}, error) {
+		return sh.ssi.DeleteAvailabilityBlock(ctx, request.(DeleteAvailabilityBlockRequestObject))
+	}
+	for _, middleware := range sh.middlewares {
+		handler = middleware(handler, "DeleteAvailabilityBlock")
+	}
+
+	response, err := handler(r.Context(), w, r, request)
+
+	if err != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, err)
+	} else if validResponse, ok := response.(DeleteAvailabilityBlockResponseObject); ok {
+		if err := validResponse.VisitDeleteAvailabilityBlockResponse(w); err != nil {
+			sh.options.ResponseErrorHandlerFunc(w, r, err)
+		}
+	} else if response != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, fmt.Errorf("unexpected response type: %T", response))
+	}
+}
+
+// UpdateAvailabilityBlock operation middleware
+func (sh *strictHandler) UpdateAvailabilityBlock(w http.ResponseWriter, r *http.Request, blockId BlockId) {
+	var request UpdateAvailabilityBlockRequestObject
+
+	request.BlockId = blockId
+
+	var body UpdateAvailabilityBlockJSONRequestBody
+	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
+		sh.options.RequestErrorHandlerFunc(w, r, fmt.Errorf("can't decode JSON body: %w", err))
+		return
+	}
+	request.Body = &body
+
+	handler := func(ctx context.Context, w http.ResponseWriter, r *http.Request, request interface{}) (interface{}, error) {
+		return sh.ssi.UpdateAvailabilityBlock(ctx, request.(UpdateAvailabilityBlockRequestObject))
+	}
+	for _, middleware := range sh.middlewares {
+		handler = middleware(handler, "UpdateAvailabilityBlock")
+	}
+
+	response, err := handler(r.Context(), w, r, request)
+
+	if err != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, err)
+	} else if validResponse, ok := response.(UpdateAvailabilityBlockResponseObject); ok {
+		if err := validResponse.VisitUpdateAvailabilityBlockResponse(w); err != nil {
+			sh.options.ResponseErrorHandlerFunc(w, r, err)
+		}
+	} else if response != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, fmt.Errorf("unexpected response type: %T", response))
+	}
+}
+
+// ListAvailabilityOverrides operation middleware
+func (sh *strictHandler) ListAvailabilityOverrides(w http.ResponseWriter, r *http.Request, params ListAvailabilityOverridesParams) {
+	var request ListAvailabilityOverridesRequestObject
+
+	request.Params = params
+
+	handler := func(ctx context.Context, w http.ResponseWriter, r *http.Request, request interface{}) (interface{}, error) {
+		return sh.ssi.ListAvailabilityOverrides(ctx, request.(ListAvailabilityOverridesRequestObject))
+	}
+	for _, middleware := range sh.middlewares {
+		handler = middleware(handler, "ListAvailabilityOverrides")
+	}
+
+	response, err := handler(r.Context(), w, r, request)
+
+	if err != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, err)
+	} else if validResponse, ok := response.(ListAvailabilityOverridesResponseObject); ok {
+		if err := validResponse.VisitListAvailabilityOverridesResponse(w); err != nil {
+			sh.options.ResponseErrorHandlerFunc(w, r, err)
+		}
+	} else if response != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, fmt.Errorf("unexpected response type: %T", response))
+	}
+}
+
+// CreateAvailabilityOverride operation middleware
+func (sh *strictHandler) CreateAvailabilityOverride(w http.ResponseWriter, r *http.Request) {
+	var request CreateAvailabilityOverrideRequestObject
+
+	var body CreateAvailabilityOverrideJSONRequestBody
+	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
+		sh.options.RequestErrorHandlerFunc(w, r, fmt.Errorf("can't decode JSON body: %w", err))
+		return
+	}
+	request.Body = &body
+
+	handler := func(ctx context.Context, w http.ResponseWriter, r *http.Request, request interface{}) (interface{}, error) {
+		return sh.ssi.CreateAvailabilityOverride(ctx, request.(CreateAvailabilityOverrideRequestObject))
+	}
+	for _, middleware := range sh.middlewares {
+		handler = middleware(handler, "CreateAvailabilityOverride")
+	}
+
+	response, err := handler(r.Context(), w, r, request)
+
+	if err != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, err)
+	} else if validResponse, ok := response.(CreateAvailabilityOverrideResponseObject); ok {
+		if err := validResponse.VisitCreateAvailabilityOverrideResponse(w); err != nil {
+			sh.options.ResponseErrorHandlerFunc(w, r, err)
+		}
+	} else if response != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, fmt.Errorf("unexpected response type: %T", response))
+	}
+}
+
+// DeleteAvailabilityOverride operation middleware
+func (sh *strictHandler) DeleteAvailabilityOverride(w http.ResponseWriter, r *http.Request, overrideId OverrideId) {
+	var request DeleteAvailabilityOverrideRequestObject
+
+	request.OverrideId = overrideId
+
+	handler := func(ctx context.Context, w http.ResponseWriter, r *http.Request, request interface{}) (interface{}, error) {
+		return sh.ssi.DeleteAvailabilityOverride(ctx, request.(DeleteAvailabilityOverrideRequestObject))
+	}
+	for _, middleware := range sh.middlewares {
+		handler = middleware(handler, "DeleteAvailabilityOverride")
+	}
+
+	response, err := handler(r.Context(), w, r, request)
+
+	if err != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, err)
+	} else if validResponse, ok := response.(DeleteAvailabilityOverrideResponseObject); ok {
+		if err := validResponse.VisitDeleteAvailabilityOverrideResponse(w); err != nil {
+			sh.options.ResponseErrorHandlerFunc(w, r, err)
+		}
+	} else if response != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, fmt.Errorf("unexpected response type: %T", response))
+	}
+}
+
+// UpdateAvailabilityOverride operation middleware
+func (sh *strictHandler) UpdateAvailabilityOverride(w http.ResponseWriter, r *http.Request, overrideId OverrideId) {
+	var request UpdateAvailabilityOverrideRequestObject
+
+	request.OverrideId = overrideId
+
+	var body UpdateAvailabilityOverrideJSONRequestBody
+	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
+		sh.options.RequestErrorHandlerFunc(w, r, fmt.Errorf("can't decode JSON body: %w", err))
+		return
+	}
+	request.Body = &body
+
+	handler := func(ctx context.Context, w http.ResponseWriter, r *http.Request, request interface{}) (interface{}, error) {
+		return sh.ssi.UpdateAvailabilityOverride(ctx, request.(UpdateAvailabilityOverrideRequestObject))
+	}
+	for _, middleware := range sh.middlewares {
+		handler = middleware(handler, "UpdateAvailabilityOverride")
+	}
+
+	response, err := handler(r.Context(), w, r, request)
+
+	if err != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, err)
+	} else if validResponse, ok := response.(UpdateAvailabilityOverrideResponseObject); ok {
+		if err := validResponse.VisitUpdateAvailabilityOverrideResponse(w); err != nil {
+			sh.options.ResponseErrorHandlerFunc(w, r, err)
+		}
+	} else if response != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, fmt.Errorf("unexpected response type: %T", response))
+	}
+}
+
+// ListAvailabilityRules operation middleware
+func (sh *strictHandler) ListAvailabilityRules(w http.ResponseWriter, r *http.Request) {
+	var request ListAvailabilityRulesRequestObject
+
+	handler := func(ctx context.Context, w http.ResponseWriter, r *http.Request, request interface{}) (interface{}, error) {
+		return sh.ssi.ListAvailabilityRules(ctx, request.(ListAvailabilityRulesRequestObject))
+	}
+	for _, middleware := range sh.middlewares {
+		handler = middleware(handler, "ListAvailabilityRules")
+	}
+
+	response, err := handler(r.Context(), w, r, request)
+
+	if err != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, err)
+	} else if validResponse, ok := response.(ListAvailabilityRulesResponseObject); ok {
+		if err := validResponse.VisitListAvailabilityRulesResponse(w); err != nil {
+			sh.options.ResponseErrorHandlerFunc(w, r, err)
+		}
+	} else if response != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, fmt.Errorf("unexpected response type: %T", response))
+	}
+}
+
+// CreateAvailabilityRule operation middleware
+func (sh *strictHandler) CreateAvailabilityRule(w http.ResponseWriter, r *http.Request) {
+	var request CreateAvailabilityRuleRequestObject
+
+	var body CreateAvailabilityRuleJSONRequestBody
+	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
+		sh.options.RequestErrorHandlerFunc(w, r, fmt.Errorf("can't decode JSON body: %w", err))
+		return
+	}
+	request.Body = &body
+
+	handler := func(ctx context.Context, w http.ResponseWriter, r *http.Request, request interface{}) (interface{}, error) {
+		return sh.ssi.CreateAvailabilityRule(ctx, request.(CreateAvailabilityRuleRequestObject))
+	}
+	for _, middleware := range sh.middlewares {
+		handler = middleware(handler, "CreateAvailabilityRule")
+	}
+
+	response, err := handler(r.Context(), w, r, request)
+
+	if err != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, err)
+	} else if validResponse, ok := response.(CreateAvailabilityRuleResponseObject); ok {
+		if err := validResponse.VisitCreateAvailabilityRuleResponse(w); err != nil {
+			sh.options.ResponseErrorHandlerFunc(w, r, err)
+		}
+	} else if response != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, fmt.Errorf("unexpected response type: %T", response))
+	}
+}
+
+// DeleteAvailabilityRule operation middleware
+func (sh *strictHandler) DeleteAvailabilityRule(w http.ResponseWriter, r *http.Request, ruleId RuleId) {
+	var request DeleteAvailabilityRuleRequestObject
+
+	request.RuleId = ruleId
+
+	handler := func(ctx context.Context, w http.ResponseWriter, r *http.Request, request interface{}) (interface{}, error) {
+		return sh.ssi.DeleteAvailabilityRule(ctx, request.(DeleteAvailabilityRuleRequestObject))
+	}
+	for _, middleware := range sh.middlewares {
+		handler = middleware(handler, "DeleteAvailabilityRule")
+	}
+
+	response, err := handler(r.Context(), w, r, request)
+
+	if err != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, err)
+	} else if validResponse, ok := response.(DeleteAvailabilityRuleResponseObject); ok {
+		if err := validResponse.VisitDeleteAvailabilityRuleResponse(w); err != nil {
+			sh.options.ResponseErrorHandlerFunc(w, r, err)
+		}
+	} else if response != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, fmt.Errorf("unexpected response type: %T", response))
+	}
+}
+
+// UpdateAvailabilityRule operation middleware
+func (sh *strictHandler) UpdateAvailabilityRule(w http.ResponseWriter, r *http.Request, ruleId RuleId) {
+	var request UpdateAvailabilityRuleRequestObject
+
+	request.RuleId = ruleId
+
+	var body UpdateAvailabilityRuleJSONRequestBody
+	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
+		sh.options.RequestErrorHandlerFunc(w, r, fmt.Errorf("can't decode JSON body: %w", err))
+		return
+	}
+	request.Body = &body
+
+	handler := func(ctx context.Context, w http.ResponseWriter, r *http.Request, request interface{}) (interface{}, error) {
+		return sh.ssi.UpdateAvailabilityRule(ctx, request.(UpdateAvailabilityRuleRequestObject))
+	}
+	for _, middleware := range sh.middlewares {
+		handler = middleware(handler, "UpdateAvailabilityRule")
+	}
+
+	response, err := handler(r.Context(), w, r, request)
+
+	if err != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, err)
+	} else if validResponse, ok := response.(UpdateAvailabilityRuleResponseObject); ok {
+		if err := validResponse.VisitUpdateAvailabilityRuleResponse(w); err != nil {
+			sh.options.ResponseErrorHandlerFunc(w, r, err)
+		}
+	} else if response != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, fmt.Errorf("unexpected response type: %T", response))
+	}
+}
+
+// ListServices operation middleware
+func (sh *strictHandler) ListServices(w http.ResponseWriter, r *http.Request) {
+	var request ListServicesRequestObject
+
+	handler := func(ctx context.Context, w http.ResponseWriter, r *http.Request, request interface{}) (interface{}, error) {
+		return sh.ssi.ListServices(ctx, request.(ListServicesRequestObject))
+	}
+	for _, middleware := range sh.middlewares {
+		handler = middleware(handler, "ListServices")
+	}
+
+	response, err := handler(r.Context(), w, r, request)
+
+	if err != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, err)
+	} else if validResponse, ok := response.(ListServicesResponseObject); ok {
+		if err := validResponse.VisitListServicesResponse(w); err != nil {
+			sh.options.ResponseErrorHandlerFunc(w, r, err)
+		}
+	} else if response != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, fmt.Errorf("unexpected response type: %T", response))
+	}
+}
+
+// CreateService operation middleware
+func (sh *strictHandler) CreateService(w http.ResponseWriter, r *http.Request) {
+	var request CreateServiceRequestObject
+
+	var body CreateServiceJSONRequestBody
+	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
+		sh.options.RequestErrorHandlerFunc(w, r, fmt.Errorf("can't decode JSON body: %w", err))
+		return
+	}
+	request.Body = &body
+
+	handler := func(ctx context.Context, w http.ResponseWriter, r *http.Request, request interface{}) (interface{}, error) {
+		return sh.ssi.CreateService(ctx, request.(CreateServiceRequestObject))
+	}
+	for _, middleware := range sh.middlewares {
+		handler = middleware(handler, "CreateService")
+	}
+
+	response, err := handler(r.Context(), w, r, request)
+
+	if err != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, err)
+	} else if validResponse, ok := response.(CreateServiceResponseObject); ok {
+		if err := validResponse.VisitCreateServiceResponse(w); err != nil {
+			sh.options.ResponseErrorHandlerFunc(w, r, err)
+		}
+	} else if response != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, fmt.Errorf("unexpected response type: %T", response))
+	}
+}
+
+// DeleteService operation middleware
+func (sh *strictHandler) DeleteService(w http.ResponseWriter, r *http.Request, serviceId ServiceId) {
+	var request DeleteServiceRequestObject
+
+	request.ServiceId = serviceId
+
+	handler := func(ctx context.Context, w http.ResponseWriter, r *http.Request, request interface{}) (interface{}, error) {
+		return sh.ssi.DeleteService(ctx, request.(DeleteServiceRequestObject))
+	}
+	for _, middleware := range sh.middlewares {
+		handler = middleware(handler, "DeleteService")
+	}
+
+	response, err := handler(r.Context(), w, r, request)
+
+	if err != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, err)
+	} else if validResponse, ok := response.(DeleteServiceResponseObject); ok {
+		if err := validResponse.VisitDeleteServiceResponse(w); err != nil {
+			sh.options.ResponseErrorHandlerFunc(w, r, err)
+		}
+	} else if response != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, fmt.Errorf("unexpected response type: %T", response))
+	}
+}
+
+// GetService operation middleware
+func (sh *strictHandler) GetService(w http.ResponseWriter, r *http.Request, serviceId ServiceId) {
+	var request GetServiceRequestObject
+
+	request.ServiceId = serviceId
+
+	handler := func(ctx context.Context, w http.ResponseWriter, r *http.Request, request interface{}) (interface{}, error) {
+		return sh.ssi.GetService(ctx, request.(GetServiceRequestObject))
+	}
+	for _, middleware := range sh.middlewares {
+		handler = middleware(handler, "GetService")
+	}
+
+	response, err := handler(r.Context(), w, r, request)
+
+	if err != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, err)
+	} else if validResponse, ok := response.(GetServiceResponseObject); ok {
+		if err := validResponse.VisitGetServiceResponse(w); err != nil {
+			sh.options.ResponseErrorHandlerFunc(w, r, err)
+		}
+	} else if response != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, fmt.Errorf("unexpected response type: %T", response))
+	}
+}
+
+// UpdateService operation middleware
+func (sh *strictHandler) UpdateService(w http.ResponseWriter, r *http.Request, serviceId ServiceId) {
+	var request UpdateServiceRequestObject
+
+	request.ServiceId = serviceId
+
+	var body UpdateServiceJSONRequestBody
+	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
+		sh.options.RequestErrorHandlerFunc(w, r, fmt.Errorf("can't decode JSON body: %w", err))
+		return
+	}
+	request.Body = &body
+
+	handler := func(ctx context.Context, w http.ResponseWriter, r *http.Request, request interface{}) (interface{}, error) {
+		return sh.ssi.UpdateService(ctx, request.(UpdateServiceRequestObject))
+	}
+	for _, middleware := range sh.middlewares {
+		handler = middleware(handler, "UpdateService")
+	}
+
+	response, err := handler(r.Context(), w, r, request)
+
+	if err != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, err)
+	} else if validResponse, ok := response.(UpdateServiceResponseObject); ok {
+		if err := validResponse.VisitUpdateServiceResponse(w); err != nil {
+			sh.options.ResponseErrorHandlerFunc(w, r, err)
+		}
+	} else if response != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, fmt.Errorf("unexpected response type: %T", response))
+	}
+}
+
+// PauseService operation middleware
+func (sh *strictHandler) PauseService(w http.ResponseWriter, r *http.Request, serviceId ServiceId) {
+	var request PauseServiceRequestObject
+
+	request.ServiceId = serviceId
+
+	var body PauseServiceJSONRequestBody
+	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
+		sh.options.RequestErrorHandlerFunc(w, r, fmt.Errorf("can't decode JSON body: %w", err))
+		return
+	}
+	request.Body = &body
+
+	handler := func(ctx context.Context, w http.ResponseWriter, r *http.Request, request interface{}) (interface{}, error) {
+		return sh.ssi.PauseService(ctx, request.(PauseServiceRequestObject))
+	}
+	for _, middleware := range sh.middlewares {
+		handler = middleware(handler, "PauseService")
+	}
+
+	response, err := handler(r.Context(), w, r, request)
+
+	if err != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, err)
+	} else if validResponse, ok := response.(PauseServiceResponseObject); ok {
+		if err := validResponse.VisitPauseServiceResponse(w); err != nil {
+			sh.options.ResponseErrorHandlerFunc(w, r, err)
+		}
+	} else if response != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, fmt.Errorf("unexpected response type: %T", response))
+	}
+}
+
+// ResumeService operation middleware
+func (sh *strictHandler) ResumeService(w http.ResponseWriter, r *http.Request, serviceId ServiceId) {
+	var request ResumeServiceRequestObject
+
+	request.ServiceId = serviceId
+
+	var body ResumeServiceJSONRequestBody
+	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
+		sh.options.RequestErrorHandlerFunc(w, r, fmt.Errorf("can't decode JSON body: %w", err))
+		return
+	}
+	request.Body = &body
+
+	handler := func(ctx context.Context, w http.ResponseWriter, r *http.Request, request interface{}) (interface{}, error) {
+		return sh.ssi.ResumeService(ctx, request.(ResumeServiceRequestObject))
+	}
+	for _, middleware := range sh.middlewares {
+		handler = middleware(handler, "ResumeService")
+	}
+
+	response, err := handler(r.Context(), w, r, request)
+
+	if err != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, err)
+	} else if validResponse, ok := response.(ResumeServiceResponseObject); ok {
+		if err := validResponse.VisitResumeServiceResponse(w); err != nil {
+			sh.options.ResponseErrorHandlerFunc(w, r, err)
+		}
+	} else if response != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, fmt.Errorf("unexpected response type: %T", response))
+	}
 }
 
 // GetSettings operation middleware
@@ -1593,78 +5774,113 @@ func (sh *strictHandler) GetReadyz(w http.ResponseWriter, r *http.Request) {
 // const string: with thousands of chunks the chained `+` fold is several
 // times slower for the Go compiler than parsing a slice literal.
 var swaggerSpec = []string{
-	"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",
-	"x5vH/x0A",
+	"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",
+	"uPm/AQA=",
 }
 
 // decodeSpec returns the embedded OpenAPI spec as raw JSON bytes,
