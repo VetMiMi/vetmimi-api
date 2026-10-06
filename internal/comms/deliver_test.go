@@ -118,7 +118,7 @@ func TestDeliver_SendsDawMisMessage(t *testing.T) {
 	appt := newAppointment(t, freeStart())
 	message := "I am away that week; please choose another."
 	r, task := queue(t, comms.Message{AppointmentID: appt.ID, Kind: comms.Cancelled, Recipient: visitorEmail,
-		Locale: "en", ToVisitor: message})
+		Locale: "en", Text: message})
 	require.Equal(t, message, r.Message.String)
 	resend := newFakeResend(t, http.StatusOK)
 	tasks, logs := newTasks(t, resend, time.Now())

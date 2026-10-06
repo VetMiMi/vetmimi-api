@@ -5,6 +5,9 @@ Email: thandar@example.com
 Phone: +61 400 000 000
 Note: Mornings suit me best.
 
+Organisation: Inner West Community Health
+Type: Workshop / Program
+
 Subject: A workshop for our team
 
 Hello Daw Mi,

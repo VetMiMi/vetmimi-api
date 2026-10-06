@@ -49,6 +49,21 @@ func (q *Queries) InsertAppointmentEvent(ctx context.Context, arg InsertAppointm
 	return err
 }
 
+const latestRescheduleRequest = `-- name: LatestRescheduleRequest :one
+SELECT detail FROM appointment_events
+WHERE appointment_id = $1 AND kind = 'reschedule_requested'
+ORDER BY id DESC
+LIMIT 1
+`
+
+// LatestRescheduleRequest is the detail of the visitor's newest request.
+func (q *Queries) LatestRescheduleRequest(ctx context.Context, appointmentID pgtype.UUID) ([]byte, error) {
+	row := q.db.QueryRow(ctx, latestRescheduleRequest, appointmentID)
+	var detail []byte
+	err := row.Scan(&detail)
+	return detail, err
+}
+
 const listAppointmentEvents = `-- name: ListAppointmentEvents :many
 SELECT e.id, e.appointment_id, e.kind, e.from_status, e.to_status, e.previous_range, e.new_range, e.actor, e.actor_user_id, e.detail, e.created_at, u.display_name AS actor_name
 FROM appointment_events e
@@ -103,4 +118,24 @@ func (q *Queries) ListAppointmentEvents(ctx context.Context, appointmentID pgtyp
 		return nil, err
 	}
 	return items, nil
+}
+
+const rescheduleRequestOpen = `-- name: RescheduleRequestOpen :one
+SELECT EXISTS (
+    SELECT 1 FROM appointment_events r
+    WHERE r.appointment_id = $1 AND r.kind = 'reschedule_requested'
+      AND r.id > coalesce((
+          SELECT max(e.id) FROM appointment_events e
+          WHERE e.appointment_id = $1 AND (e.kind = 'rescheduled' OR e.to_status IS NOT NULL)
+      ), 0)
+)::bool
+`
+
+// RescheduleRequestOpen reports a reschedule request newer than the last
+// reschedule or status change, which would have answered it.
+func (q *Queries) RescheduleRequestOpen(ctx context.Context, appointmentID pgtype.UUID) (bool, error) {
+	row := q.db.QueryRow(ctx, rescheduleRequestOpen, appointmentID)
+	var column_1 bool
+	err := row.Scan(&column_1)
+	return column_1, err
 }

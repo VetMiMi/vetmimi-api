@@ -8,9 +8,16 @@
 
 အခြေအနေ - confirmed
 
+နှစ်သက်သော အချိန်များ -
+- Tuesday 6 October 2026, 2:00 pm AEDT
+- Thursday 8 October 2026, 10:00 am AEDT
+
 အမည် - Thandar
 အီးမေးလ် - thandar@example.com
 ဖုန်း - +61 400 000 000
 မှတ်စု - Mornings suit me best.
+
+သူတို့၏ စာ -
+Something came up at work, sorry.
 
 admin တွင် ဖွင့်ကြည့်ရန် - https://vetmimi.example/admin/appointments/8f14e45f-ceea-4e7a-9b1f-2c3d4e5f6a7b

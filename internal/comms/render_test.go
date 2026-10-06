@@ -53,6 +53,11 @@ func fixture(t *testing.T, locale string) comms.RenderData {
 	d.MessageToVisitor = "I am away that week. I would love to see you the week after."
 	d.EnquirySubject = "A workshop for our team"
 	d.EnquiryMessage = "Hello Daw Mi,\nWe would like to plan a wellbeing workshop in November."
+	d.EnquiryOrganisation = "Inner West Community Health"
+	d.EnquiryType = "Workshop / Program"
+	d.LateCancellation = true
+	d.ClientMessage = "Something came up at work, sorry."
+	d.PreferredTimes = []string{"Tuesday 6 October 2026, 2:00 pm AEDT", "Thursday 8 October 2026, 10:00 am AEDT"}
 	return d
 }
 

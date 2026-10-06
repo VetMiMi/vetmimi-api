@@ -105,3 +105,15 @@ Open it in admin: {{.AdminURL}}
 {{define "admin_html"}}
 <p><a href="{{.AdminURL}}">Open it in admin</a></p>
 {{end}}
+
+{{define "late_cancellation"}}It was cancelled less than {{.Policy.NoticeHours}} hours before it was due to start, so it counts as a late cancellation.{{if gt .Policy.LateFeePercent 0}} A fee of {{.Policy.LateFeePercent}}% of the session fee may apply{{if .Policy.FirstWaived}}, though your first late cancellation is free{{end}}.{{end}}{{end}}
+
+{{define "client_message_text"}}
+{{if .ClientMessage}}Their message:
+{{.ClientMessage}}{{end}}
+{{end}}
+
+{{define "client_message_html"}}
+{{if .ClientMessage}}<p>Their message:</p>
+<blockquote style="margin:0 0 16px;padding-left:12px;border-left:3px solid #d8cfc4;white-space:pre-line">{{.ClientMessage}}</blockquote>{{end}}
+{{end}}

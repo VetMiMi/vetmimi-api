@@ -6,7 +6,13 @@ The client asked to change this appointment. Please choose a new time with them.
 {{template "details_text" .}}
 Status: {{.Status}}
 
+{{if .PreferredTimes}}Times they would prefer:
+{{range .PreferredTimes}}- {{.}}
+{{end}}{{end}}
+
 {{template "visitor_text" .}}
+
+{{template "client_message_text" .}}
 
 {{template "admin_text" .}}
 {{end}}
@@ -15,6 +21,9 @@ Status: {{.Status}}
 <p>The client asked to change this appointment. Please choose a new time with them.</p>
 {{template "details_html" .}}
 <p>Status: {{.Status}}</p>
+{{if .PreferredTimes}}<p>Times they would prefer:</p>
+<ul>{{range .PreferredTimes}}<li>{{.}}</li>{{end}}</ul>{{end}}
 {{template "visitor_html" .}}
+{{template "client_message_html" .}}
 {{template "admin_html" .}}
 {{template "close_html" .}}{{end}}

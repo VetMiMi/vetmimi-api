@@ -113,3 +113,34 @@ SELECT id FROM appointments
 WHERE status = 'pending' AND hold_expires_at <= @now::timestamptz
 ORDER BY hold_expires_at
 LIMIT @max_rows;
+
+-- GetManagedAppointment looks a management link up by its token's hash,
+-- never by a seed or an id.
+-- name: GetManagedAppointment :one
+SELECT a.*, s.slug AS service_slug, s.name AS service_name
+FROM appointments a
+JOIN services s ON s.id = a.service_id
+WHERE a.management_token_hash = @token_hash;
+
+-- name: LockAppointmentByTokenHash :one
+SELECT * FROM appointments WHERE management_token_hash = @token_hash FOR UPDATE;
+
+-- CancelAppointmentByClient is a visitor's cancellation through the
+-- management link; the caller has checked it with booking.CanTransition.
+-- name: CancelAppointmentByClient :one
+UPDATE appointments
+SET status = 'cancelled_by_client', late_cancellation = @late_cancellation, hold_expires_at = NULL,
+    status_changed_at = @now, updated_at = @now, version = version + 1
+WHERE id = @id
+RETURNING *;
+
+-- DeleteRetainedAppointments deletes up to @max_rows final appointments that
+-- ended before @before; their events and communications go with them by
+-- ON DELETE CASCADE. Pending and confirmed rows are never deleted.
+-- name: DeleteRetainedAppointments :execrows
+DELETE FROM appointments
+WHERE id IN (
+    SELECT a.id FROM appointments a
+    WHERE a.status NOT IN ('pending', 'confirmed') AND a.ends_at < @before
+    LIMIT @max_rows
+);

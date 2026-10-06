@@ -36,8 +36,10 @@ type Tasks struct {
 	Resend  *resend.Client
 	From    string
 	SiteURL string
-	Log     *slog.Logger
-	Now     clock.Now
+	// SigningSecret derives the management link in a visitor's email.
+	SigningSecret []byte
+	Log           *slog.Logger
+	Now           clock.Now
 }
 
 // Register adds the comms handlers and the sweep schedule to w.
@@ -144,37 +146,87 @@ func (t *Tasks) recordFailure(ctx context.Context, tx pgx.Tx, row db.Communicati
 
 // compose renders row, or names why it must not be sent.
 func (t *Tasks) compose(ctx context.Context, q *db.Queries, row db.Communication, now time.Time) (Email, string, error) {
-	if !row.AppointmentID.Valid {
-		// Enquiry messages need the contact_enquiries table (issue #51).
-		return Email{}, "", errors.New("comms: enquiry communications are not supported yet")
-	}
-	appt, err := q.GetAppointmentForMessage(ctx, row.AppointmentID)
-	if err != nil {
-		return Email{}, "", err
-	}
 	s, err := settings.Load(ctx, q)
 	if err != nil {
 		return Email{}, "", err
 	}
-	if Kind(row.Kind) == Reminder {
+	var data RenderData
+	var skip string
+	if row.ContactEnquiryID.Valid {
+		data, err = t.enquiryData(ctx, q, row.ContactEnquiryID)
+	} else {
+		data, skip, err = t.appointmentData(ctx, q, row, s, now)
+	}
+	if skip != "" || err != nil {
+		return Email{}, skip, err
+	}
+	email, err := Render(Kind(row.Kind), row.Locale, data)
+	email.ReplyTo = s.ContactEmail
+	return email, "", err
+}
+
+// appointmentData is what row's template shows about its appointment. Only
+// visitor messages carry the management link.
+func (t *Tasks) appointmentData(ctx context.Context, q *db.Queries, row db.Communication, s settings.Settings,
+	now time.Time) (RenderData, string, error) {
+	appt, err := q.GetAppointmentForMessage(ctx, row.AppointmentID)
+	if err != nil {
+		return RenderData{}, "", err
+	}
+	kind := Kind(row.Kind)
+	if kind == Reminder {
 		if skip := reminderSkip(appt, s.ReminderHours, row.ScheduledFor, now); skip != "" {
-			return Email{}, skip, nil
+			return RenderData{}, skip, nil
 		}
 	}
 	var previous time.Time
-	if Kind(row.Kind) == Rescheduled {
+	if kind == Rescheduled {
 		r, err := q.PreviousRangeOf(ctx, row.AppointmentID)
 		if err != nil && !errors.Is(err, pgx.ErrNoRows) {
-			return Email{}, "", err
+			return RenderData{}, "", err
 		}
 		previous = r.Lower.Time
 	}
 	data, err := DataFor(appt, s, t.SiteURL, row.Locale, previous)
 	if err != nil {
-		return Email{}, "", err
+		return RenderData{}, "", err
 	}
-	data.MessageToVisitor = row.Message.String
-	email, err := Render(Kind(row.Kind), row.Locale, data)
-	email.ReplyTo = s.ContactEmail
-	return email, "", err
+	if kind.Audience() == Practitioner {
+		data.ClientMessage = row.Message.String
+	} else {
+		data.MessageToVisitor = row.Message.String
+		token := platform.NewManagementToken(t.SigningSecret, appt.ManagementTokenSeed)
+		data.ManageURL = sitePath(t.SiteURL, row.Locale, "/manage/"+token)
+	}
+	if kind == PractitionerRescheduleRequested {
+		data.PreferredTimes, err = preferredTimes(ctx, q, appt, row.Locale)
+	}
+	return data, "", err
+}
+
+// preferredTimes are the starts the visitor offered in their newest
+// reschedule request, in the practice timezone.
+func preferredTimes(ctx context.Context, q *db.Queries, appt db.GetAppointmentForMessageRow, locale string) ([]string, error) {
+	raw, err := q.LatestRescheduleRequest(ctx, appt.ID)
+	if errors.Is(err, pgx.ErrNoRows) {
+		return nil, nil
+	}
+	if err != nil {
+		return nil, err
+	}
+	var detail struct {
+		Preferred []time.Time `json:"preferred"`
+	}
+	if err := json.Unmarshal(raw, &detail); err != nil {
+		return nil, err
+	}
+	loc, err := time.LoadLocation(appt.Timezone)
+	if err != nil {
+		return nil, err
+	}
+	out := make([]string, len(detail.Preferred))
+	for i, p := range detail.Preferred {
+		out[i] = FormatTime(p, loc, locale)
+	}
+	return out, nil
 }

@@ -8,9 +8,16 @@ Reference: VM-7KQ2PX
 
 Status: confirmed
 
+Times they would prefer:
+- Tuesday 6 October 2026, 2:00 pm AEDT
+- Thursday 8 October 2026, 10:00 am AEDT
+
 Name: Thandar
 Email: thandar@example.com
 Phone: +61 400 000 000
 Note: Mornings suit me best.
+
+Their message:
+Something came up at work, sorry.
 
 Open it in admin: https://vetmimi.example/admin/appointments/8f14e45f-ceea-4e7a-9b1f-2c3d4e5f6a7b

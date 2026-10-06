@@ -5,6 +5,7 @@
 မင်္ဂလာပါ {{.VisitorName}}၊
 
 သင့်ချိန်းဆိုမှုကို ပယ်ဖျက်လိုက်ပြီ ဖြစ်လို့ ပြုလုပ်တော့မည် မဟုတ်ပါ။
+{{if .LateCancellation}}{{template "late_cancellation" .}}{{end}}
 
 {{template "details_text" .}}
 
@@ -19,6 +20,7 @@
 {{define "html"}}{{template "open_html" .}}
 <p>မင်္ဂလာပါ {{.VisitorName}}၊</p>
 <p>သင့်ချိန်းဆိုမှုကို <strong>ပယ်ဖျက်လိုက်ပြီ</strong> ဖြစ်လို့ ပြုလုပ်တော့မည် မဟုတ်ပါ။</p>
+{{if .LateCancellation}}<p>{{template "late_cancellation" .}}</p>{{end}}
 {{template "details_html" .}}
 {{if .MessageToVisitor}}<p>ဒေါ်မိထံမှ စာ -</p>
 <blockquote style="margin:0 0 16px;padding-left:12px;border-left:3px solid #d8cfc4">{{.MessageToVisitor}}</blockquote>{{end}}

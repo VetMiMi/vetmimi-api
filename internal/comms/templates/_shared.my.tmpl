@@ -106,3 +106,15 @@ admin တွင် ဖွင့်ကြည့်ရန် - {{.AdminURL}}
 {{define "admin_html"}}
 <p><a href="{{.AdminURL}}">admin တွင် ဖွင့်ကြည့်ရန်</a></p>
 {{end}}
+
+{{define "late_cancellation"}}စတင်ချိန်မတိုင်မီ {{.Policy.NoticeHours}} နာရီအတွင်း ပယ်ဖျက်ခဲ့သဖြင့် နောက်ကျ ပယ်ဖျက်ခြင်းအဖြစ် သတ်မှတ်ပါတယ်။{{if gt .Policy.LateFeePercent 0}} ဆက်ရှင်ခ၏ {{.Policy.LateFeePercent}}% ကောက်ခံနိုင်ပါတယ်{{if .Policy.FirstWaived}}၊ သို့သော် ပထမဆုံး နောက်ကျ ပယ်ဖျက်ခြင်းအတွက် အခမဲ့ ဖြစ်ပါတယ်{{end}}။{{end}}{{end}}
+
+{{define "client_message_text"}}
+{{if .ClientMessage}}သူတို့၏ စာ -
+{{.ClientMessage}}{{end}}
+{{end}}
+
+{{define "client_message_html"}}
+{{if .ClientMessage}}<p>သူတို့၏ စာ -</p>
+<blockquote style="margin:0 0 16px;padding-left:12px;border-left:3px solid #d8cfc4;white-space:pre-line">{{.ClientMessage}}</blockquote>{{end}}
+{{end}}

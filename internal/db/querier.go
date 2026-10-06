@@ -11,6 +11,9 @@ import (
 )
 
 type Querier interface {
+	// CancelAppointmentByClient is a visitor's cancellation through the
+	// management link; the caller has checked it with booking.CanTransition.
+	CancelAppointmentByClient(ctx context.Context, arg CancelAppointmentByClientParams) (Appointment, error)
 	// ClaimTOTPStep is the replay guard: a step is accepted once, and only if it
 	// is later than the last one accepted, so two concurrent sign-ins with one
 	// code cannot both succeed.
@@ -30,6 +33,13 @@ type Querier interface {
 	// @before, so one run never holds a long lock.
 	DeleteExpiredIdempotencyKeys(ctx context.Context, arg DeleteExpiredIdempotencyKeysParams) (int64, error)
 	DeleteExpiredSessions(ctx context.Context, arg DeleteExpiredSessionsParams) (int64, error)
+	// DeleteRetainedAppointments deletes up to @max_rows final appointments that
+	// ended before @before; their events and communications go with them by
+	// ON DELETE CASCADE. Pending and confirmed rows are never deleted.
+	DeleteRetainedAppointments(ctx context.Context, arg DeleteRetainedAppointmentsParams) (int64, error)
+	// DeleteRetainedContactEnquiries deletes up to @max_rows enquiries created
+	// before @before, whatever their status; their communications go with them.
+	DeleteRetainedContactEnquiries(ctx context.Context, arg DeleteRetainedContactEnquiriesParams) (int64, error)
 	DeleteService(ctx context.Context, id pgtype.UUID) (int64, error)
 	DeleteSession(ctx context.Context, id pgtype.UUID) error
 	DeleteUserSessions(ctx context.Context, userID pgtype.UUID) error
@@ -37,7 +47,11 @@ type Querier interface {
 	GetAppointmentDetail(ctx context.Context, id pgtype.UUID) (GetAppointmentDetailRow, error)
 	GetAppointmentForMessage(ctx context.Context, id pgtype.UUID) (GetAppointmentForMessageRow, error)
 	GetCommunication(ctx context.Context, id pgtype.UUID) (Communication, error)
+	GetContactEnquiry(ctx context.Context, id pgtype.UUID) (GetContactEnquiryRow, error)
 	GetIdempotencyKey(ctx context.Context, arg GetIdempotencyKeyParams) (IdempotencyKey, error)
+	// GetManagedAppointment looks a management link up by its token's hash,
+	// never by a seed or an id.
+	GetManagedAppointment(ctx context.Context, tokenHash []byte) (GetManagedAppointmentRow, error)
 	GetPractitionerID(ctx context.Context) (pgtype.UUID, error)
 	GetService(ctx context.Context, id pgtype.UUID) (Service, error)
 	GetServiceBySlug(ctx context.Context, slug string) (Service, error)
@@ -51,9 +65,14 @@ type Querier interface {
 	InsertAppointment(ctx context.Context, arg InsertAppointmentParams) (Appointment, error)
 	InsertAppointmentEvent(ctx context.Context, arg InsertAppointmentEventParams) error
 	InsertCommunication(ctx context.Context, arg InsertCommunicationParams) (Communication, error)
+	// InsertContactEnquiry does nothing on a reference collision, so the caller
+	// can retry with a new reference inside the same transaction.
+	InsertContactEnquiry(ctx context.Context, arg InsertContactEnquiryParams) (ContactEnquiry, error)
 	// InsertIdempotencyKey waits for a transaction holding the same key, then
 	// inserts nothing if that transaction committed.
 	InsertIdempotencyKey(ctx context.Context, arg InsertIdempotencyKeyParams) (int64, error)
+	// LatestRescheduleRequest is the detail of the visitor's newest request.
+	LatestRescheduleRequest(ctx context.Context, appointmentID pgtype.UUID) ([]byte, error)
 	// ListAppointmentCommunications is an appointment's messages in the order
 	// they were written; rows of one transaction share created_at, so the time
 	// each is due orders them, and the id keeps the order stable.
@@ -73,6 +92,9 @@ type Querier interface {
 	// @except_id, when set, is an appointment being moved, whose own time is free
 	// to it.
 	ListBusyPeriods(ctx context.Context, arg ListBusyPeriodsParams) ([]pgtype.Range[pgtype.Timestamptz], error)
+	// ListContactEnquiries is newest first; the page continues after
+	// (@after_at, @after_id).
+	ListContactEnquiries(ctx context.Context, arg ListContactEnquiriesParams) ([]ListContactEnquiriesRow, error)
 	// ListDueCommunications serves comms:sweep through the partial index on
 	// queued rows.
 	ListDueCommunications(ctx context.Context, arg ListDueCommunicationsParams) ([]ListDueCommunicationsRow, error)
@@ -86,6 +108,7 @@ type Querier interface {
 	ListServices(ctx context.Context) ([]Service, error)
 	ListSettings(ctx context.Context) ([]ListSettingsRow, error)
 	LockAppointment(ctx context.Context, id pgtype.UUID) (Appointment, error)
+	LockAppointmentByTokenHash(ctx context.Context, tokenHash []byte) (Appointment, error)
 	// LockCommunication skips a row another worker holds, so two workers given
 	// the same task never both send it.
 	LockCommunication(ctx context.Context, id pgtype.UUID) (Communication, error)
@@ -93,6 +116,8 @@ type Querier interface {
 	// appointment creation share (docs/architecture.md, walkthrough 1, step 5),
 	// keyed by the one practitioner.
 	LockSchedule(ctx context.Context) error
+	// MarkContactEnquiryHandled leaves a handled enquiry as it is.
+	MarkContactEnquiryHandled(ctx context.Context, arg MarkContactEnquiryHandledParams) (int64, error)
 	// MoveAppointment is a reschedule's one write (ADR-004): the new time is
 	// taken in the same statement that releases the old, so an overlap refuses
 	// the whole move. A pending hold never outlasts the new start.
@@ -112,6 +137,9 @@ type Querier interface {
 	// RescheduleQueuedReminders moves every queued reminder to its start less
 	// @hours, the new reminder_hours.
 	RescheduleQueuedReminders(ctx context.Context, hours int32) ([]RescheduleQueuedRemindersRow, error)
+	// RescheduleRequestOpen reports a reschedule request newer than the last
+	// reschedule or status change, which would have answered it.
+	RescheduleRequestOpen(ctx context.Context, appointmentID pgtype.UUID) (bool, error)
 	SetAppointmentNote(ctx context.Context, arg SetAppointmentNoteParams) (Appointment, error)
 	// SetAppointmentStatus is the one write of a status change; the caller has
 	// checked it with booking.CanTransition. Only a pending or expired request

@@ -111,6 +111,24 @@ type Communication struct {
 	Message           pgtype.Text
 }
 
+type ContactEnquiry struct {
+	ID           pgtype.UUID
+	Reference    string
+	Name         string
+	Email        string
+	Organisation pgtype.Text
+	Subject      pgtype.Text
+	EnquiryType  string
+	ServiceID    pgtype.UUID
+	Message      string
+	Locale       string
+	PrivacyAckAt time.Time
+	Status       string
+	HandledAt    sql.NullTime
+	HandledBy    pgtype.UUID
+	CreatedAt    time.Time
+}
+
 type IdempotencyKey struct {
 	Scope          string
 	Key            string

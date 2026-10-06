@@ -7,7 +7,13 @@
 {{template "details_text" .}}
 အခြေအနေ - {{.Status}}
 
+{{if .PreferredTimes}}နှစ်သက်သော အချိန်များ -
+{{range .PreferredTimes}}- {{.}}
+{{end}}{{end}}
+
 {{template "visitor_text" .}}
+
+{{template "client_message_text" .}}
 
 {{template "admin_text" .}}
 {{end}}
@@ -16,6 +22,9 @@
 <p>ဝန်ဆောင်မှုခံယူသူက ဒီချိန်းဆိုမှုကို ပြောင်းလဲရန် တောင်းဆိုထားပါတယ်။ သူတို့နှင့်အတူ အချိန်အသစ် ရွေးချယ်ပေးပါ။</p>
 {{template "details_html" .}}
 <p>အခြေအနေ - {{.Status}}</p>
+{{if .PreferredTimes}}<p>နှစ်သက်သော အချိန်များ -</p>
+<ul>{{range .PreferredTimes}}<li>{{.}}</li>{{end}}</ul>{{end}}
 {{template "visitor_html" .}}
+{{template "client_message_html" .}}
 {{template "admin_html" .}}
 {{template "close_html" .}}{{end}}
