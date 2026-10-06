@@ -7,10 +7,10 @@ The launch tables in migration order. Decisions are in `docs/adr/`; a migration 
 - Primary keys are `uuid DEFAULT gen_random_uuid()` unless stated; append-only logs use `bigint` identity.
 - Every instant is `timestamptz`. The only wall-clock values are the weekday and times in `availability_rules`.
 - Status and kind columns are `text` with `CHECK (col IN (…))`, not PostgreSQL enums, so adding a value is one
-  migration line. Allowed transitions live in Go (`internal/booking/status.go`, `internal/content/status.go`).
+  migration line. Allowed transitions live in Go (`internal/booking/status.go`, `internal/content/workflow.go`).
 - `localized` is a domain over `jsonb`: an object whose only keys are `en` and `my`. **en req.** adds
-  `CHECK (col ? 'en')`. Public reads fall back to `en`. Rich text is `localized` holding a TipTap document per locale.
-- `permission` means `text CHECK IN ('not_required','pending','approved','refused')`. `…_by` columns are `uuid`
+  `CHECK (col ? 'en')`. Public reads fall back to `en`. Article bodies are `localized` Markdown.
+- `…_by` columns are `uuid`
   FK users `ON DELETE SET NULL`. Emails are stored lower-case; slugs match `^[a-z0-9]+(-[a-z0-9]+)*$`.
 - Admin-edited rows carry `version int DEFAULT 1`; writes send the version they read; a mismatch is
   `409 stale_version`. `created_at`/`updated_at` (`now()`) are on every table and listed only where notable.
@@ -57,7 +57,7 @@ user's sessions in the transaction that replaces the password; `platform:cleanup
 
 ## services
 
-What can be booked or enquired about, with its scheduling facts. Editorial copy lives in `service_pages`.
+What can be booked or enquired about, with its scheduling facts. Editorial copy stays in the site's code.
 
 | Column | Type | Null | Default | Notes |
 |---|---|---|---|---|
@@ -239,217 +239,66 @@ Mark as communicated insert new rows. Indexes: `(appointment_id, created_at)`, `
 
 PK `(scope, key)`; index `created_at`. Inserted in the creating transaction, so a failed create leaves no key.
 
-## media
+## Posts
 
-The central media library (ADR-008).
+The publishing portal (ADR-009): Daw Mi writes one post and a version of it for each channel. The website pages
+(Home, About, Services, Portfolio, Art of Wellness) are not posts and stay in the site's code.
 
-| Column | Type | Null | Default | Notes |
-|---|---|---|---|---|
-| name | text | no | — | asset name |
-| asset_type | text | no | — | `portrait`, `artwork`, `workshop_photo`, `event_photo`, `art_of_wellness`, `story_image`, `logo`, `social_image`, `document` |
-| file_name, mime_type | text | no | — | as uploaded; type sniffed: JPEG, PNG, WebP or PDF |
-| byte_size, width, height | bigint, int, int | no, yes, yes | — | ≤ 20 MiB |
-| sha256, original_key | bytea, text | no | — | duplicate warning on upload; bucket key under private `originals/` |
-| derivatives, processing_status | jsonb, text | no | `'[]'`, `'processing'` | `[{"width":1600,"key":"public/…webp","bytes":…}]` for 1600, 800, 400; `processing`, `ready`, `failed` |
-| alt, caption | localized | yes | — | English alt required before public use |
-| credit, creator, copyright_holder, related_note | text | yes | — | creator = photographer or artist; related_note internal context |
-| credit_required, year | boolean, smallint | no, yes | false, — | |
-| asset_status | text | no | `'needs_information'` | `approved`, `permission_pending`, `do_not_use`, `needs_information`, `needs_better_quality` |
-| website_permission, facebook_permission | permission | no | `'pending'` | independent of each other |
-| organisation_approval, people_consent | permission | no | `'not_required'` | |
-| people_in_image | boolean | no | false | |
-| archived_at, created_by, updated_by, version | | yes | — | archived media is never served |
-
-Constraint: `CHECK (NOT people_in_image OR people_consent <> 'not_required')`. Usable on the website = `ready`,
-not archived, `asset_status = 'approved'`, `website_permission IN ('approved','not_required')`, and consent
-`approved` when people appear. Indexes: `asset_type`, `asset_status`, `sha256`, `lower(name)`.
-
-## Shared content columns
-
-`stories`, `service_pages`, `portfolio_items` and `pages` each carry these (ADR-008).
+**`posts`**
 
 | Column | Type | Null | Default | Notes |
 |---|---|---|---|---|
-| slug | text | no | — | unique per table |
-| publication_status | text | no | `'draft'` | `draft`, `review`, `scheduled`, `published`, `unpublished`, `archived` |
-| approval_status | text | no | `'not_reviewed'` | `not_reviewed`, `needs_review`, `changes_requested`, `approved` |
-| publish_at, published_at, last_published_at | timestamptz | yes | — | set while `scheduled`; first publication (the date shown); latest |
-| published_by, published_version | uuid, int | yes | — | `published_version` = row version that is live |
-| published_snapshot | jsonb | yes | — | public projection built at publish; the only thing public routes read |
-| approved_at, approved_by, review_note | | yes | — | review_note = internal note from Request changes |
-| seo_title, seo_description, social_title, social_description | localized | yes | — | default from title and excerpt; social image via `content_media` |
-| noindex, featured | boolean | no | false | `featured` is true while the record holds any `featured_slots` row |
-| sort_order, maintenance_status | int, text | no | 0, `'current'` | `current`, `review_due`, `needs_update`, `verification_pending` |
-| review_due_on, last_verified_at, owner_user_id, created_by, updated_by, version | | | | owner = content owner |
+| title | text | no | — | working title in the portal, 1–200 |
+| kind | text | no | — | `insight`, `true_story`, `announcement` |
+| status | text | no | `'draft'` | `idea`, `draft`, `in_review`, `approved`, `scheduled`, `publishing`, `published`, `archived` |
+| scheduled_at | timestamptz | yes | — | required while `scheduled` |
+| consent_confirmed_at, consent_confirmed_by, consent_note | | yes | — | True Story consent; the note (≤ 2,000) says where it is kept, internal |
+| review_note | text | yes | — | the reviewer's note from the last request for changes, ≤ 2,000 |
+| author_id, approved_at, approved_by | | yes | — | |
+| published_at | timestamptz | yes | — | when every enabled channel was published |
 
-Constraints: `CHECK (publication_status <> 'scheduled' OR publish_at IS NOT NULL)`, `CHECK (publication_status <>
-'published' OR published_snapshot IS NOT NULL)`. Indexes: unique `slug`; `(publication_status, published_at DESC)`.
+Index: `(status, created_at)`. Transitions (`internal/content/workflow.go`): `idea ⇄ draft` (an edit),
+`idea|draft → in_review` (submit), `in_review → draft` (request changes, with a note), `in_review → approved`
+(approve), `approved|scheduled → scheduled` (schedule, future time), `scheduled → approved` (unschedule),
+`approved|scheduled → publishing|published` (publish now; the scheduler will do the same at `scheduled_at`),
+`publishing → published` (once every publication is `published` or `manual`), any → `archived`. Saving an
+`approved` or `scheduled` post moves it back to `in_review`; a post that has started publishing cannot be edited.
+Approval needs at least one enabled channel, every enabled version valid for its platform, and, for a True
+Story, consent confirmed. Only ideas and drafts may be deleted.
 
-Publication: `draft|unpublished → review` (submit-for-review); `review → draft` (request-changes);
-`draft|review|unpublished → scheduled` (schedule); `draft|review|unpublished|scheduled|published → published`
-(publish or the scheduled job; republishing makes saved changes live); `scheduled → draft` and `published →
-unpublished` (unpublish); any → `archived` (archive); `archived → draft` (restore a version). Schedule and publish
-need `approval_status = approved`.
-
-Approval: `not_reviewed|changes_requested → needs_review` (submit); `not_reviewed|needs_review|changes_requested →
-approved` (approve); `needs_review → changes_requested`; `approved → needs_review` automatically on a significant
-edit (title, body, excerpt, images, category, consent or permission fields, page sections). Editing a published
-record leaves the live snapshot untouched until approved and published again; "unpublished changes" means
-`version > published_version`.
-
-## Content records
-
-**`stories`** — Stories & Insights.
+**`post_versions`** — One row per post and channel. PK `(post_id, channel)`; FK posts `CASCADE`.
 
 | Column | Type | Null | Default | Notes |
 |---|---|---|---|---|
-| kind | text | no | `'insight'` | `story` (a person's lived experience) or `insight` (Daw Mi's writing) |
-| category | text | no | — | `true_stories`, `reflections`, `art_and_wellbeing`, `art_psychotherapy`, `art_of_wellness_updates` |
-| title, excerpt | localized | no | — | **en req.** |
-| subtitle, body | localized | yes | — | body is rich text; the excerpt is shown when it is empty |
-| author_name, source_reference | text | no, yes | — | author or storyteller as displayed; internal: where the original is kept |
-| transcription_status | text | no | `'not_applicable'` | `not_applicable`, `pending`, `verified` |
-| storyteller_approval, real_name_permission, image_permission, artwork_permission, website_permission, facebook_permission | permission | no | `'not_required'` | True Story safeguards |
-| privacy_review, safeguard_notes | text | no, yes | `'not_applicable'`, — | `not_applicable`, `pending`, `complete`; internal notes |
+| channel | text | no | — | `website`, `facebook`, `instagram`, `linkedin` |
+| enabled | boolean | no | false | only enabled channels are checked and published |
+| slug | text | yes | — | website; unique among website versions (`409 slug_taken`) |
+| title, excerpt, body, seo_title, seo_description | localized | yes | — | website; body is Markdown stored as written, rendered safely by the site |
+| cover_image_id | uuid | yes | — | website |
+| text | text | yes | — | Facebook and LinkedIn text, Instagram caption |
+| link_url | text | yes | — | Facebook and LinkedIn |
+| image_ids | uuid[] | no | `'{}'` | social images in order: Facebook ≤ 10, Instagram 1–10, LinkedIn ≤ 1 |
 
-Plus the shared content columns. Choosing `true_stories` sets the safeguards to `pending` and makes them publish
-requirements. Facebook reuse status is read from `facebook_posts`. Images: `content_media` `featured`, `gallery`, `social`.
+`post_versions_fields_by_channel` keeps website fields on the website row and social fields on the others.
+Image ids are not foreign keys until the media library exists. Approval checks: website — slug and English
+title, excerpt and body; Facebook — text; Instagram — at least one image, caption ≤ 2,200 characters and
+≤ 30 hashtags; LinkedIn — text ≤ 3,000 characters. Drafts may exceed these.
 
-**`service_pages`** — The public page for a service; at most one per service.
-
-| Column | Type | Null | Default | Notes |
-|---|---|---|---|---|
-| service_id | uuid | no | — | FK services `RESTRICT`; unique. Name, duration, formats, fee and action come from it |
-| tone | text | no | `'rose'` | `rose`, `blue`, `gold` |
-| card_label, teaser | localized | yes | — | home card eyebrow ("ONE-TO-ONE") and text |
-| audience, summary, cta_label | localized | no | — | **en req.**; the CTA target follows `services.booking_action` |
-| intro, fit, reassurance, steps_title, closing_title, closing_text, compare_quote | localized | yes | — | |
-| highlights | jsonb | no | `'[]'` | array of localized strings |
-| steps, practical | jsonb | no | `'[]'` | `[{"title": localized, "text": localized}]` |
-| questions | jsonb | no | `'[]'` | `[{"question": localized, "answer": localized}]` |
-
-Plus the shared content columns; `slug` equals `services.slug` (checked in Go).
-
-**`portfolio_items`** — Artwork, workshops and programs, exhibitions and events, projects and collaborations.
+**`post_publications`** — How each enabled channel's publishing went, created when publishing starts. PK
+`(post_id, channel)`; FK posts `CASCADE`.
 
 | Column | Type | Null | Default | Notes |
 |---|---|---|---|---|
-| category | text | no | — | `artwork`, `workshops_programs`, `exhibitions_events`, `projects_collaborations` |
-| title | localized | no | — | **en req.**; artwork titles are usually English only |
-| year | smallint | yes | — | only when confirmed |
-| date_label, summary, body, role, organisation, medium, context | localized | yes | — | "Since 2023"; short text; rich text; Daw Mi's exact role; organisation or venue; medium; context or reflection, e.g. "From her CECAT essay, 2024" |
-| artist, dimensions | text | yes | — | |
-| external_links | jsonb | no | `'[]'` | `[{"url": text, "label": localized}]`; site-relative paths allowed |
-| evidence_note | text | yes | — | internal: source for institutional claims |
+| channel | text | no | — | as in `post_versions` |
+| status | text | no | `'pending'` | `pending`, `publishing`, `published`, `failed`, `manual` (posted by hand: copy & open) |
+| external_id, permalink, error | text | yes | — | the platform's id and address; a readable failure reason |
+| attempts | int | no | 0 | |
+| published_at | timestamptz | yes | — | required when `published` or `manual` |
 
-Plus the shared content columns. Images: `content_media` `featured`, `gallery`, `social`.
-
-**`pages` and `page_sections`** — Structured pages: `home`, `about`, `contact`, `art-of-wellness`, the index pages
-`services`, `stories`, `portfolio`, and `privacy`, `disclaimer`, `booking-policy`. `pages` has `title localized`
-(**en req.**) plus the shared content columns; a page is reviewed, versioned and published with its sections.
-
-| page_sections column | Type | Null | Default | Notes |
-|---|---|---|---|---|
-| page_id | uuid | no | — | FK pages `CASCADE` |
-| key | text | no | — | stable per page: `hero`, `why`, `team`… |
-| kind | text | no | — | `hero`, `text`, `quote`, `cards`, `team`, `faq`, `gallery`, `quotes`, `cta`, `contact_details`, `legal`, `featured` |
-| position | int | no | — | order on the page |
-| content | jsonb | no | `'{}'` | per-kind shape checked in Go; string leaves are localized; images `{"media": "<uuid>"}`; `featured` names an area |
-| hidden | boolean | no | false | |
-
-Constraints: unique `(page_id, key)`; unique `(page_id, position) DEFERRABLE INITIALLY DEFERRED`. The contact
-page's email and response time come from `settings` at publish, so the address lives in one place.
-
-Import (ADR-008): each top-level object of `home.json`, `about.json`, `contact.json`, `artOfWellness.json`,
-`legal.json`, and the `index`/`header`/`end` objects of `stories.json`, `services.json` and `portfolio.json`,
-becomes a section. `items.<slug>` objects become `stories`, `service_pages` and `portfolio_items` rows; portfolio
-`highlights` and `artworks` become portfolio items placed by `featured_slots`. UI chrome (buttons, filters,
-breadcrumbs, form labels, the `book.json` steps) stays in `messages/`.
-
-## Content links and history
-
-**`content_media`** — Every link from content to media, and the guard against deleting media in use.
-
-| Column | Type | Null | Default | Notes |
-|---|---|---|---|---|
-| content_type | text | no | — | `story`, `service_page`, `portfolio_item`, `page`, `facebook_post` |
-| content_id | uuid | no | — | polymorphic, no FK |
-| section_id | uuid | yes | — | FK page_sections `CASCADE` |
-| media_id | uuid | no | — | FK media `RESTRICT` → `409 in_use` |
-| role | text | no | — | `featured`, `gallery`, `social`, `section`, `attachment` |
-| position | int | no | 0 | |
-
-Unique `(content_type, content_id, role, position, section_id) NULLS NOT DISTINCT`; index `media_id`. Rewritten
-on every save. Content is archived rather than deleted; a hard delete removes its links in the same transaction.
-
-**`content_versions`** — A snapshot per change, for history and restore. `id bigint` identity.
-
-| Column | Type | Null | Default | Notes |
-|---|---|---|---|---|
-| content_type | text | no | — | `story`, `service_page`, `portfolio_item`, `page` |
-| content_id | uuid | no | — | |
-| version, action | int, text | no | — | row version after the change; `import`, `save`, `submit`, `approve`, `request_changes`, `schedule`, `publish`, `unpublish`, `archive`, `restore` |
-| snapshot | jsonb | no | — | full row incl. internal fields; pages include sections; media links |
-| created_by, created_at | | | | null `created_by` = system |
-
-Unique `(content_type, content_id, version)`. Restore copies a snapshot's editable fields forward as a new version.
-
-**`content_relations`** — Deliberate links: story ↔ portfolio item, service → story, Art of Wellness page → projects.
-
-| Column | Type | Null | Default | Notes |
-|---|---|---|---|---|
-| from_type, to_type | text | no | — | `story`, `service_page`, `portfolio_item`, `page` |
-| from_id, to_id | uuid | no | — | |
-| position | int | no | 0 | order shown on the source |
-| created_by, created_at | | | | |
-
-Unique `(from_type, from_id, to_type, to_id)`; `CHECK (from_id <> to_id)`; index `(to_type, to_id)`. Public
-reads return only related records that are published.
-
-**`featured_slots`** — Ordered featured records per area, chosen from existing records.
-
-| Column | Type | Null | Default | Notes |
-|---|---|---|---|---|
-| area | text | no | — | see below |
-| position | int | no | — | 0-based |
-| content_type, content_id | text, uuid | no | — | type allowed for the area |
-| created_by, created_at | | | | |
-
-PK `(area, position)`; unique `(area, content_type, content_id)`. Areas: `home_services` (service_page),
-`home_gallery`, `home_portfolio`, `portfolio_highlights`, `portfolio_artworks` (portfolio_item), `home_stories`,
-`stories_featured` (story), `art_of_wellness_projects` (portfolio_item, story). Saving an area replaces its rows
-in one transaction. Public reads skip records that are not published, so no card breaks; the admin list flags them.
-
-**`slug_redirects`** — Old slugs of published records, so older links (including Facebook posts) keep working.
-
-| Column | Type | Null | Default | Notes |
-|---|---|---|---|---|
-| content_type, old_slug | text | no | — | PK together |
-| content_id | uuid | no | — | |
-
-A public read by an old slug returns the record with its current `slug`; the site redirects permanently.
-
-## facebook_posts
-
-Facebook channel tracking, independent of website status; publishing is manual at launch.
-
-| Column | Type | Null | Default | Notes |
-|---|---|---|---|---|
-| source_type, source_id | text, uuid | yes | — | `story`, `service_page`, `portfolio_item`, `page`; both null for Facebook-only posts |
-| working_title, copy, locale | text | no | —, `''`, `'en'` | ≤ 200; adapted post text ≤ 5,000 |
-| link_url, post_url | text | yes | — | website destination; `https://www.facebook.com/…` |
-| status | text | no | `'draft'` | `not_planned`, `draft`, `needs_review`, `permission_pending`, `approved`, `scheduled`, `published`, `withdrawn`, `failed` |
-| facebook_permission, ai_assisted | permission, boolean | no | `'pending'`, false | AI-drafted copy is always reviewed |
-| planned_publish_at, published_at, last_checked_at | timestamptz | yes | — | last checked = publication verified |
-| failure_note, correction_note, approved_by, approved_at, published_by, owner_user_id, created_by, updated_by, version | | | | notes are internal |
-
-Constraints: `CHECK (num_nulls(source_type, source_id) IN (0, 2))`; `CHECK (status <> 'published' OR (post_url IS
-NOT NULL AND published_at IS NOT NULL))`; `CHECK (status NOT IN ('approved','scheduled','published') OR
-facebook_permission IN ('approved','not_required'))`. Indexes: `(status, planned_publish_at)`,
-`(source_type, source_id)`. Transitions: `not_planned ⇄ draft → needs_review → draft | permission_pending |
-approved`; `permission_pending → approved → scheduled | published | failed`; `scheduled → approved | published |
-failed`; `failed → approved | published`; `published → withdrawn`. A post linking to website content can be
-`published` only once that content is (`422 website_not_published`).
+The website publication is `published` as soon as publishing starts; social ones wait as `pending` for the
+publishing worker or for Daw Mi to mark them posted. Index: `status WHERE status IN ('pending','failed')`.
+Public article reads return website versions whose publication is `published` and whose post is `publishing`
+or `published`, so archiving a post takes its article down.
 
 ## Settings keys
 
@@ -488,12 +337,8 @@ Beyond primary keys: `users` unique `email`, unique partial `is_practitioner`; `
 `hold_expires_at WHERE status = 'pending'`; `appointment_events(appointment_id, created_at)`; `video_rooms` unique
 `appointment_id`, unique `join_token_hash`; `contact_enquiries` unique `reference`, `(status, created_at)`;
 `communications(appointment_id, created_at)`, `scheduled_for WHERE status = 'queued'`, `created_at WHERE status =
-'failed'`; `idempotency_keys(created_at)`; `media` `asset_type`, `asset_status`, `sha256`, `lower(name)`; every
-content table unique `slug` and `(publication_status, published_at DESC)`; `service_pages` unique `service_id`;
-`page_sections` unique `(page_id, key)`, `(page_id, position)`; `content_media(media_id)` and its unique tuple;
-`content_versions` unique `(content_type, content_id, version)`; `content_relations` unique tuple, `(to_type,
-to_id)`; `featured_slots` unique `(area, content_type, content_id)`; `facebook_posts(status, planned_publish_at)`,
-`(source_type, source_id)`.
+'failed'`; `idempotency_keys(created_at)`; `posts(status, created_at)`; `post_versions_slug_key` unique `slug WHERE channel
+= 'website'`; `post_publications(status) WHERE status IN ('pending','failed')`.
 
 ## What is deliberately not stored
 
