@@ -1,0 +1,29 @@
+# No log directive anywhere: request URIs carry management tokens and room
+# tickets (docs/architecture.md, "Never logged"), so access logs stay off.
+
+(common) {
+	encode zstd gzip
+	header Strict-Transport-Security "max-age=31536000; includeSubDomains"
+	# Media uploads are capped at 20 MB by the API; this only stops abuse.
+	request_body {
+		max_size 25MB
+	}
+}
+
+{$SITE_DOMAIN} {
+	import common
+	reverse_proxy web:3000 {
+		health_uri /api/health
+	}
+}
+
+{$API_DOMAIN} {
+	import common
+	reverse_proxy api:8080 {
+		health_uri /healthz
+		# A config reload lets an open video signalling WebSocket finish
+		# instead of cutting it; replacing the api container still drops it,
+		# and the browser reconnects.
+		stream_close_delay 5m
+	}
+}

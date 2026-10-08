@@ -40,9 +40,11 @@ type Config struct {
 	ResendAPIKey string
 	EmailFrom    string
 
-	MediaS3Endpoint  string
-	MediaS3Region    string
-	MediaS3Bucket    string
+	MediaS3Endpoint string
+	MediaS3Region   string
+	MediaS3Bucket   string
+	// MediaS3AccessKey and MediaS3SecretKey are empty on the live host,
+	// where the EC2 instance role grants the bucket instead.
 	MediaS3AccessKey string
 	MediaS3SecretKey string
 	MediaPublicURL   string
@@ -110,8 +112,8 @@ func LoadConfig(getenv func(string) string) (Config, error) {
 		MediaS3Endpoint:  l.requiredInProduction("MEDIA_S3_ENDPOINT"),
 		MediaS3Region:    l.withDefault("MEDIA_S3_REGION", "auto"),
 		MediaS3Bucket:    l.requiredInProduction("MEDIA_S3_BUCKET"),
-		MediaS3AccessKey: l.requiredInProduction("MEDIA_S3_ACCESS_KEY"),
-		MediaS3SecretKey: l.requiredInProduction("MEDIA_S3_SECRET_KEY"),
+		MediaS3AccessKey: l.optional("MEDIA_S3_ACCESS_KEY"),
+		MediaS3SecretKey: l.optional("MEDIA_S3_SECRET_KEY"),
 		MediaPublicURL:   l.requiredInProduction("MEDIA_PUBLIC_URL"),
 
 		TURNHost:   l.requiredInProduction("TURN_HOST"),
@@ -150,6 +152,9 @@ func LoadConfig(getenv func(string) string) (Config, error) {
 	l.hostPort("METRICS_ADDR", c.MetricsAddr)
 	if (c.MetaAppID == "") != (c.MetaAppSecret == "") {
 		l.fail("META_APP_ID", "and META_APP_SECRET must be set together")
+	}
+	if (c.MediaS3AccessKey == "") != (c.MediaS3SecretKey == "") {
+		l.fail("MEDIA_S3_ACCESS_KEY", "and MEDIA_S3_SECRET_KEY must be set together")
 	}
 	if (c.LinkedInClientID == "") != (c.LinkedInClientSecret == "") {
 		l.fail("LINKEDIN_CLIENT_ID", "and LINKEDIN_CLIENT_SECRET must be set together")

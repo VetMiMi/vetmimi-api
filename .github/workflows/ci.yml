@@ -41,18 +41,47 @@ jobs:
       - run: go build ./...
       - run: go test -p 2 -count=1 -race ./...
 
+  # Holds no credential and asks for no permissions: it checks that the live
+  # stack's files are well-formed and keep their guards, and deploys nothing.
   deploy-config:
     name: Deployment checks
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v5
       - uses: hashicorp/setup-terraform@v3
-      - run: docker compose -f deploy/compose/docker-compose.yml config -q
-        if: hashFiles('deploy/compose/docker-compose.yml') != ''
-      - run: terraform -chdir=deploy/terraform fmt -check -recursive
-        if: hashFiles('deploy/terraform/*.tf') != ''
-      - run: terraform -chdir=deploy/terraform init -backend=false && terraform -chdir=deploy/terraform validate
-        if: hashFiles('deploy/terraform/*.tf') != ''
+        with:
+          terraform_version: 1.16.4
+          terraform_wrapper: false
+      - name: Lint the shell scripts
+        run: shellcheck deploy/*.sh
+      - name: Test deploy.sh with fake docker and curl
+        run: deploy/test-deploy.sh
+      - name: Check the compose guards and coturn hardening
+        run: deploy/test-compose.sh
+      - name: Validate the Caddyfile
+        run: >-
+          docker run --rm -v "$PWD/deploy/compose/caddy:/etc/caddy:ro"
+          -e SITE_DOMAIN=example.com -e API_DOMAIN=api.example.com
+          caddy:2 caddy validate --config /etc/caddy/Caddyfile
+      - name: Build the API image
+        run: |
+          docker build -f deploy/Dockerfile -t vetmimi-api:ci .
+          docker image ls vetmimi-api:ci --format 'Image size: {{.Size}}'
+          if docker run --rm vetmimi-api:ci --mode healthcheck; then
+            echo "--mode healthcheck passed with nothing listening" >&2
+            exit 1
+          fi
+      - name: Check Terraform formatting
+        run: terraform fmt -check -recursive deploy/terraform
+      - name: Validate every Terraform root
+        run: |
+          status=0
+          for dir in $(find deploy/terraform -name '*.tf' -exec dirname {} \; | sort -u); do
+            echo "--- $dir"
+            terraform -chdir="$dir" init -backend=false -input=false || status=1
+            terraform -chdir="$dir" validate || status=1
+          done
+          exit $status
 
   contract:
     name: Contract version
