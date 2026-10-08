@@ -6,7 +6,9 @@ bin/
 *.test
 coverage.out
 .DS_Store
-deploy/terraform/.terraform/
-deploy/terraform/*.tfstate*
-deploy/terraform/*.tfvars
-!deploy/terraform/*.auto.tfvars.example
+backups/
+deploy/compose/api.env
+deploy/terraform/**/.terraform/
+deploy/terraform/**/*.tfstate*
+deploy/terraform/**/*.tfvars
+deploy/terraform/**/*.tfplan

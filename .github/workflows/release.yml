@@ -1,0 +1,100 @@
+name: Release
+
+# After CI passes on main: build the API image for the live host's arm64 CPU,
+# push it to GHCR, and release it there over the forced-command SSH key
+# (deploy/README.md). Pull requests never reach this workflow.
+
+on:
+  workflow_run:
+    workflows: [Continuous integration]
+    types: [completed]
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  image:
+    name: Build and push the API image
+    if: >-
+      (github.event_name == 'workflow_dispatch' && github.ref == 'refs/heads/main') ||
+      (github.event.workflow_run.conclusion == 'success' &&
+       github.event.workflow_run.head_branch == 'main' &&
+       github.event.workflow_run.event == 'push')
+    runs-on: ubuntu-24.04-arm
+    permissions:
+      contents: read
+      packages: write
+    outputs:
+      sha: ${{ steps.sha.outputs.sha }}
+    steps:
+      - id: sha
+        env:
+          SHA: ${{ github.event.workflow_run.head_sha || github.sha }}
+        run: echo "sha=$SHA" >> "$GITHUB_OUTPUT"
+      - uses: actions/checkout@v5
+        with:
+          ref: ${{ steps.sha.outputs.sha }}
+      - uses: docker/setup-buildx-action@v3
+      - uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+      - uses: docker/build-push-action@v6
+        with:
+          context: .
+          file: deploy/Dockerfile
+          platforms: linux/arm64
+          push: true
+          tags: |
+            ghcr.io/vetmimi/vetmimi-api:${{ steps.sha.outputs.sha }}
+            ghcr.io/vetmimi/vetmimi-api:main
+          labels: |
+            org.opencontainers.image.source=https://github.com/${{ github.repository }}
+            org.opencontainers.image.revision=${{ steps.sha.outputs.sha }}
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+
+  deploy:
+    name: Deploy to the live host
+    needs: image
+    runs-on: ubuntu-latest
+    environment: production
+    concurrency:
+      group: production
+      cancel-in-progress: false
+    timeout-minutes: 15
+    env:
+      DEPLOY_HOST: ${{ secrets.DEPLOY_HOST }}
+      SHA: ${{ needs.image.outputs.sha }}
+    steps:
+      - name: Check that a host is configured
+        id: host
+        run: |
+          if [ -n "$DEPLOY_HOST" ]; then
+            echo "configured=true" >> "$GITHUB_OUTPUT"
+          elif [ "$GITHUB_EVENT_NAME" = workflow_dispatch ]; then
+            echo "::error::DEPLOY_HOST is not set; add it to the production environment"
+            exit 1
+          else
+            echo "::notice::DEPLOY_HOST is not set; skipping deploy"
+          fi
+
+      - name: Install the deploy key and pin the host key
+        if: steps.host.outputs.configured == 'true'
+        env:
+          DEPLOY_SSH_KEY: ${{ secrets.DEPLOY_SSH_KEY }}
+          DEPLOY_KNOWN_HOSTS: ${{ secrets.DEPLOY_KNOWN_HOSTS }}
+        run: |
+          install -d -m 700 ~/.ssh
+          (umask 077 && printf '%s\n' "$DEPLOY_SSH_KEY" > ~/.ssh/deploy_key)
+          printf '%s\n' "$DEPLOY_KNOWN_HOSTS" > ~/.ssh/known_hosts
+
+      - name: Release the API, rolling back if it is unhealthy
+        if: steps.host.outputs.configured == 'true'
+        run: >-
+          ssh -i ~/.ssh/deploy_key
+          -o BatchMode=yes -o StrictHostKeyChecking=yes
+          "deploy@$DEPLOY_HOST" api "$SHA"

@@ -1,0 +1,162 @@
+# The live host (ADR-010): the API, its worker, the website, PostgreSQL,
+# Redis, Caddy and coturn on one 2 GB EC2 instance. Run from this directory
+# with both env files, as deploy.sh does:
+#   docker compose --env-file .env --env-file .env.tags <command>
+# .env holds the host's values (.env.example), api.env the API's own
+# (the repository's .env.example), and .env.tags the image tags deploy.sh
+# last released. Only Caddy and coturn are reachable from outside.
+
+name: vetmimi
+
+x-logging: &logging
+  driver: json-file
+  options:
+    max-size: 10m
+    max-file: "3"
+
+x-app-environment: &app-environment
+  ENV: production
+  PORT: "8080"
+  DATABASE_URL: postgres://vetmimi:${POSTGRES_PASSWORD:?set in .env}@postgres:5432/vetmimi?sslmode=disable
+  REDIS_URL: redis://redis:6379/0
+  PUBLIC_API_URL: https://${API_DOMAIN:?set in .env}
+  SITE_URL: https://${SITE_DOMAIN:?set in .env}
+  SERVICE_KEY: ${SERVICE_KEY:?set in .env}
+  SITE_REVALIDATE_SECRET: ${SITE_REVALIDATE_SECRET:?set in .env}
+  TURN_HOST: ${API_DOMAIN}:3478
+  TURN_SECRET: ${TURN_SECRET:?set in .env}
+  # Leaves headroom under the container limit so the Go runtime collects
+  # garbage before the kernel kills it.
+  GOMEMLIMIT: 160MiB
+
+x-app-depends-on: &app-depends-on
+  postgres:
+    condition: service_healthy
+  redis:
+    condition: service_healthy
+
+services:
+  postgres:
+    image: postgres:17
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: vetmimi
+      POSTGRES_DB: vetmimi
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
+    volumes:
+      - postgres:/var/lib/postgresql/data
+    healthcheck:
+      test: [CMD-SHELL, pg_isready -U vetmimi -d vetmimi]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    mem_limit: 448m
+    logging: *logging
+
+  redis:
+    image: redis:7
+    restart: unless-stopped
+    # asynq must never lose a queued task to eviction: at the cap Redis
+    # refuses writes instead, below the container limit.
+    command: [redis-server, --appendonly, "yes", --maxmemory, 64mb, --maxmemory-policy, noeviction]
+    volumes:
+      - redis:/data
+    healthcheck:
+      test: [CMD, redis-cli, ping]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    mem_limit: 96m
+    logging: *logging
+
+  api:
+    image: ghcr.io/vetmimi/vetmimi-api:${API_TAG:-main}
+    restart: unless-stopped
+    env_file: api.env
+    environment: *app-environment
+    depends_on: *app-depends-on
+    healthcheck:
+      test: [CMD, /api, --mode, healthcheck]
+      interval: 10s
+      timeout: 3s
+      retries: 3
+      start_period: 30s
+    mem_limit: 192m
+    logging: *logging
+
+  worker:
+    image: ghcr.io/vetmimi/vetmimi-api:${API_TAG:-main}
+    restart: unless-stopped
+    command: [--mode, worker]
+    env_file: api.env
+    environment: *app-environment
+    depends_on: *app-depends-on
+    mem_limit: 192m
+    logging: *logging
+
+  web:
+    image: ghcr.io/vetmimi/vetmimi-next:${WEB_TAG:-main}
+    restart: unless-stopped
+    environment:
+      # Next standalone binds to HOSTNAME, which Docker sets to the container id.
+      HOSTNAME: 0.0.0.0
+      PORT: "3000"
+      API_URL: http://api:8080
+      API_SERVICE_KEY: ${SERVICE_KEY}
+      SITE_REVALIDATE_SECRET: ${SITE_REVALIDATE_SECRET}
+      SITE_URL: https://${SITE_DOMAIN}
+      INDEXNOW_KEY: ${INDEXNOW_KEY:-}
+      NODE_OPTIONS: --max-old-space-size=256
+    healthcheck:
+      test: [CMD, node, -e, "fetch('http://127.0.0.1:3000/api/health').then(r => process.exit(r.ok ? 0 : 1), () => process.exit(1))"]
+      interval: 10s
+      timeout: 3s
+      retries: 3
+      start_period: 30s
+    mem_limit: 384m
+    logging: *logging
+
+  caddy:
+    image: caddy:2
+    restart: unless-stopped
+    ports:
+      - "80:80"
+      - "443:443"
+      - "443:443/udp"
+    environment:
+      SITE_DOMAIN: ${SITE_DOMAIN}
+      API_DOMAIN: ${API_DOMAIN}
+    # The directory, not the file: git checkout replaces the Caddyfile with a
+    # new inode, which a single-file mount would never see on caddy reload.
+    volumes:
+      - ./caddy:/etc/caddy:ro
+      - caddy_data:/data
+      - caddy_config:/config
+    depends_on:
+      api:
+        condition: service_healthy
+    mem_limit: 96m
+    logging: *logging
+
+  coturn:
+    image: coturn/coturn:4.18
+    restart: unless-stopped
+    # The relay range is 41 ports; host networking spares a proxy per port.
+    network_mode: host
+    volumes:
+      - ./coturn:/etc/coturn:ro
+    # coturn does not expand variables in its config file, so the two
+    # host values stay on the command line and the file holds no secret.
+    command:
+      - -c
+      - /etc/coturn/turnserver.conf
+      - --static-auth-secret=${TURN_SECRET}
+      - --external-ip=${TURN_EXTERNAL_IP:?set in .env}
+    mem_limit: 96m
+    logging: *logging
+
+volumes:
+  postgres:
+  redis:
+  caddy_data:
+  caddy_config:

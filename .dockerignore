@@ -1,0 +1,12 @@
+.git
+.github
+.claude
+.env
+.env.*
+bin/
+backups/
+.worktrees/
+deploy/
+docs/
+*.test
+coverage.out
