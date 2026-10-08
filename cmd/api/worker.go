@@ -13,6 +13,7 @@ import (
 	"github.com/VetMiMi/vetmimi-api/internal/comms"
 	"github.com/VetMiMi/vetmimi-api/internal/content"
 	"github.com/VetMiMi/vetmimi-api/internal/db"
+	"github.com/VetMiMi/vetmimi-api/internal/linkedin"
 	"github.com/VetMiMi/vetmimi-api/internal/meta"
 	"github.com/VetMiMi/vetmimi-api/internal/platform"
 	"github.com/VetMiMi/vetmimi-api/internal/platform/idempotency"
@@ -52,10 +53,11 @@ func runWorker(ctx context.Context, log *slog.Logger, cfg platform.Config, pool 
 	if err != nil {
 		return err
 	}
-	connector := meta.New(cfg, pool, tokens, log)
+	metaConnector, linkedIn := meta.New(cfg, pool, tokens, log), linkedin.New(cfg, pool, tokens, log)
 	(&content.Tasks{Pool: pool, Queue: queue, SiteURL: cfg.SiteURL, RevalidateSecret: cfg.SiteRevalidateSecret,
 		Publishers: map[string]content.Publisher{
-			"facebook": connector.PublishFacebook, "instagram": connector.PublishInstagram,
+			"facebook": metaConnector.PublishFacebook, "instagram": metaConnector.PublishInstagram,
+			"linkedin": linkedIn.Publish,
 		},
 		Log: log, Now: time.Now}).Register(w)
 	// Rebuild at once any task Redis lost while the worker was down.

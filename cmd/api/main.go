@@ -19,8 +19,10 @@ import (
 	"github.com/jackc/pgx/v5/pgxpool"
 	"github.com/redis/go-redis/v9"
 
+	"github.com/VetMiMi/vetmimi-api/internal/assistant"
 	"github.com/VetMiMi/vetmimi-api/internal/auth"
 	"github.com/VetMiMi/vetmimi-api/internal/httpapi"
+	"github.com/VetMiMi/vetmimi-api/internal/linkedin"
 	"github.com/VetMiMi/vetmimi-api/internal/media"
 	"github.com/VetMiMi/vetmimi-api/internal/meta"
 	"github.com/VetMiMi/vetmimi-api/internal/platform"
@@ -109,6 +111,8 @@ func runAPI(ctx context.Context, log *slog.Logger, cfg platform.Config, pool *pg
 		Media:          media.NewStore(cfg),
 		MediaPublicURL: cfg.MediaPublicURL,
 		Meta:           meta.New(cfg, pool, codes, log),
+		LinkedIn:       linkedin.New(cfg, pool, codes, log),
+		Assistant:      assistant.New(cfg, log),
 		Now:            time.Now,
 	}))
 	if cfg.TURNHost == "" {

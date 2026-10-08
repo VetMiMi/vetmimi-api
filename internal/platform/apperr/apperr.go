@@ -34,7 +34,9 @@ const (
 	PublishRequirementsUnmet Code = "publish_requirements_unmet"
 	RateLimited              Code = "rate_limited"
 	InternalError            Code = "internal_error"
+	AIFailed                 Code = "ai_failed"
 	Unavailable              Code = "unavailable"
+	FeatureUnavailable       Code = "feature_unavailable"
 )
 
 type kind struct {
@@ -65,7 +67,9 @@ var kinds = map[Code]kind{
 	PublishRequirementsUnmet: {422, "Publishing requirements not met"},
 	RateLimited:              {429, "Too many requests"},
 	InternalError:            {500, "Internal error"},
+	AIFailed:                 {502, "AI assistant failed"},
 	Unavailable:              {503, "Service unavailable"},
+	FeatureUnavailable:       {503, "Feature unavailable"},
 }
 
 // lookup treats a code missing from the table as an internal error, so a

@@ -86,17 +86,27 @@ var bodyCapByOperation = map[string]int64{
 	"updatePost": 512 << 10,
 }
 
-// operationBodyCaps applies bodyCapByOperation to the generated routes. It
-// runs just before validation, the first reader of the body.
-func operationBodyCaps(ops operations) gen.MiddlewareFunc {
+// timeoutByOperation gives the AI assistant time for the model's answer,
+// which its client bounds at 30 seconds, after reading the post.
+var timeoutByOperation = map[string]time.Duration{
+	"suggestPostVersions": 45 * time.Second,
+}
+
+// operationLimits applies bodyCapByOperation and timeoutByOperation to the
+// generated routes. It runs just before validation, the first reader of the
+// body.
+func operationLimits(ops operations) gen.MiddlewareFunc {
 	return func(next http.Handler) http.Handler {
 		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 			op, _ := ops.lookup(r)
+			h := next
 			if n, ok := bodyCapByOperation[op.ID]; ok {
-				WithBodyCap(n)(next).ServeHTTP(w, r)
-				return
+				h = WithBodyCap(n)(h)
 			}
-			next.ServeHTTP(w, r)
+			if d, ok := timeoutByOperation[op.ID]; ok {
+				h = WithTimeout(d)(h)
+			}
+			h.ServeHTTP(w, r)
 		})
 	}
 }

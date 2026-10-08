@@ -2,22 +2,18 @@ package meta
 
 import (
 	"context"
-	"crypto/hmac"
-	"crypto/sha256"
 	"database/sql"
-	"encoding/base64"
-	"encoding/json"
 	"errors"
 	"net/http"
 	"net/url"
 	"strconv"
-	"strings"
 	"time"
 
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgtype"
 
 	"github.com/VetMiMi/vetmimi-api/internal/db"
+	"github.com/VetMiMi/vetmimi-api/internal/platform"
 	"github.com/VetMiMi/vetmimi-api/internal/platform/apperr"
 )
 
@@ -66,11 +62,6 @@ type Page struct {
 	} `json:"instagram_business_account"`
 }
 
-type state struct {
-	User string `json:"u"`
-	Exp  int64  `json:"exp"`
-}
-
 // AuthorizeURL is the Facebook Login dialog for user, which sends Daw Mi
 // back to RedirectURL with a code and a signed state that only user can
 // use, for stateLifetime.
@@ -78,14 +69,9 @@ func (c *Connector) AuthorizeURL(user pgtype.UUID, now time.Time) (string, error
 	if c.AppID == "" {
 		return "", errNotSetUp
 	}
-	payload, err := json.Marshal(state{User: user.String(), Exp: now.Add(stateLifetime).Unix()})
-	if err != nil {
-		return "", err
-	}
-	body := base64.RawURLEncoding.EncodeToString(payload)
 	q := url.Values{
 		"client_id": {c.AppID}, "redirect_uri": {c.RedirectURL}, "response_type": {"code"},
-		"state": {body + "." + base64.RawURLEncoding.EncodeToString(c.sign(body))},
+		"state": {platform.SignOAuthState(c.SigningSecret, platformName, user.String(), now.Add(stateLifetime))},
 	}
 	if c.ConfigID != "" {
 		q.Set("config_id", c.ConfigID)
@@ -95,29 +81,6 @@ func (c *Connector) AuthorizeURL(user pgtype.UUID, now time.Time) (string, error
 	return dialogURL + "/" + c.Version + "/dialog/oauth?" + q.Encode(), nil
 }
 
-func (c *Connector) sign(body string) []byte {
-	mac := hmac.New(sha256.New, c.SigningSecret)
-	mac.Write([]byte("meta-oauth-state."))
-	mac.Write([]byte(body))
-	return mac.Sum(nil)
-}
-
-// checkState accepts a state AuthorizeURL signed for user that has not
-// expired. The signature is compared before anything in it is trusted.
-func (c *Connector) checkState(s string, user pgtype.UUID, now time.Time) error {
-	body, sig, _ := strings.Cut(s, ".")
-	got, err := base64.RawURLEncoding.DecodeString(sig)
-	if err != nil || !hmac.Equal(got, c.sign(body)) {
-		return errState
-	}
-	raw, err := base64.RawURLEncoding.DecodeString(body)
-	var st state
-	if err != nil || json.Unmarshal(raw, &st) != nil || st.User != user.String() || now.Unix() >= st.Exp {
-		return errState
-	}
-	return nil
-}
-
 // Finish completes Facebook Login for user: it trades code for a
 // long-lived user token and keeps it, sealed, while Daw Mi chooses her
 // Page. With exactly one Page, that Page is chosen at once.
@@ -125,8 +88,8 @@ func (c *Connector) Finish(ctx context.Context, user pgtype.UUID, code, st strin
 	if c.AppID == "" {
 		return Connection{}, errNotSetUp
 	}
-	if err := c.checkState(st, user, now); err != nil {
-		return Connection{}, err
+	if !platform.CheckOAuthState(c.SigningSecret, platformName, st, user.String(), now) {
+		return Connection{}, errState
 	}
 	var short, long struct {
 		AccessToken string `json:"access_token"`

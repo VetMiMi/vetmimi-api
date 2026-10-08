@@ -12,7 +12,8 @@ and needs no App Review.
   Facebook Page (Page settings → Linked accounts → Instagram).
 - Daw Mi has full control of the Page, and of the business portfolio if a
   business portfolio owns it.
-- The site's Privacy page is live; note its public address.
+- The site's Privacy page is live at `{SITE_URL}/privacy`, e.g.
+  `https://vetmimi-next.vercel.app/privacy`.
 
 ## Create the app
 
@@ -32,7 +33,7 @@ and needs no App Review.
    `instagram_basic`, `instagram_content_publish`, and `business_management`
    (needed when a business portfolio owns the Page). Copy its
    **Configuration ID**.
-5. App settings → Basic: set the Privacy Policy URL to the site's Privacy page,
+5. App settings → Basic: set the Privacy Policy URL to `{SITE_URL}/privacy`,
    an app icon and a category, and copy the **App ID** and **App Secret**.
    Under App settings → Advanced, turn on **Require App Secret** (the API
    signs every call with `appsecret_proof`).
@@ -47,7 +48,7 @@ META_APP_ID=<App ID>
 META_APP_SECRET=<App Secret>
 META_CONFIG_ID=<Configuration ID>
 # Optional; the Graph API version the API calls.
-META_GRAPH_VERSION=v24.0
+META_GRAPH_VERSION=v26.0
 ```
 
 `MEDIA_PUBLIC_URL` must be reachable from the internet: Facebook and Instagram

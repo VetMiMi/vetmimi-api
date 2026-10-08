@@ -1,7 +1,7 @@
 openapi: "3.1.0"
 info:
   title: VetMiMi API
-  version: "0.4.1"
+  version: "0.4.2"
   description: >-
     The API behind VetMiMi, Daw Mi's art therapy practice. The Next.js site is the only caller
     (ADR-002): public routes take the shared service key, admin routes a session token. The one
@@ -42,7 +42,9 @@ tags:
   - name: media
     description: "The media library: images for posts, stored with web sizes."
   - name: connections
-    description: "Platform connections the publishing portal posts through: the Facebook Page and its Instagram account."
+    description: >-
+      Platform connections the publishing portal posts through: the Facebook Page and its Instagram account,
+      and Daw Mi's LinkedIn profile.
   - name: contact
     description: Contact enquiries.
   - name: health
@@ -2578,6 +2580,80 @@ paths:
           $ref: "#/components/responses/TooManyRequests"
         "500":
           $ref: "#/components/responses/InternalError"
+  "/admin/posts/{postId}/suggestions":
+    post:
+      tags: [posts]
+      operationId: suggestPostVersions
+      summary: Suggest channel versions with the AI assistant
+      description: >-
+        content_editor or site_admin; 20 an hour per user. Suggests the requested channels' versions,
+        written in `language`, from the post's website version: Facebook text, an Instagram caption with
+        its hashtags, LinkedIn text, and for `website` a translation of the website title, excerpt and body
+        from the other language into `language`. Nothing is saved: the editor edits a suggestion and saves
+        it with `PATCH /admin/posts/{postId}`. The prompt carries only the post's website text and the
+        channel rules. Without website text (or, for `website`, text in the other language) it is
+        `422 action_not_allowed`; an unusable answer or an unreachable model is `502 ai_failed`; without
+        `ANTHROPIC_API_KEY` it is `503 feature_unavailable`.
+      security:
+        - sessionToken: []
+      parameters:
+        - $ref: "#/components/parameters/PostId"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/SuggestionRequest"
+      responses:
+        "200":
+          description: Success.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/PostSuggestions"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "422":
+          $ref: "#/components/responses/UnprocessableEntity"
+        "429":
+          $ref: "#/components/responses/TooManyRequests"
+        "500":
+          $ref: "#/components/responses/InternalError"
+        "502":
+          $ref: "#/components/responses/AIFailed"
+        "503":
+          $ref: "#/components/responses/FeatureUnavailable"
+  /admin/ai/status:
+    get:
+      tags: [posts]
+      operationId: getAIStatus
+      summary: Read whether the AI assistant is on
+      description: content_editor or site_admin. `enabled` is false when the server has no `ANTHROPIC_API_KEY`.
+      security:
+        - sessionToken: []
+      responses:
+        "200":
+          description: Success.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/AIStatus"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "429":
+          $ref: "#/components/responses/TooManyRequests"
+        "500":
+          $ref: "#/components/responses/InternalError"
   /admin/media:
     get:
       tags: [media]
@@ -2949,6 +3025,125 @@ paths:
           $ref: "#/components/responses/Forbidden"
         "404":
           $ref: "#/components/responses/NotFound"
+        "422":
+          $ref: "#/components/responses/UnprocessableEntity"
+        "429":
+          $ref: "#/components/responses/TooManyRequests"
+        "500":
+          $ref: "#/components/responses/InternalError"
+        "503":
+          $ref: "#/components/responses/Unavailable"
+  /admin/connections/linkedin:
+    get:
+      tags: [connections]
+      operationId: getLinkedInConnection
+      summary: Read the LinkedIn connection
+      description: >-
+        site_admin only. Whether Daw Mi's LinkedIn profile is connected, as whom, and until when:
+        `expiring_soon` within 7 days of `expiresAt`, `reconnect_required` after it or once LinkedIn
+        refused the token. LinkedIn tokens last about 60 days; she connects again to renew.
+      security:
+        - sessionToken: []
+      responses:
+        "200":
+          description: Success.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/LinkedInConnection"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "429":
+          $ref: "#/components/responses/TooManyRequests"
+        "500":
+          $ref: "#/components/responses/InternalError"
+    delete:
+      tags: [connections]
+      operationId: disconnectLinkedIn
+      summary: Disconnect LinkedIn
+      description: >-
+        site_admin only. Deletes the connection and its token; the LinkedIn channel is then posted by hand
+        (copy & open).
+      security:
+        - sessionToken: []
+      responses:
+        "204":
+          description: Disconnected.
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "429":
+          $ref: "#/components/responses/TooManyRequests"
+        "500":
+          $ref: "#/components/responses/InternalError"
+  /admin/connections/linkedin/authorize:
+    post:
+      tags: [connections]
+      operationId: startLinkedInConnection
+      summary: Start the LinkedIn sign-in
+      description: >-
+        site_admin only. Returns the LinkedIn sign-in address to send Daw Mi's browser to. LinkedIn sends
+        her back to `{SITE_URL}/admin/settings/connections/linkedin` with `code` and `state`, which that
+        page passes to `POST /admin/connections/linkedin/callback` within 10 minutes. `503 unavailable`
+        when the LinkedIn app is not configured.
+      security:
+        - sessionToken: []
+      responses:
+        "200":
+          description: Success.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/LinkedInAuthorization"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "429":
+          $ref: "#/components/responses/TooManyRequests"
+        "500":
+          $ref: "#/components/responses/InternalError"
+        "503":
+          $ref: "#/components/responses/Unavailable"
+  /admin/connections/linkedin/callback:
+    post:
+      tags: [connections]
+      operationId: finishLinkedInConnection
+      summary: Finish the LinkedIn sign-in
+      description: >-
+        site_admin only, the same administrator who started it. Trades the code for an access token and
+        connects her profile. A state that expired, was altered or was started by someone else, a code
+        LinkedIn refuses, or a sign-in that did not allow sharing is `422 action_not_allowed`.
+      security:
+        - sessionToken: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/LinkedInCallback"
+      responses:
+        "200":
+          description: Success.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/LinkedInConnection"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
         "422":
           $ref: "#/components/responses/UnprocessableEntity"
         "429":
@@ -5174,6 +5369,123 @@ components:
           type: string
           format: uri
       additionalProperties: false
+    LinkedInConnection:
+      type: object
+      required: [status]
+      properties:
+        status:
+          type: string
+          description: >-
+            `expiring_soon` within 7 days of `expiresAt`; `reconnect_required` once it has passed or LinkedIn
+            refused the token. Either way, connecting again renews it.
+          enum: [not_connected, connected, expiring_soon, reconnect_required]
+        memberName:
+          type: string
+          description: Daw Mi's name on LinkedIn.
+        expiresAt:
+          type: string
+          description: UTC timestamp (RFC 3339) when the token expires.
+          format: date-time
+        connectedAt:
+          type: string
+          description: UTC timestamp (RFC 3339).
+          format: date-time
+      additionalProperties: false
+    LinkedInAuthorization:
+      type: object
+      required: [authorizeUrl]
+      properties:
+        authorizeUrl:
+          type: string
+          format: uri
+      additionalProperties: false
+    LinkedInCallback:
+      type: object
+      required: [code, state]
+      properties:
+        code:
+          type: string
+          minLength: 1
+          maxLength: 2000
+        state:
+          type: string
+          minLength: 1
+          maxLength: 500
+      additionalProperties: false
+    SuggestionRequest:
+      type: object
+      required: [channels]
+      properties:
+        channels:
+          type: array
+          description: The versions to suggest; `website` is a translation of the website version.
+          minItems: 1
+          uniqueItems: true
+          items:
+            type: string
+            enum: [facebook, instagram, linkedin, website]
+        language:
+          type: string
+          description: The language to write in, and to translate the website version into.
+          enum: [en, my]
+          default: en
+      additionalProperties: false
+    PostSuggestions:
+      type: object
+      description: The suggested versions, only for the channels asked for. Nothing is saved.
+      properties:
+        facebook:
+          $ref: "#/components/schemas/SuggestedText"
+        instagram:
+          $ref: "#/components/schemas/SuggestedInstagram"
+        linkedin:
+          $ref: "#/components/schemas/SuggestedText"
+        website:
+          $ref: "#/components/schemas/SuggestedWebsite"
+      additionalProperties: false
+    SuggestedInstagram:
+      type: object
+      required: [caption, hashtags]
+      properties:
+        caption:
+          type: string
+          description: Without the hashtags; caption and hashtags together fit 2,200 characters.
+        hashtags:
+          type: array
+          maxItems: 30
+          items:
+            type: string
+      additionalProperties: false
+    SuggestedWebsite:
+      type: object
+      description: The website version translated into the requested language.
+      required: [language, title, excerpt, body]
+      properties:
+        language:
+          type: string
+          enum: [en, my]
+        title:
+          type: string
+        excerpt:
+          type: string
+        body:
+          type: string
+          description: Markdown.
+      additionalProperties: false
+    SuggestedText:
+      type: object
+      required: [text]
+      properties:
+        text:
+          type: string
+      additionalProperties: false
+    AIStatus:
+      type: object
+      required: [enabled]
+      properties:
+        enabled:
+          type: boolean
+      additionalProperties: false
     MetaCallback:
       type: object
       required: [code, state]
@@ -5567,6 +5879,18 @@ components:
           schema:
             type: integer
             minimum: 1
+      content:
+        "application/problem+json":
+          schema:
+            $ref: "#/components/schemas/Problem"
+    AIFailed:
+      description: "`ai_failed`: the AI assistant could not be reached or gave no usable answer. Try again."
+      content:
+        "application/problem+json":
+          schema:
+            $ref: "#/components/schemas/Problem"
+    FeatureUnavailable:
+      description: "`feature_unavailable`: the feature is switched off on the server."
       content:
         "application/problem+json":
           schema:

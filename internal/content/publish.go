@@ -59,8 +59,8 @@ func (e *ChannelError) Error() string { return "content: channel not posted: " +
 // ErrNotConnected is a channel with no platform connection yet.
 var ErrNotConnected = &ChannelError{Reason: "not_connected"}
 
-// NotConnected is the Publisher of a channel whose connector does not exist
-// yet (LinkedIn, until #122): Daw Mi posts it by hand.
+// NotConnected is the Publisher of a channel with no connector wired: Daw Mi
+// posts it by hand.
 func NotConnected(context.Context, db.PostVersion) (Posted, error) { return Posted{}, ErrNotConnected }
 
 type postPayload struct {

@@ -162,6 +162,7 @@ func TestLoadConfigRules(t *testing.T) {
 		{"metrics address without port", "METRICS_ADDR", "127.0.0.1", "METRICS_ADDR must be host:port", developmentEnv()},
 		{"metrics address with bad port", "METRICS_ADDR", "127.0.0.1:metrics", "METRICS_ADDR must be host:port", developmentEnv()},
 		{"meta app id without its secret", "META_APP_ID", "123", "META_APP_ID and META_APP_SECRET must be set together", developmentEnv()},
+		{"linkedin client id without its secret", "LINKEDIN_CLIENT_ID", "abc", "LINKEDIN_CLIENT_ID and LINKEDIN_CLIENT_SECRET must be set together", developmentEnv()},
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
@@ -213,6 +214,7 @@ func TestEnvExampleLeavesSecretsEmpty(t *testing.T) {
 	for _, name := range []string{
 		"SERVICE_KEY", "SIGNING_SECRET", "TOTP_ENCRYPTION_KEY", "SITE_REVALIDATE_SECRET",
 		"RESEND_API_KEY", "MEDIA_S3_ACCESS_KEY", "MEDIA_S3_SECRET_KEY", "TURN_SECRET", "META_APP_SECRET",
+		"LINKEDIN_CLIENT_SECRET", "ANTHROPIC_API_KEY",
 	} {
 		require.Contains(t, example, name)
 		require.Empty(t, example[name], name)

@@ -79,3 +79,52 @@ func TestMetaNotSetUp(t *testing.T) {
 	refused(t, http.StatusServiceUnavailable, "unavailable", a.send(http.MethodPost,
 		"/admin/connections/meta/authorize", insertSession(t, a.clock.at, "site_admin")))
 }
+
+// fakeLinkedIn answers the code exchange and the member's profile.
+func fakeLinkedIn(t *testing.T) string {
+	t.Helper()
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		switch r.URL.Path {
+		case "/oauth/v2/accessToken":
+			_, _ = w.Write([]byte(`{"access_token": "member-token-secret", "expires_in": 5184000,
+				"scope": "openid,profile,w_member_social"}`))
+		case "/v2/userinfo":
+			_, _ = w.Write([]byte(`{"sub": "abc123", "name": "Daw Mi"}`))
+		default:
+			w.WriteHeader(http.StatusNotFound)
+		}
+	}))
+	t.Cleanup(srv.Close)
+	return srv.URL
+}
+
+// Only a site administrator connects LinkedIn: sign in, finish with the
+// code and state LinkedIn sent back, read the connection with its expiry,
+// and disconnect. The token never reaches a response or a log.
+func TestConnectLinkedIn(t *testing.T) {
+	a := newAuthAPI(t)
+	a.linkedin.AuthURL = fakeLinkedIn(t)
+	a.linkedin.APIURL = a.linkedin.AuthURL
+	admin := insertSession(t, a.clock.at, "site_admin")
+	requireForbidden(t, a.send(http.MethodPost, "/admin/connections/linkedin/authorize",
+		insertSession(t, a.clock.at, "content_editor")))
+
+	started := decoded(t, http.StatusOK, a.send(http.MethodPost, "/admin/connections/linkedin/authorize", admin))
+	link, err := url.Parse(started["authorizeUrl"].(string))
+	require.NoError(t, err)
+	require.Equal(t, siteOrigin+"/admin/settings/connections/linkedin", link.Query().Get("redirect_uri"))
+	body, _ := json.Marshal(map[string]string{"code": "code-1", "state": link.Query().Get("state")})
+
+	refused(t, http.StatusUnprocessableEntity, "action_not_allowed", a.sendJSON(http.MethodPost,
+		"/admin/connections/linkedin/callback", insertSession(t, a.clock.at, "site_admin"), string(body)))
+	conn := decoded(t, http.StatusOK, a.sendJSON(http.MethodPost, "/admin/connections/linkedin/callback", admin,
+		string(body)))
+	require.Equal(t, "connected", conn["status"])
+	require.Equal(t, "Daw Mi", conn["memberName"])
+	require.NotEmpty(t, conn["expiresAt"])
+
+	require.Equal(t, http.StatusNoContent, a.send(http.MethodDelete, "/admin/connections/linkedin", admin).Code)
+	status := decoded(t, http.StatusOK, a.send(http.MethodGet, "/admin/connections/linkedin", admin))
+	require.Equal(t, "not_connected", status["status"])
+	require.NotContains(t, a.logs.String(), "member-token-secret")
+}

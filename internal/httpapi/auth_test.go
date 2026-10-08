@@ -22,8 +22,10 @@ import (
 	"github.com/pquerna/otp/totp"
 	"github.com/stretchr/testify/require"
 
+	"github.com/VetMiMi/vetmimi-api/internal/assistant"
 	"github.com/VetMiMi/vetmimi-api/internal/auth"
 	"github.com/VetMiMi/vetmimi-api/internal/db"
+	"github.com/VetMiMi/vetmimi-api/internal/linkedin"
 	"github.com/VetMiMi/vetmimi-api/internal/meta"
 	"github.com/VetMiMi/vetmimi-api/internal/platform"
 	"github.com/VetMiMi/vetmimi-api/internal/platform/clock"
@@ -131,6 +133,10 @@ type authAPI struct {
 	logs    *bytes.Buffer
 	// meta is the Meta connector, its GraphURL set by a test that calls it.
 	meta *meta.Connector
+	// linkedin and assistant are set up the same way, their URLs set by a
+	// test that calls them.
+	linkedin  *linkedin.Connector
+	assistant *assistant.Client
 	// visitors numbers sign-ins, each from its own address, so the sign-in
 	// limit of five a minute never interferes.
 	visitors int
@@ -157,6 +163,10 @@ func newAuthAPI(t *testing.T) *authAPI {
 	a.meta = &meta.Connector{Pool: pgtest.Pool(t), Tokens: a.codes, AppID: "app-1", AppSecret: "app-secret",
 		Version: "v24.0", RedirectURL: siteOrigin + "/admin/settings/connections",
 		SigningSecret: []byte("test signing secret, 32 bytes ok"), Log: log, Now: a.clock.now}
+	a.linkedin = &linkedin.Connector{Pool: pgtest.Pool(t), Tokens: a.codes, ClientID: "client-1",
+		ClientSecret: "client-secret", Version: "202609", RedirectURL: siteOrigin + "/admin/settings/connections/linkedin",
+		SigningSecret: []byte("test signing secret, 32 bytes ok"), Log: log, Now: a.clock.now}
+	a.assistant = &assistant.Client{APIKey: "sk-test", Model: "claude-haiku-4-5-20251001", Log: log}
 	a.handler = NewRouter(Deps{
 		PingPostgres:   ok,
 		PingRedis:      ok,
@@ -171,6 +181,8 @@ func newAuthAPI(t *testing.T) *authAPI {
 		Media:          acceptingBucket(t),
 		MediaPublicURL: "https://media.vetmimi.example",
 		Meta:           a.meta,
+		LinkedIn:       a.linkedin,
+		Assistant:      a.assistant,
 		Now:            a.clock.now,
 	})
 	return a
