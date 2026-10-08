@@ -37,3 +37,4 @@ What becomes easier, what becomes harder, what we must now watch.
 | [007](007-one-to-one-webrtc-with-go-signaling.md) | One-to-one WebRTC with Go WebSocket signaling |
 | [008](008-content-in-postgres-served-through-the-api.md) | Content in PostgreSQL, served through the API, revalidated by tag |
 | [009](009-publishing-portal.md) | A publishing portal for posts, replacing the website CMS |
+| [010](010-live-host-on-ec2-with-the-website.md) | The live host is an EC2 instance in Sydney, and it serves the website too |

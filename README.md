@@ -174,20 +174,23 @@ go test ./internal/comms -update   # regenerate email golden files
 - **Each behaviour gets a success test and a failure test**, and anything touching scheduling gets a concurrency test.
 - **CI** (`.github/workflows/ci.yml`) runs on PRs and on pushes to `main`:
   - **API checks** on Postgres 17 and Redis 7: `make tools`, `make lint`, `make generate-check`, `go build ./...`, `go test -race ./...`
+  - **Deployment checks:** shellcheck, the `deploy.sh` and compose tests, `caddy validate`, an image build, and `terraform validate` for each root
   - **Contract version:** an `openapi.yaml` change must raise its version
   - **Commit checks:** every commit message follows the Conventional Commits format
   - `contract-tag.yml` tags each new contract version on `main`
 
 ## Deployment
 
-The API isn't deployed yet. The plan in [ADR-005](docs/adr/005-cheap-live-host-and-fargate-target.md):
+Written and checked, not yet applied: [ADR-010](docs/adr/010-live-host-on-ec2-with-the-website.md) and the runbook in [`deploy/README.md`](deploy/README.md).
 
-- **Live host:** one small VPS running Docker Compose with:
+- **Live host:** one AWS EC2 `t4g.small` in Sydney, described in Terraform (`deploy/terraform/live`), running Docker Compose with:
   - the API and the worker, from the same image
+  - the website (`vetmimi-next`)
   - PostgreSQL 17 and Redis 7
   - Caddy for TLS
   - coturn for TURN
-- **Releases:** GitHub Actions builds one image per commit to GHCR and deploys over SSH. A release that fails its `/healthz` check within 60 s is rolled back automatically.
+- **Releases:** after CI passes on `main`, `release.yml` builds an arm64 image, pushes it to GHCR and deploys over SSH. A release that fails its health check within a minute is rolled back automatically.
+- **Backups:** a nightly `pg_dump` to a private S3 bucket, kept 30 days.
 - **Later target:** ECS Fargate behind an ALB, with RDS, written in Terraform. CI validates it but never applies it.
 
 ## Project status
