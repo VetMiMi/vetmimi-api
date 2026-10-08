@@ -310,17 +310,17 @@ has). Public article reads return these copies, with the website publication's `
 
 ## Connections
 
-**`connections`** — How the portal reaches a platform; one row per platform (`meta` today).
+**`connections`** — How the portal reaches a platform; one row per platform (`meta`, `linkedin`).
 
 | Column | Type | Null | Default | Notes |
 |---|---|---|---|---|
-| platform | text | no | — | PK; `meta` |
-| status | text | no | — | `choosing_page` (signed in, several Pages) or `connected` |
-| token | bytea | no | — | AES-256-GCM under `TOTP_ENCRYPTION_KEY`: the long-lived user token while choosing, then the Page token |
-| account_id, account_name | text | yes | — | the Facebook Page; required when `connected` |
+| platform | text | no | — | PK; `meta` or `linkedin` |
+| status | text | no | — | `choosing_page` (Meta: signed in, several Pages) or `connected` |
+| token | bytea | no | — | AES-256-GCM under `TOTP_ENCRYPTION_KEY`: Meta's long-lived user token while choosing, then the Page token; LinkedIn's member access token |
+| account_id, account_name | text | yes | — | the Facebook Page, or the LinkedIn member id (`sub`) and name; required when `connected` |
 | instagram_id, instagram_username | text | yes | — | the Instagram Business account linked to the Page |
-| expires_at | timestamptz | yes | — | when Meta stops the token's access (data access lapses after 90 days without signing in again) |
-| last_error | text | yes | — | `reconnect_required` once Meta refused the token; cleared by connecting again |
+| expires_at | timestamptz | yes | — | when the token's access ends (Meta: data access lapses after 90 days without signing in again; LinkedIn: about 60 days) |
+| last_error | text | yes | — | `reconnect_required` once the platform refused the token; cleared by connecting again |
 | connected_by, connected_at, updated_at | | | | `connected_by` FK users `SET NULL` |
 
 Disconnecting deletes the row and so the token.
