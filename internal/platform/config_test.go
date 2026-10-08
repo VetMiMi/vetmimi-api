@@ -114,7 +114,7 @@ func TestLoadConfigReportsEveryProblemAtOnce(t *testing.T) {
 }
 
 func TestProductionRequiresEverySecret(t *testing.T) {
-	optional := []string{"DATABASE_URL_TEST", "REDIS_URL_TEST", "METRICS_ADDR"}
+	optional := []string{"DATABASE_URL_TEST", "REDIS_URL_TEST", "METRICS_ADDR", "MEDIA_S3_ACCESS_KEY", "MEDIA_S3_SECRET_KEY"}
 	defaulted := []string{"PORT", "ENV", "LOG_LEVEL", "MEDIA_S3_REGION"}
 	for name := range productionEnv() {
 		if slices.Contains(optional, name) || slices.Contains(defaulted, name) {
@@ -132,7 +132,7 @@ func TestProductionRequiresEverySecret(t *testing.T) {
 
 func TestLoadConfigOptionalInProduction(t *testing.T) {
 	env := productionEnv()
-	for _, name := range []string{"DATABASE_URL_TEST", "REDIS_URL_TEST", "METRICS_ADDR"} {
+	for _, name := range []string{"DATABASE_URL_TEST", "REDIS_URL_TEST", "METRICS_ADDR", "MEDIA_S3_ACCESS_KEY", "MEDIA_S3_SECRET_KEY"} {
 		env[name] = ""
 	}
 	c, err := load(env)
@@ -162,6 +162,7 @@ func TestLoadConfigRules(t *testing.T) {
 		{"metrics address without port", "METRICS_ADDR", "127.0.0.1", "METRICS_ADDR must be host:port", developmentEnv()},
 		{"metrics address with bad port", "METRICS_ADDR", "127.0.0.1:metrics", "METRICS_ADDR must be host:port", developmentEnv()},
 		{"meta app id without its secret", "META_APP_ID", "123", "META_APP_ID and META_APP_SECRET must be set together", developmentEnv()},
+		{"media access key without its secret", "MEDIA_S3_SECRET_KEY", "", "MEDIA_S3_ACCESS_KEY and MEDIA_S3_SECRET_KEY must be set together", productionEnv()},
 		{"linkedin client id without its secret", "LINKEDIN_CLIENT_ID", "abc", "LINKEDIN_CLIENT_ID and LINKEDIN_CLIENT_SECRET must be set together", developmentEnv()},
 	}
 	for _, tc := range cases {

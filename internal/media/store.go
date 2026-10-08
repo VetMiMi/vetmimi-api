@@ -7,6 +7,7 @@ import (
 	"strings"
 
 	"github.com/aws/aws-sdk-go-v2/aws"
+	"github.com/aws/aws-sdk-go-v2/credentials/ec2rolecreds"
 	"github.com/aws/aws-sdk-go-v2/service/s3"
 	"github.com/jackc/pgx/v5/pgtype"
 
@@ -23,18 +24,23 @@ type Store struct {
 
 // NewStore returns the bucket cfg names, or nil when cfg has no media
 // endpoint, as in development without storage; uploads are then refused.
+// Without keys it signs with the EC2 instance role, as on the live host.
 func NewStore(cfg platform.Config) *Store {
 	if cfg.MediaS3Endpoint == "" {
 		return nil
 	}
-	creds := aws.Credentials{AccessKeyID: cfg.MediaS3AccessKey, SecretAccessKey: cfg.MediaS3SecretKey}
+	var creds aws.CredentialsProvider = aws.NewCredentialsCache(ec2rolecreds.New())
+	if cfg.MediaS3AccessKey != "" {
+		keys := aws.Credentials{AccessKeyID: cfg.MediaS3AccessKey, SecretAccessKey: cfg.MediaS3SecretKey}
+		creds = aws.CredentialsProviderFunc(func(context.Context) (aws.Credentials, error) {
+			return keys, nil
+		})
+	}
 	client := s3.New(s3.Options{
 		BaseEndpoint: aws.String(cfg.MediaS3Endpoint),
 		Region:       cfg.MediaS3Region,
 		UsePathStyle: true,
-		Credentials: aws.CredentialsProviderFunc(func(context.Context) (aws.Credentials, error) {
-			return creds, nil
-		}),
+		Credentials:  creds,
 		// Not every S3-compatible provider accepts the checksums the SDK
 		// adds by default.
 		RequestChecksumCalculation: aws.RequestChecksumCalculationWhenRequired,

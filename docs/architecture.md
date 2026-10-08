@@ -407,8 +407,7 @@ values for secrets.
 | `MEDIA_S3_ENDPOINT` | S3-compatible endpoint. |
 | `MEDIA_S3_REGION` | Region name the provider expects. |
 | `MEDIA_S3_BUCKET` | Bucket for originals and derivatives. |
-| `MEDIA_S3_ACCESS_KEY` | Bucket access key. |
-| `MEDIA_S3_SECRET_KEY` | Bucket secret key. |
+| `MEDIA_S3_ACCESS_KEY`, `MEDIA_S3_SECRET_KEY` | Bucket keys; set together. Empty on the live host, where the EC2 instance role grants the bucket (`deploy/terraform/live/`). |
 | `MEDIA_PUBLIC_URL` | Base URL the bucket's `public/` prefix is served from. |
 | `TURN_HOST` | coturn `host:port`. Empty in development: room tickets offer STUN only. |
 | `TURN_SECRET` | coturn `static-auth-secret` for time-limited credentials. |
@@ -509,13 +508,15 @@ routes, SDP and ICE payloads. Error logs carry codes and ids only.
 
 ## Deployment summary
 
-As ADR-005: one small VPS runs Docker Compose with `api`, `worker` (same image,
-`--mode worker`), `postgres:17`, `redis:7`, `caddy` and `coturn`. GitHub Actions
-builds the image once per `main` commit, pushes it to GHCR tagged with the SHA,
-pulls and restarts on the host, polls `/healthz` for 60 seconds and rolls back
-automatically on failure. Nightly `pg_dump` goes to the bucket. The Fargate
-topology lives in `deploy/terraform/`, validated in CI and never applied by
-agents.
+As ADR-010 (which updates ADR-005): one EC2 `t4g.small` in Sydney runs Docker
+Compose with `api`, `worker` (same image, `--mode worker`), `web` (the
+`vetmimi-next` image), `postgres:17`, `redis:7`, `caddy` and `coturn`. After CI
+passes on `main`, GitHub Actions builds the arm64 image, pushes it to GHCR
+tagged with the SHA, and runs `deploy/deploy.sh` on the host, which polls the
+public `/healthz` for a minute and rolls back on failure. Nightly `pg_dump`
+goes to a private S3 bucket. `deploy/README.md` is the runbook; the Fargate
+topology is a later bundle in `deploy/terraform/`, validated in CI and never
+applied by agents.
 
 ## Open points
 

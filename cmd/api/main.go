@@ -1,6 +1,7 @@
 // Command api runs the VetMiMi HTTP API (default), its background worker
 // (--mode worker), or enrols an administrator at a terminal (--mode
-// create-user). Every mode shares one binary and one configuration.
+// create-user). Every mode shares one binary and one configuration;
+// --mode healthcheck is the container health check (healthcheck.go).
 package main
 
 import (
@@ -15,6 +16,9 @@ import (
 	"strconv"
 	"syscall"
 	"time"
+	// The distroless image has no zoneinfo, and the practice timezone
+	// (Australia/Sydney) must load anywhere.
+	_ "time/tzdata"
 
 	"github.com/jackc/pgx/v5/pgxpool"
 	"github.com/redis/go-redis/v9"
@@ -30,10 +34,13 @@ import (
 )
 
 func main() {
-	mode := flag.String("mode", "api", "api, worker or create-user")
+	mode := flag.String("mode", "api", "api, worker, create-user or healthcheck")
 	var user userFlags
 	user.register(flag.CommandLine)
 	flag.Parse()
+	if *mode == "healthcheck" {
+		os.Exit(healthcheck(os.Getenv("PORT")))
+	}
 
 	cfg, err := platform.LoadConfig(os.Getenv)
 	if err != nil {
