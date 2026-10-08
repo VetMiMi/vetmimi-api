@@ -50,6 +50,8 @@ errors from `internal/platform/apperr`, and never import `net/http`.
 | `content` | The publishing portal (ADR-009): posts, their channel versions and publications, the workflow (`workflow.go`), approval checks per platform, public articles. |
 | `media` | Uploads, type sniffing, web-sized derivatives, object storage, usage checks. |
 | `meta` | The Facebook Page connection (Facebook Login, the sealed Page token, the linked Instagram account) and the Graph API calls that post the facebook and instagram channels (docs/meta-setup.md). |
+| `linkedin` | The LinkedIn profile connection (OpenID Connect sign-in, the sealed member token and its expiry) and the Posts and Images API calls that post the linkedin channel (docs/linkedin-setup.md). |
+| `assistant` | The portal's AI helper: suggests Facebook, Instagram and LinkedIn versions, and translates the website version, from the post's own text through the Anthropic Messages API; saves nothing. |
 | `comms` | Communication records, templates (`comms/templates/<kind>.<locale>.tmpl`), delivery through Resend, the sweeper, contact enquiries. |
 | `db` | sqlc output (generated, committed) and `db/queries/*.sql`. |
 
@@ -125,7 +127,9 @@ never shows `detail` to visitors. Renaming a code is a breaking change.
 | `publish_requirements_unmet` | 422 | A post cannot be approved: an enabled channel version breaks its platform's rules, no channel is enabled, or a True Story lacks consent; `errors[]` lists each one. |
 | `rate_limited` | 429 | Too many requests for this route group; `Retry-After` is set. |
 | `internal_error` | 500 | Unexpected failure. Logged with the request id; nothing was half-saved. |
+| `ai_failed` | 502 | The AI assistant could not be reached or gave no usable answer; nothing was saved. Try again. |
 | `unavailable` | 503 | PostgreSQL or Redis unreachable. |
+| `feature_unavailable` | 503 | The feature is switched off on the server, e.g. the AI assistant without `ANTHROPIC_API_KEY`. |
 
 ## Authentication and roles
 
@@ -170,7 +174,9 @@ prefix of the email.
 | `/admin/contact-enquiries` | no | yes | yes |
 | `/admin/posts`: list, get, create, patch, delete, submit, mark a channel posted | yes | no | yes |
 | `/admin/posts/{id}`: request-changes, approve, schedule, unschedule, publish, archive | no | no | yes |
+| `/admin/posts/{id}/suggestions`, `GET /admin/ai/status` | yes | no | yes |
 | `/admin/connections/meta`: read, Facebook Login, choose the Page, disconnect | no | no | yes |
+| `/admin/connections/linkedin`: read, sign in, disconnect | no | no | yes |
 
 The table is `rolesByOperation` in `internal/httpapi/roles.go`, one row per
 `sessionToken` operation; `TestEverySessionOperationHasRoles` fails when an
@@ -318,8 +324,8 @@ content. Daw Mi holds all three roles.
    `pending` and the post is `publishing`.
 4. Each social channel is its own `content:publish-channel` task, calling that
    platform's connector: `internal/meta` for Facebook and Instagram once the
-   Page is connected, otherwise (and for LinkedIn, until its connector)
-   `not_connected`. A transient failure is retried three times. An attempt
+   Page is connected, `internal/linkedin` for LinkedIn once her profile is,
+   otherwise `not_connected`. A transient failure is retried three times. An attempt
    whose answer is lost on the call that posts, or that is still `publishing`
    after 10 minutes (its worker died), fails as `unknown_outcome` and is never
    sent again by itself, since it may have posted. A failed channel can be
@@ -408,7 +414,11 @@ values for secrets.
 | `TURN_SECRET` | coturn `static-auth-secret` for time-limited credentials. |
 | `META_APP_ID`, `META_APP_SECRET` | The Meta app that publishes to Daw Mi's Facebook Page and Instagram (docs/meta-setup.md); set together. Empty: those channels are posted by hand. |
 | `META_CONFIG_ID` | The Facebook Login for Business configuration naming the permissions; empty, the dialog asks for them as scopes. |
-| `META_GRAPH_VERSION` | Graph API version the connector calls (default `v24.0`). |
+| `META_GRAPH_VERSION` | Graph API version the connector calls (default `v26.0`). |
+| `LINKEDIN_CLIENT_ID`, `LINKEDIN_CLIENT_SECRET` | The LinkedIn app that publishes to Daw Mi's profile (docs/linkedin-setup.md); set together. Empty: LinkedIn is posted by hand. |
+| `LINKEDIN_API_VERSION` | `LinkedIn-Version` header, `YYYYMM` (default `202609`); LinkedIn supports each version for at least a year. |
+| `ANTHROPIC_API_KEY` | The portal's AI assistant (`POST /admin/posts/{id}/suggestions`). Empty: the assistant answers `503 feature_unavailable`. |
+| `ANTHROPIC_MODEL` | Model the assistant asks (default `claude-haiku-4-5-20251001`). |
 | `METRICS_ADDR` | Optional `127.0.0.1:9090`; serves counters at `/debug/vars`. Empty disables. |
 
 ## Observability
@@ -439,6 +449,7 @@ values for secrets.
 | `/public/manage/*` | token hash | 20 per hour |
 | `/public/sessions/*` | token hash | 30 per minute |
 | other `/public/*` reads | service key | 1,200 per minute |
+| `POST /admin/posts/{id}/suggestions` | user | 20 per hour |
 | `/admin/*`, `/auth/*` | session | 300 per minute |
 | WebSocket upgrade | room id | 20 per minute |
 

@@ -100,12 +100,22 @@ var rolesByOperation = map[string][]auth.Role{
 	"updateMedia": contentEditor,
 	"deleteMedia": contentEditor,
 
-	// Connecting the practice's own Facebook Page and Instagram is Daw Mi's.
+	// The AI assistant helps whoever writes posts.
+	"suggestPostVersions": contentEditor,
+	"getAIStatus":         contentEditor,
+
+	// Connecting the practice's own Facebook Page, Instagram and her LinkedIn
+	// profile is Daw Mi's.
 	"getMetaConnection":    siteAdmin,
 	"startMetaConnection":  siteAdmin,
 	"finishMetaConnection": siteAdmin,
 	"chooseMetaPage":       siteAdmin,
 	"disconnectMeta":       siteAdmin,
+
+	"getLinkedInConnection":    siteAdmin,
+	"startLinkedInConnection":  siteAdmin,
+	"finishLinkedInConnection": siteAdmin,
+	"disconnectLinkedIn":       siteAdmin,
 }
 
 // requireRoles answers 403 forbidden to a request for a sessionToken

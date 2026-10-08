@@ -185,7 +185,7 @@ func (s *server) logPost(ctx context.Context, msg string, p content.Post, attrs 
 // ListPublicArticles lists the published articles in the visitor's locale.
 func (s *server) ListPublicArticles(ctx context.Context, req gen.ListPublicArticlesRequestObject) (gen.ListPublicArticlesResponseObject, error) {
 	p := req.Params
-	locale := cmp.Or(deref(p.Locale), gen.En)
+	locale := cmp.Or(deref(p.Locale), gen.LocaleEn)
 	articles, err := content.ListArticles(ctx, db.New(s.Pool), string(locale), string(deref(p.Kind)),
 		cmp.Or(deref(p.Limit), 100))
 	if err != nil {
@@ -201,7 +201,7 @@ func (s *server) ListPublicArticles(ctx context.Context, req gen.ListPublicArtic
 
 // GetPublicArticle reads one published article in the visitor's locale.
 func (s *server) GetPublicArticle(ctx context.Context, req gen.GetPublicArticleRequestObject) (gen.GetPublicArticleResponseObject, error) {
-	locale := cmp.Or(deref(req.Params.Locale), gen.En)
+	locale := cmp.Or(deref(req.Params.Locale), gen.LocaleEn)
 	a, err := content.GetArticle(ctx, db.New(s.Pool), req.Slug, string(locale))
 	if err != nil {
 		return nil, err

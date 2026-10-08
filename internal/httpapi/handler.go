@@ -9,8 +9,10 @@ import (
 
 	"github.com/jackc/pgx/v5/pgxpool"
 
+	"github.com/VetMiMi/vetmimi-api/internal/assistant"
 	"github.com/VetMiMi/vetmimi-api/internal/auth"
 	"github.com/VetMiMi/vetmimi-api/internal/httpapi/gen"
+	"github.com/VetMiMi/vetmimi-api/internal/linkedin"
 	"github.com/VetMiMi/vetmimi-api/internal/media"
 	"github.com/VetMiMi/vetmimi-api/internal/meta"
 	"github.com/VetMiMi/vetmimi-api/internal/platform"
@@ -33,8 +35,9 @@ import (
 // the only origin the video WebSocket accepts. Hub holds the open video
 // rooms; nil gets a fresh one. Media is the bucket images are uploaded to;
 // nil refuses uploads. MediaPublicURL is where the bucket's public/ prefix
-// is served. Meta is the Facebook Page connection; nil refuses its routes.
-// Now is the clock; nil means time.Now.
+// is served. Meta is the Facebook Page connection and LinkedIn the profile
+// connection; nil refuses their routes. Assistant suggests channel versions;
+// nil or without a key, it is off. Now is the clock; nil means time.Now.
 type Deps struct {
 	PingPostgres   func(context.Context) error
 	PingRedis      func(context.Context) error
@@ -53,6 +56,8 @@ type Deps struct {
 	Media          *media.Store
 	MediaPublicURL string
 	Meta           *meta.Connector
+	LinkedIn       *linkedin.Connector
+	Assistant      *assistant.Client
 	Now            clock.Now
 }
 

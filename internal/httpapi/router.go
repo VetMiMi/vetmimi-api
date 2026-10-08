@@ -89,7 +89,7 @@ func mountAPI(si gen.StrictServerInterface, spec *openapi3.T, deps Deps) func(ch
 	checkSession := requireSession(deps.Sessions, ops, log)
 	checkRoles := requireRoles(ops)
 	rateLimit := deps.RateLimits.operations(ops)
-	bodyCaps := operationBodyCaps(ops)
+	bodyCaps := operationLimits(ops)
 	return func(r chi.Router) {
 		strict := gen.NewStrictHandlerWithOptions(si, nil, gen.StrictHTTPServerOptions{
 			RequestErrorHandlerFunc:  requestError(log),

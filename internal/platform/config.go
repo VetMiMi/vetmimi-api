@@ -57,6 +57,16 @@ type Config struct {
 	MetaConfigID     string
 	MetaGraphVersion string
 
+	// LinkedInClientID and LinkedInClientSecret are empty until the LinkedIn
+	// app exists (docs/linkedin-setup.md); LinkedIn is then posted by hand.
+	LinkedInClientID     string
+	LinkedInClientSecret string
+	LinkedInAPIVersion   string
+
+	// AnthropicAPIKey is empty when the portal's AI assistant is off.
+	AnthropicAPIKey string
+	AnthropicModel  string
+
 	// MetricsAddr is empty when the metrics listener is disabled.
 	MetricsAddr string
 }
@@ -110,7 +120,14 @@ func LoadConfig(getenv func(string) string) (Config, error) {
 		MetaAppID:        l.optional("META_APP_ID"),
 		MetaAppSecret:    l.optional("META_APP_SECRET"),
 		MetaConfigID:     l.optional("META_CONFIG_ID"),
-		MetaGraphVersion: l.withDefault("META_GRAPH_VERSION", "v24.0"),
+		MetaGraphVersion: l.withDefault("META_GRAPH_VERSION", "v26.0"),
+
+		LinkedInClientID:     l.optional("LINKEDIN_CLIENT_ID"),
+		LinkedInClientSecret: l.optional("LINKEDIN_CLIENT_SECRET"),
+		LinkedInAPIVersion:   l.withDefault("LINKEDIN_API_VERSION", "202609"),
+
+		AnthropicAPIKey: l.optional("ANTHROPIC_API_KEY"),
+		AnthropicModel:  l.withDefault("ANTHROPIC_MODEL", "claude-haiku-4-5-20251001"),
 
 		MetricsAddr: l.optional("METRICS_ADDR"),
 	}
@@ -133,6 +150,9 @@ func LoadConfig(getenv func(string) string) (Config, error) {
 	l.hostPort("METRICS_ADDR", c.MetricsAddr)
 	if (c.MetaAppID == "") != (c.MetaAppSecret == "") {
 		l.fail("META_APP_ID", "and META_APP_SECRET must be set together")
+	}
+	if (c.LinkedInClientID == "") != (c.LinkedInClientSecret == "") {
+		l.fail("LINKEDIN_CLIENT_ID", "and LINKEDIN_CLIENT_SECRET must be set together")
 	}
 
 	if len(l.problems) > 0 {

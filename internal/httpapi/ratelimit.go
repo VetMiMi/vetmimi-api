@@ -10,6 +10,7 @@ import (
 
 	"github.com/go-chi/chi/v5"
 
+	"github.com/VetMiMi/vetmimi-api/internal/auth"
 	"github.com/VetMiMi/vetmimi-api/internal/httpapi/gen"
 	"github.com/VetMiMi/vetmimi-api/internal/platform"
 	"github.com/VetMiMi/vetmimi-api/internal/platform/apperr"
@@ -25,6 +26,7 @@ const (
 	byServiceKey
 	bySessionToken
 	byRoomID
+	byUser
 )
 
 // rateLimit is how many requests one subject may make in each window of a
@@ -59,6 +61,8 @@ var (
 		"requestManagedReschedule": manageLink,
 		"getPublicSession":         videoSession,
 		"createRoomTicket":         videoSession,
+		// Each suggestion is a paid model call.
+		"suggestPostVersions": {"ai-suggestions", byUser, 20, time.Hour, false},
 	}
 	otherPublicCalls = rateLimit{"service-key", byServiceKey, 1200, time.Minute, false}
 	signedInCalls    = rateLimit{"session", bySessionToken, 300, time.Minute, false}
@@ -139,6 +143,9 @@ func subject(r *http.Request, key keyBy) string {
 		return r.Header.Get("X-Service-Key")
 	case bySessionToken:
 		return bearerToken(r)
+	case byUser:
+		session, _ := auth.FromContext(r.Context())
+		return session.User.ID.String()
 	}
 	return ""
 }

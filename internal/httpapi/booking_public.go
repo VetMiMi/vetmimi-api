@@ -15,7 +15,7 @@ import (
 // ListPublicBookableServices lists what a visitor can book, empty while
 // public booking is paused.
 func (s *server) ListPublicBookableServices(ctx context.Context, req gen.ListPublicBookableServicesRequestObject) (gen.ListPublicBookableServicesResponseObject, error) {
-	locale := gen.En
+	locale := gen.LocaleEn
 	if req.Params.Locale != nil {
 		locale = *req.Params.Locale
 	}

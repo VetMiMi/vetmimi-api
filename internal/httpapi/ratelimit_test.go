@@ -369,7 +369,8 @@ func TestEveryOperationHasALimitGroup(t *testing.T) {
 // The table in docs/architecture.md, "Security → Rate limits". Each operation
 // named in limitsByOperation must exist, or a misspelt id would leave it on
 // the default, and must require the service key, which is what vouches for
-// the visitor IP.
+// the visitor IP; one counted per user must require a session, which names
+// the user.
 func TestLimitsMatchTheArchitecture(t *testing.T) {
 	type want struct {
 		key    keyBy
@@ -377,9 +378,13 @@ func TestLimitsMatchTheArchitecture(t *testing.T) {
 		window time.Duration
 	}
 	ops := contractOperations(t)
-	for id := range limitsByOperation {
+	for id, l := range limitsByOperation {
 		require.Contains(t, ops, id)
-		require.Equal(t, schemeServiceKey, ops[id].Security, id)
+		scheme := schemeServiceKey
+		if l.key == byUser {
+			scheme = schemeSessionToken
+		}
+		require.Equal(t, scheme, ops[id].Security, id)
 	}
 	for id, w := range map[string]want{
 		"createSession":              {byVisitorIP, 5, time.Minute},
@@ -394,6 +399,7 @@ func TestLimitsMatchTheArchitecture(t *testing.T) {
 		"listPublicBookableServices": {byServiceKey, 1200, time.Minute},
 		"getCurrentUser":             {bySessionToken, 300, time.Minute},
 		"confirmAppointment":         {bySessionToken, 300, time.Minute},
+		"suggestPostVersions":        {byUser, 20, time.Hour},
 	} {
 		l, ok := limitFor(ops[id])
 		require.True(t, ok, id)
