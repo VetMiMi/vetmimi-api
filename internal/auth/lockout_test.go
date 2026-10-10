@@ -23,8 +23,7 @@ import (
 // only the tests about hashing or about the right password use one; the
 // others fail with a wrong code and AcceptEveryPassword.
 
-// testRedis is REDIS_URL_TEST with a key prefix of the test's own, whose keys
-// are deleted when the test ends; the database is never flushed.
+// testRedis deletes its own keys when the test ends; the database is never flushed.
 type testRedis struct {
 	client *redis.Client
 	prefix string
@@ -57,7 +56,6 @@ func (r *testRedis) keys(t *testing.T) []string {
 	return keys
 }
 
-// at is a time on the fixture's day, in UTC.
 func at(hour, minute, second int) time.Time {
 	return time.Date(2026, 10, 5, hour, minute, second, 0, time.UTC)
 }
@@ -87,7 +85,6 @@ func (f *fixture) failWrongCode(t *testing.T, a admin, n int) {
 	}
 }
 
-// failWrongPassword signs in as email with a wrong password n times.
 func (f *fixture) failWrongPassword(t *testing.T, email string, secret []byte, n int) {
 	t.Helper()
 	for range n {

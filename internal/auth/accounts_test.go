@@ -2,10 +2,7 @@ package auth_test
 
 import (
 	"context"
-	"crypto/rand"
-	"encoding/hex"
 	"errors"
-	"os"
 	"testing"
 
 	"github.com/jackc/pgx/v5/pgconn"
@@ -16,17 +13,6 @@ import (
 	"github.com/VetMiMi/vetmimi-api/internal/db"
 	"github.com/VetMiMi/vetmimi-api/internal/pgtest"
 )
-
-func TestMain(m *testing.M) { os.Exit(pgtest.Run(m)) }
-
-// uniqueEmail keeps tests apart: they share one database.
-func uniqueEmail(t *testing.T) string {
-	t.Helper()
-	b := make([]byte, 6)
-	_, err := rand.Read(b)
-	require.NoError(t, err)
-	return "user-" + hex.EncodeToString(b) + "@example.com"
-}
 
 func account(email string) auth.Account {
 	return auth.Account{
