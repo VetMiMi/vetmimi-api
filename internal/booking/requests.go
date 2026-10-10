@@ -4,24 +4,35 @@ import (
 	"context"
 	"database/sql"
 	"encoding/json"
+	"errors"
+	"slices"
 	"strings"
 	"time"
 
+	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgtype"
 	"github.com/jackc/pgx/v5/pgxpool"
 
+	"github.com/VetMiMi/vetmimi-api/internal/apperr"
 	"github.com/VetMiMi/vetmimi-api/internal/comms"
 	"github.com/VetMiMi/vetmimi-api/internal/db"
 	"github.com/VetMiMi/vetmimi-api/internal/idempotency"
 	"github.com/VetMiMi/vetmimi-api/internal/queue"
 	"github.com/VetMiMi/vetmimi-api/internal/settings"
-	"github.com/VetMiMi/vetmimi-api/internal/video"
 )
 
-// Request is a visitor's appointment request from the public site.
+const httpCreated = 201
+
+var (
+	errOutsideWindow = apperr.New(apperr.OutsideBookingWindow,
+		"The start is inside the minimum notice or beyond the furthest bookable day.")
+	errAcknowledgement = apperr.New(apperr.AcknowledgementRequired,
+		"The privacy notice and the booking policy must both be acknowledged.")
+)
+
 type Request struct {
 	IdempotencyKey string
-	// Body is the request as the handler received it; the key's hash covers it.
+	// Body is the raw request; the idempotency key's hash covers it.
 	Body                                    []byte
 	Service                                 string
 	StartsAt                                time.Time
@@ -31,8 +42,7 @@ type Request struct {
 	PrivacyAcknowledged, PolicyAcknowledged bool
 }
 
-// Receipt is what the visitor is told once the request is stored. Its JSON
-// is the stored idempotent response, so it matches AppointmentRequestReceipt.
+// Receipt's JSON is the stored idempotent response, so it matches AppointmentRequestReceipt.
 type Receipt struct {
 	Reference       string         `json:"reference"`
 	Status          Status         `json:"status"`
@@ -44,14 +54,12 @@ type Receipt struct {
 	Format          string         `json:"format"`
 }
 
-// ReceiptService names the service in the visitor's locale.
 type ReceiptService struct {
 	Slug string `json:"slug"`
 	Name string `json:"name"`
 }
 
-// Requested is the outcome of RequestAppointment. Tasks are to be enqueued
-// after it returns; a replay has none.
+// Requested's Tasks are enqueued after commit; a replay has none.
 type Requested struct {
 	AppointmentID pgtype.UUID
 	Receipt       Receipt
@@ -59,17 +67,7 @@ type Requested struct {
 	Tasks         []queue.Task
 }
 
-// created is the status the stored response replays with.
-const created = 201
-
-// RequestAppointment stores a visitor's request in one transaction under the
-// schedule lock (docs/architecture.md, walkthrough 1): it claims the
-// idempotency key, checks the request against the booking rules, requires
-// the start to be one of the free slots right now, inserts the appointment
-// and queues its emails. Under request & approval it is pending and holds
-// its slot until hold_expires_at; in instant mode a service whose action is
-// book is confirmed at once. The same key and body again return the first
-// receipt and create nothing.
+// RequestAppointment stores a pending request, or a confirmed booking in instant mode for a "book" service.
 func RequestAppointment(ctx context.Context, pool *pgxpool.Pool, secret []byte, r Request, now time.Time) (Requested, error) {
 	var out Requested
 	err := inSchedule(ctx, pool, func(q *db.Queries) error {
@@ -81,17 +79,17 @@ func RequestAppointment(ctx context.Context, pool *pgxpool.Pool, secret []byte, 
 			out = Requested{AppointmentID: stored.ResourceID, Replayed: true}
 			return json.Unmarshal(stored.Body, &out.Receipt)
 		}
-		out, err = request(ctx, q, secret, r, now)
+		out, err = createRequest(ctx, q, secret, r, now)
 		if err != nil {
 			return err
 		}
 		return idempotency.Finish(ctx, q, idempotency.PublicAppointment, r.IdempotencyKey,
-			out.AppointmentID, created, out.Receipt)
+			out.AppointmentID, httpCreated, out.Receipt)
 	})
 	return out, countConflict("website", err)
 }
 
-func request(ctx context.Context, q *db.Queries, secret []byte, r Request, now time.Time) (Requested, error) {
+func createRequest(ctx context.Context, q *db.Queries, secret []byte, r Request, now time.Time) (Requested, error) {
 	cur, err := settings.Load(ctx, q)
 	if err != nil {
 		return Requested{}, err
@@ -104,7 +102,24 @@ func request(ctx context.Context, q *db.Queries, secret []byte, r Request, now t
 	if err != nil {
 		return Requested{}, err
 	}
+	a := requestedAppointment(practitionerID, svc, cur, r, now)
+	appt, err := InsertAppointment(ctx, q, secret, a)
+	if err != nil {
+		return Requested{}, withAlternatives(err)
+	}
+	appointmentsCreated.Add(a.Source, 1)
+	if err := AppendEvent(ctx, q, Event{AppointmentID: appt.ID, Kind: "created", To: a.Status, Actor: "visitor"}); err != nil {
+		return Requested{}, err
+	}
+	tasks, err := notifyRequested(ctx, q, secret, appt, cur, now)
+	if err != nil {
+		return Requested{}, err
+	}
+	return Requested{AppointmentID: appt.ID, Tasks: tasks, Receipt: receiptOf(appt, svc, r.Locale)}, nil
+}
 
+func requestedAppointment(practitionerID pgtype.UUID, svc db.Service, cur settings.Settings, r Request,
+	now time.Time) NewAppointment {
 	status := Pending
 	if cur.BookingMode == "instant" && svc.BookingAction == "book" {
 		status = Confirmed
@@ -130,36 +145,22 @@ func request(ctx context.Context, q *db.Queries, secret []byte, r Request, now t
 	if status == Pending {
 		a.HoldExpiresAt = holdUntil(cur, r.StartsAt, now)
 	}
-	appt, err := InsertAppointment(ctx, q, secret, a)
-	if err != nil {
-		return Requested{}, withAlternatives(err)
-	}
-	appointmentsCreated.Add(a.Source, 1)
-	if err := AppendEvent(ctx, q, Event{AppointmentID: appt.ID, Kind: "created", To: status, Actor: "visitor"}); err != nil {
-		return Requested{}, err
-	}
-	tasks, err := notifyRequested(ctx, q, secret, appt, cur, now)
-	if err != nil {
-		return Requested{}, err
-	}
-	return Requested{
-		AppointmentID: appt.ID,
-		Tasks:         tasks,
-		Receipt: Receipt{
-			Reference:       appt.Reference,
-			Status:          status,
-			Service:         ReceiptService{Slug: svc.Slug, Name: inLocale(svc.Name, r.Locale)},
-			StartsAt:        appt.StartsAt.UTC(),
-			EndsAt:          appt.EndsAt.UTC(),
-			DurationMinutes: int(appt.DurationMinutes),
-			Timezone:        appt.Timezone,
-			Format:          appt.Format,
-		},
-	}, nil
+	return a
 }
 
-// notifyRequested queues the emails a new appointment sends and returns the
-// tasks for them and, while it is pending, for its hold's expiry.
+func receiptOf(appt db.Appointment, svc db.Service, locale string) Receipt {
+	return Receipt{
+		Reference:       appt.Reference,
+		Status:          Status(appt.Status),
+		Service:         ReceiptService{Slug: svc.Slug, Name: inLocale(svc.Name, locale)},
+		StartsAt:        appt.StartsAt.UTC(),
+		EndsAt:          appt.EndsAt.UTC(),
+		DurationMinutes: int(appt.DurationMinutes),
+		Timezone:        appt.Timezone,
+		Format:          appt.Format,
+	}
+}
+
 func notifyRequested(ctx context.Context, q db.Querier, secret []byte, appt db.Appointment, cur settings.Settings,
 	now time.Time) ([]queue.Task, error) {
 	if Status(appt.Status) == Confirmed {
@@ -184,40 +185,50 @@ func notifyRequested(ctx context.Context, q db.Querier, secret []byte, appt db.A
 	return []queue.Task{visitor, practitioner, holdTask(appt.ID, appt.HoldExpiresAt.Time)}, nil
 }
 
-// afterConfirm queues what confirming an appointment sends the visitor: the
-// confirmation, unless Daw Mi tells them herself, and the reminder. An
-// online appointment gets its video room first, so the emails can carry the
-// join link. Confirmation, instant booking and manual booking all end here.
-func afterConfirm(ctx context.Context, q db.Querier, secret []byte, appt db.Appointment, cur settings.Settings,
-	now time.Time, notify bool) ([]queue.Task, error) {
-	room, err := video.CreateRoom(ctx, q, secret, appt, cur.MeetingLinkMode, now)
+// checkRequest applies the rules in the order the visitor can act on them.
+func checkRequest(ctx context.Context, q db.Querier, cur settings.Settings, r Request, now time.Time) (db.Service, error) {
+	if !cur.PublicBookingEnabled {
+		return db.Service{}, errBookingPaused
+	}
+	svc, err := q.GetServiceBySlug(ctx, r.Service)
+	if errors.Is(err, pgx.ErrNoRows) {
+		return db.Service{}, errNotBookable
+	}
 	if err != nil {
-		return nil, err
+		return db.Service{}, err
 	}
-	var tasks []queue.Task
-	if notify {
-		task, err := comms.Queue(ctx, q, comms.Message{AppointmentID: appt.ID,
-			Kind: comms.BookingConfirmed, Recipient: appt.VisitorEmail, Locale: appt.Locale})
-		if err != nil {
-			return nil, err
-		}
-		tasks = append(tasks, task)
+	if err := checkService(svc, r.Format); err != nil {
+		return db.Service{}, err
 	}
-	reminder, err := ScheduleReminder(ctx, q, appt, cur.ReminderHours, now)
-	return append(append(tasks, reminder...), room...), err
+	if !r.PrivacyAcknowledged || !r.PolicyAcknowledged {
+		return db.Service{}, errAcknowledgement
+	}
+	if err := checkWindow(cur, r.StartsAt, now); err != nil {
+		return db.Service{}, err
+	}
+	return svc, checkSlot(ctx, q, cur, slotRequest{Service: svc, Start: r.StartsAt}, now)
 }
 
-// holdUntil is when a request made now for start stops holding its slot:
-// after pending_hold_hours, or at the start if that comes first.
-func holdUntil(cur settings.Settings, start, now time.Time) sql.NullTime {
-	hold := now.Add(time.Duration(cur.PendingHoldHours) * time.Hour)
-	if start.Before(hold) {
-		hold = start
+func checkService(svc db.Service, format string) error {
+	if !bookable(svc) {
+		return errNotBookable
 	}
-	return sql.NullTime{Time: hold, Valid: true}
+	if !slices.Contains(svc.Formats, format) {
+		e := unprocessable("/format", "is not offered for this service")
+		return &e
+	}
+	return nil
 }
 
-func optionalText(s string) pgtype.Text {
-	s = strings.TrimSpace(s)
-	return pgtype.Text{String: s, Valid: s != ""}
+func checkWindow(cur settings.Settings, start, now time.Time) error {
+	loc, err := cur.Location()
+	if err != nil {
+		return err
+	}
+	today := now.In(loc)
+	horizon := time.Date(today.Year(), today.Month(), today.Day()+cur.MaxAdvanceDays+1, 0, 0, 0, 0, loc)
+	if start.Before(now.Add(time.Duration(cur.MinNoticeHours)*time.Hour)) || !start.Before(horizon) {
+		return errOutsideWindow
+	}
+	return nil
 }

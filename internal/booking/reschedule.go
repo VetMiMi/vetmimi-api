@@ -16,14 +16,7 @@ import (
 
 var errPastStart = apperr.New(apperr.OutsideBookingWindow, "The new start has already passed.")
 
-// Reschedule moves a pending or confirmed appointment that has not started
-// to start, keeping its status and its length (ADR-004). The new time must
-// be a free slot, its own old time counting as free; Daw Mi may move it
-// inside the minimum notice or beyond the furthest bookable day, but never
-// onto other busy time. One UPDATE takes the new time and releases the old,
-// so if the new time cannot be had, nothing changes. A confirmed
-// appointment's reminder follows it, and unless Daw Mi tells the visitor
-// herself, they are emailed both times.
+// Reschedule moves an appointment with one UPDATE, so if the new time cannot be had, the old one is kept.
 func Reschedule(ctx context.Context, pool *pgxpool.Pool, c Change, start, now time.Time) (Changed, error) {
 	out, err := change(ctx, pool, c, func(q *db.Queries, appt db.Appointment, cur settings.Settings) (Changed, error) {
 		status := Status(appt.Status)
@@ -42,18 +35,8 @@ func Reschedule(ctx context.Context, pool *pgxpool.Pool, c Change, start, now ti
 			now); err != nil {
 			return Changed{}, err
 		}
-
-		previous := Period{Start: appt.StartsAt, End: appt.EndsAt}
-		moved, err := q.MoveAppointment(ctx, db.MoveAppointmentParams{
-			ID: appt.ID, StartsAt: start, EndsAt: start.Add(duration),
-			BusyRange: BusyRange(start, duration, svc).tstzrange(), Now: now,
-		})
+		moved, err := move(ctx, q, appt, svc, Period{Start: start, End: start.Add(duration)}, c, now)
 		if err != nil {
-			return Changed{}, withAlternatives(refusal(err))
-		}
-		next := Period{Start: moved.StartsAt, End: moved.EndsAt}
-		if err := AppendEvent(ctx, q, Event{AppointmentID: appt.ID, Kind: "rescheduled", Previous: &previous,
-			New: &next, Actor: "admin", ActorUserID: c.Actor}); err != nil {
 			return Changed{}, err
 		}
 		return rescheduled(ctx, q, moved, cur, c.Notify, now)
@@ -61,10 +44,21 @@ func Reschedule(ctx context.Context, pool *pgxpool.Pool, c Change, start, now ti
 	return out, countConflict("reschedule", err)
 }
 
-// rescheduled queues what a move sends: a confirmed appointment's reminder
-// for its new time and its video room's new window, and the visitor's email.
-// A pending request's hold may have moved earlier, so its expiry task is
-// replaced.
+func move(ctx context.Context, q *db.Queries, appt db.Appointment, svc db.Service, to Period, c Change,
+	now time.Time) (db.Appointment, error) {
+	moved, err := q.MoveAppointment(ctx, db.MoveAppointmentParams{
+		ID: appt.ID, StartsAt: to.Start, EndsAt: to.End,
+		BusyRange: BusyRange(to.Start, to.End.Sub(to.Start), svc).tstzrange(), Now: now,
+	})
+	if err != nil {
+		return db.Appointment{}, withAlternatives(refusal(err))
+	}
+	previous := Period{Start: appt.StartsAt, End: appt.EndsAt}
+	next := Period{Start: moved.StartsAt, End: moved.EndsAt}
+	return moved, AppendEvent(ctx, q, Event{AppointmentID: appt.ID, Kind: "rescheduled", Previous: &previous,
+		New: &next, Actor: "admin", ActorUserID: c.Actor})
+}
+
 func rescheduled(ctx context.Context, q db.Querier, appt db.Appointment, cur settings.Settings, notify bool,
 	now time.Time) (Changed, error) {
 	var out Changed
@@ -84,13 +78,14 @@ func rescheduled(ctx context.Context, q db.Querier, appt db.Appointment, cur set
 		}
 		out.Tasks = append(reminder, room...)
 	}
-	if notify {
-		task, err := comms.Queue(ctx, q, comms.Message{AppointmentID: appt.ID, Kind: comms.Rescheduled,
-			Recipient: appt.VisitorEmail, Locale: appt.Locale})
-		if err != nil {
-			return Changed{}, err
-		}
-		out.Tasks = append(out.Tasks, task)
+	if !notify {
+		return out, nil
 	}
+	task, err := comms.Queue(ctx, q, comms.Message{AppointmentID: appt.ID, Kind: comms.Rescheduled,
+		Recipient: appt.VisitorEmail, Locale: appt.Locale})
+	if err != nil {
+		return Changed{}, err
+	}
+	out.Tasks = append(out.Tasks, task)
 	return out, nil
 }

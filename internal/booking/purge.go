@@ -9,12 +9,7 @@ import (
 	"github.com/VetMiMi/vetmimi-api/internal/settings"
 )
 
-// TaskPurgeRetention deletes booking data past settings.retention_months
-// (docs/architecture.md, "Background jobs").
-const TaskPurgeRetention = "booking:purge-retention"
-
-// purgeBatch bounds one DELETE, so the live host's small PostgreSQL is never
-// locked for long.
+// purgeBatch bounds one DELETE, so the live host's small PostgreSQL is never locked for long.
 const purgeBatch = 500
 
 var (
@@ -22,16 +17,11 @@ var (
 	enquiriesDeleted    = expvar.NewInt("enquiries_deleted")
 )
 
-// Purged is how many rows one purge deleted.
 type Purged struct {
 	Appointments, Enquiries int64
 }
 
-// Purge deletes final appointments that ended, and contact enquiries that
-// arrived, more than retention_months calendar months before now, with their
-// history and messages (ON DELETE CASCADE). Pending and confirmed
-// appointments are kept whatever their age. Running it twice deletes
-// nothing the second time.
+// Purge deletes final appointments and contact enquiries older than retention_months.
 func Purge(ctx context.Context, q db.Querier, now time.Time) (Purged, error) {
 	cur, err := settings.Load(ctx, q)
 	if err != nil {
@@ -53,7 +43,6 @@ func Purge(ctx context.Context, q db.Querier, now time.Time) (Purged, error) {
 	return out, err
 }
 
-// inBatches runs del until a batch comes back short, and returns the total.
 func inBatches(del func() (int64, error)) (int64, error) {
 	var total int64
 	for {
@@ -63,11 +52,4 @@ func inBatches(del func() (int64, error)) (int64, error) {
 			return total, err
 		}
 	}
-}
-
-func (t *Tasks) purgeRetention(ctx context.Context, _ []byte) error {
-	purged, err := Purge(ctx, db.New(t.Pool), t.Now())
-	t.Log.InfoContext(ctx, "retention purged",
-		"appointments_deleted", purged.Appointments, "enquiries_deleted", purged.Enquiries)
-	return err
 }

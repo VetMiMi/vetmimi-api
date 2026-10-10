@@ -13,26 +13,25 @@ import (
 
 	"github.com/VetMiMi/vetmimi-api/internal/apperr"
 	"github.com/VetMiMi/vetmimi-api/internal/db"
+	"github.com/VetMiMi/vetmimi-api/internal/settings"
 )
 
-// serviceStates is every service state change allowed (docs/data-model.md,
-// "services"). Archiving hides a service without deleting its history;
-// bringing it back lands on paused, so it is never bookable by accident.
+// An archived service comes back paused, so it is never bookable by accident.
 var serviceStates = map[string][]string{
 	"active":   {"paused", "archived"},
 	"paused":   {"active", "archived"},
 	"archived": {"paused"},
 }
 
-var errServiceNotFound = apperr.New(apperr.NotFound, "No service has this id.")
+var (
+	errServiceNotFound = apperr.New(apperr.NotFound, "No service has this id.")
+	errStaleService    = apperr.New(apperr.StaleVersion, "The service changed since it was read; reload it.")
+)
 
-// ListServices lists every service, paused and archived included, in the
-// order the admin arranged them.
 func ListServices(ctx context.Context, q db.Querier) ([]db.Service, error) {
 	return q.ListServices(ctx)
 }
 
-// GetService reads one service.
 func GetService(ctx context.Context, q db.Querier, id pgtype.UUID) (db.Service, error) {
 	s, err := q.GetService(ctx, id)
 	if errors.Is(err, pgx.ErrNoRows) {
@@ -41,8 +40,6 @@ func GetService(ctx context.Context, q db.Querier, id pgtype.UUID) (db.Service, 
 	return s, err
 }
 
-// CreateService saves a new service; it starts active, offered online unless
-// p says otherwise.
 func CreateService(ctx context.Context, q db.Querier, p db.CreateServiceParams) (db.Service, error) {
 	if len(p.Formats) == 0 {
 		p.Formats = []string{"online"}
@@ -54,9 +51,7 @@ func CreateService(ctx context.Context, q db.Querier, p db.CreateServiceParams) 
 	return s, refusal(err)
 }
 
-// UpdateService applies change to the service as of version and saves it.
-// New durations and buffers apply to future bookings only: no appointment is
-// touched. A state change must be in serviceStates.
+// UpdateService leaves booked appointments alone: new durations and buffers apply to future bookings.
 func UpdateService(ctx context.Context, q db.Querier, id pgtype.UUID, version int32, now time.Time,
 	change func(*db.UpdateServiceParams)) (db.Service, error) {
 	cur, err := GetService(ctx, q, id)
@@ -64,7 +59,7 @@ func UpdateService(ctx context.Context, q db.Querier, id pgtype.UUID, version in
 		return db.Service{}, err
 	}
 	if cur.Version != version {
-		return db.Service{}, staleService
+		return db.Service{}, errStaleService
 	}
 	p := db.UpdateServiceParams{
 		ID: id, Version: version, Now: now,
@@ -82,17 +77,14 @@ func UpdateService(ctx context.Context, q db.Querier, id pgtype.UUID, version in
 	}
 	s, err := q.UpdateService(ctx, p)
 	if errors.Is(err, pgx.ErrNoRows) {
-		return db.Service{}, staleService
+		return db.Service{}, errStaleService
 	}
 	return s, refusal(err)
 }
 
-var staleService = apperr.New(apperr.StaleVersion, "The service changed since it was read; reload it.")
-
-// SetServiceState moves the service as of version to state, as pause and
-// resume do. Appointments and availability rows are untouched. Asking for
-// the state it is already in is refused, since the admin's screen is stale.
-func SetServiceState(ctx context.Context, q db.Querier, id pgtype.UUID, version int32, now time.Time, state string) (db.Service, error) {
+// SetServiceState refuses the current state, since the admin's screen must then be stale.
+func SetServiceState(ctx context.Context, q db.Querier, id pgtype.UUID, version int32, now time.Time,
+	state string) (db.Service, error) {
 	cur, err := GetService(ctx, q, id)
 	if err != nil {
 		return db.Service{}, err
@@ -107,9 +99,7 @@ func invalidServiceState(from, to string) error {
 	return apperr.New(apperr.InvalidTransition, "A "+from+" service cannot become "+to+".")
 }
 
-// DeleteService deletes a service nothing refers to. One with appointments
-// is refused as in_use by the appointments foreign key, so a booking racing
-// the delete cannot be orphaned.
+// DeleteService relies on the foreign key, so a booking racing the delete cannot be orphaned.
 func DeleteService(ctx context.Context, q db.Querier, id pgtype.UUID) error {
 	n, err := q.DeleteService(ctx, id)
 	if err != nil {
@@ -121,8 +111,7 @@ func DeleteService(ctx context.Context, q db.Querier, id pgtype.UUID) error {
 	return nil
 }
 
-// checkName requires English text in name, which every email and the admin
-// fall back to.
+// checkName requires English, which every email and the admin fall back to.
 func checkName(name json.RawMessage) error {
 	var text map[string]string
 	if json.Unmarshal(name, &text) != nil || strings.TrimSpace(text["en"]) == "" {
@@ -130,4 +119,68 @@ func checkName(name json.RawMessage) error {
 		return &e
 	}
 	return nil
+}
+
+func bookable(svc db.Service) bool {
+	return svc.State == "active" && (svc.BookingAction == "book" || svc.BookingAction == "request") &&
+		svc.DurationMinutes.Valid
+}
+
+// PublicService is all a visitor sees of a service.
+type PublicService struct {
+	Slug            string
+	Name            string
+	Description     string
+	BookingAction   string
+	DurationMinutes int
+	Formats         []string
+	FeeText         string
+}
+
+type PublicServices struct {
+	BookingEnabled bool
+	BookingMode    string
+	Timezone       string
+	Items          []PublicService
+}
+
+// ListPublicServices is empty while public booking is paused.
+func ListPublicServices(ctx context.Context, q db.Querier, locale string) (PublicServices, error) {
+	cur, err := settings.Load(ctx, q)
+	if err != nil {
+		return PublicServices{}, err
+	}
+	out := PublicServices{BookingEnabled: cur.PublicBookingEnabled, BookingMode: cur.BookingMode,
+		Timezone: cur.Timezone, Items: []PublicService{}}
+	if !cur.PublicBookingEnabled {
+		return out, nil
+	}
+	rows, err := q.ListPublicBookableServices(ctx)
+	if err != nil {
+		return PublicServices{}, err
+	}
+	for _, r := range rows {
+		out.Items = append(out.Items, PublicService{
+			Slug:            r.Slug,
+			Name:            inLocale(r.Name, locale),
+			Description:     inLocale(r.Description, locale),
+			BookingAction:   r.BookingAction,
+			DurationMinutes: int(r.DurationMinutes.Int32),
+			Formats:         r.Formats,
+			FeeText:         inLocale(r.FeeText, locale),
+		})
+	}
+	return out, nil
+}
+
+// inLocale falls back to English.
+func inLocale(raw json.RawMessage, locale string) string {
+	var text map[string]string
+	if json.Unmarshal(raw, &text) != nil {
+		return ""
+	}
+	if t := text[locale]; strings.TrimSpace(t) != "" {
+		return t
+	}
+	return text["en"]
 }
