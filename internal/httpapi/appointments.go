@@ -42,24 +42,38 @@ func (s *server) ListAppointments(ctx context.Context, req gen.ListAppointmentsR
 	}
 	out := gen.ListAppointments200JSONResponse{Timezone: page.Timezone, Items: make([]gen.AppointmentSummary, len(page.Items))}
 	for i, r := range page.Items {
-		out.Items[i] = gen.AppointmentSummary{
-			Id:              openapi_types.UUID(r.ID.Bytes),
-			Reference:       r.Reference,
-			Status:          gen.AppointmentStatus(r.Status),
-			Service:         serviceRef(r.ServiceID, r.ServiceSlug, r.ServiceName),
-			StartsAt:        r.StartsAt.UTC(),
-			EndsAt:          r.EndsAt.UTC(),
-			DurationMinutes: int(r.DurationMinutes),
-			Timezone:        r.Timezone,
-			Format:          gen.Format(r.Format),
-			Source:          gen.AppointmentSummarySource(r.Source),
-			VisitorName:     r.VisitorName,
-			HoldExpiresAt:   optionalTime(r.HoldExpiresAt.Time, r.HoldExpiresAt.Valid),
-			CreatedAt:       r.CreatedAt.UTC(),
-			UpdatedAt:       r.UpdatedAt.UTC(),
-		}
+		out.Items[i] = appointmentSummary(r)
 	}
 	out.NextCursor = nonEmpty(page.NextCursor)
+	return out, nil
+}
+
+// GetBookingDashboard shows what needs attention, the pending requests, today and the next two weeks.
+func (s *server) GetBookingDashboard(ctx context.Context, _ gen.GetBookingDashboardRequestObject) (gen.GetBookingDashboardResponseObject, error) {
+	d, err := booking.Dashboard(ctx, db.New(s.Pool), s.Now())
+	if err != nil {
+		return nil, err
+	}
+	out := gen.GetBookingDashboard200JSONResponse{
+		Timezone:          d.Timezone,
+		AttentionRequired: make([]gen.AttentionItem, len(d.Attention)),
+		Pending:           appointmentSummaries(d.Pending),
+		Today:             appointmentSummaries(d.Today),
+		Upcoming:          appointmentSummaries(d.Upcoming),
+	}
+	out.Counts.Pending = int(d.Counts.Pending)
+	out.Counts.Confirmed = int(d.Counts.Confirmed)
+	out.Counts.Today = int(d.Counts.Today)
+	out.Counts.ThisWeek = int(d.Counts.ThisWeek)
+	for i, a := range d.Attention {
+		out.AttentionRequired[i] = gen.AttentionItem{
+			Kind:          gen.AttentionItemKind(a.Kind),
+			AppointmentId: openapi_types.UUID(a.AppointmentID.Bytes),
+			Reference:     a.Reference,
+			StartsAt:      new(a.StartsAt.UTC()),
+			Detail:        new(a.Detail),
+		}
+	}
 	return out, nil
 }
 

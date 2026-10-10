@@ -1,6 +1,7 @@
 // Package booking schedules appointments. Admins set services.go and availability.go; slots.go turns them into
 // free times; requests.go and manual.go create appointments; status.go, reschedule.go and manage.go change them;
-// holds.go, reminders.go and purge.go run from worker.go. PostgreSQL constraints guard every scheduling rule.
+// holds.go, reminders.go and purge.go run from worker.go; admin.go and dashboard.go read them for the admin.
+// PostgreSQL constraints guard every scheduling rule.
 package booking
 
 import (

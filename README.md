@@ -202,7 +202,7 @@ The foundation, booking and contact, video, and the publishing portal milestones
 - a runbook and handover guide
 - Daw Mi's review of the English and Burmese emails
 
-Five operations are already in the contract but not served yet: the booking dashboard, manual meeting links, and the communications list, resend and mark-as-sent. See the [project board](https://github.com/orgs/VetMiMi/projects/1) and [open issues](https://github.com/VetMiMi/vetmimi-api/issues).
+Four operations are already in the contract but not served yet: manual meeting links, and the communications list, resend and mark-as-sent. See the [project board](https://github.com/orgs/VetMiMi/projects/1) and [open issues](https://github.com/VetMiMi/vetmimi-api/issues).
 
 ## Documentation
 
