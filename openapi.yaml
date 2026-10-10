@@ -1,7 +1,7 @@
 openapi: "3.1.0"
 info:
   title: VetMiMi API
-  version: "0.4.2"
+  version: "0.4.3"
   description: >-
     The API behind VetMiMi, Daw Mi's art therapy practice. The Next.js site is the only caller
     (ADR-002): public routes take the shared service key, admin routes a session token. The one
@@ -93,7 +93,10 @@ paths:
       tags: [auth]
       operationId: createSession
       summary: Sign in with password and TOTP
-      description: "Called by the Next server. Any failure returns `401 invalid_credentials`."
+      description: >-
+        Called by the Next server. Any failure returns `401 invalid_credentials`. A user without
+        two-step sign-in (`twoStepEnabled: false`) signs in with the password alone and `totpCode` is
+        ignored; a user with it needs a valid `totpCode`.
       security:
         - serviceKey: []
       requestBody:
@@ -3495,7 +3498,7 @@ components:
       additionalProperties: false
     SessionCreate:
       type: object
-      required: [email, password, totpCode]
+      required: [email, password]
       properties:
         email:
           type: string
@@ -3508,11 +3511,12 @@ components:
           format: password
         totpCode:
           type: string
+          description: "Required for a user with two-step sign-in; ignored for one without."
           pattern: "^[0-9]{6}$"
       additionalProperties: false
     CurrentUser:
       type: object
-      required: [id, email, displayName, roles, isPractitioner]
+      required: [id, email, displayName, roles, isPractitioner, twoStepEnabled]
       properties:
         id:
           type: string
@@ -3529,6 +3533,11 @@ components:
           minItems: 1
         isPractitioner:
           type: boolean
+        twoStepEnabled:
+          type: boolean
+          description: >-
+            Whether the user signs in with an authenticator code as well as the password. False for an
+            account created password-only, until two-step setup moves into the admin website.
       additionalProperties: false
     SessionCreated:
       type: object

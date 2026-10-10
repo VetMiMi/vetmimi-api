@@ -233,7 +233,11 @@ func (a *authAPI) wrongCode(t *testing.T, ad admin) string {
 
 func (a *authAPI) signIn(t *testing.T, email, password, code string) *httptest.ResponseRecorder {
 	t.Helper()
-	body, err := json.Marshal(map[string]string{"email": email, "password": password, "totpCode": code})
+	fields := map[string]string{"email": email, "password": password}
+	if code != "" {
+		fields["totpCode"] = code
+	}
+	body, err := json.Marshal(fields)
 	require.NoError(t, err)
 	req := httptest.NewRequest(http.MethodPost, "/auth/sessions", bytes.NewReader(body))
 	req.Header.Set("Content-Type", "application/json")
@@ -284,6 +288,7 @@ func TestSignInReadTheUserAndSignOut(t *testing.T) {
 		"displayName":    "Daw Mi",
 		"roles":          []any{"booking_admin", "site_admin"},
 		"isPractitioner": false,
+		"twoStepEnabled": true,
 	}
 	require.Equal(t, user, created.User)
 
@@ -301,11 +306,26 @@ func TestSignInReadTheUserAndSignOut(t *testing.T) {
 	requireUnauthenticated(t, a.send(http.MethodDelete, "/auth/sessions/current", created.Token))
 }
 
-// Unknown email, wrong password, wrong code, replayed code and a disabled
-// user all get the very same bytes, so a caller learns nothing about which.
+// A password-only user signs in without a code and /auth/me says so, so the
+// website can suggest two-step sign-in later (issue #143).
+func TestPasswordOnlySignIn(t *testing.T) {
+	a := newAuthAPI(t)
+	_, email := createAdmin(t, nil)
+
+	created := signedIn(t, a.signIn(t, email, testPassword, ""))
+	require.Equal(t, false, created.User["twoStepEnabled"])
+	res := a.send(http.MethodGet, "/auth/me", created.Token)
+	require.Equal(t, http.StatusOK, res.Code, res.Body.String())
+	require.Contains(t, res.Body.String(), `"twoStepEnabled":false`)
+}
+
+// Unknown email, wrong password, wrong or missing code, replayed code, a
+// disabled user and a password-only user's wrong password all get the very
+// same bytes, so a caller learns nothing about which.
 func TestSignInFailuresLookIdentical(t *testing.T) {
 	a := newAuthAPI(t)
 	ad := a.newAdmin(t)
+	_, passwordOnly := createAdmin(t, nil)
 	disabled := a.newAdmin(t)
 	_, err := pgtest.Pool(t).Exec(context.Background(), "UPDATE users SET disabled_at = now() WHERE id = $1", disabled.id)
 	require.NoError(t, err)
@@ -315,6 +335,10 @@ func TestSignInFailuresLookIdentical(t *testing.T) {
 		"unknown email":  func() *httptest.ResponseRecorder { return a.signIn(t, uniqueEmail(t), testPassword, code) },
 		"wrong password": func() *httptest.ResponseRecorder { return a.signIn(t, ad.email, testPassword+"!", code) },
 		"wrong code":     func() *httptest.ResponseRecorder { return a.signIn(t, ad.email, testPassword, a.wrongCode(t, ad)) },
+		"missing code":   func() *httptest.ResponseRecorder { return a.signIn(t, ad.email, testPassword, "") },
+		"password-only, wrong password": func() *httptest.ResponseRecorder {
+			return a.signIn(t, passwordOnly, testPassword+"!", "")
+		},
 		"disabled user": func() *httptest.ResponseRecorder {
 			return a.signIn(t, disabled.email, testPassword, a.code(t, disabled))
 		},
@@ -324,7 +348,7 @@ func TestSignInFailuresLookIdentical(t *testing.T) {
 		},
 	}
 	var first []byte
-	for _, name := range []string{"unknown email", "wrong password", "wrong code", "disabled user", "replayed code"} {
+	for _, name := range []string{"unknown email", "wrong password", "wrong code", "missing code", "password-only, wrong password", "disabled user", "replayed code"} {
 		res := failures[name]()
 		require.Equal(t, http.StatusUnauthorized, res.Code, "%s: %s", name, res.Body.String())
 		require.Equal(t, "invalid_credentials", problemFrom(t, res)["code"], name)

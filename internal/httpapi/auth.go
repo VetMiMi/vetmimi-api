@@ -59,10 +59,14 @@ func bearerToken(r *http.Request) string {
 // only.
 func (s *server) CreateSession(ctx context.Context, req gen.CreateSessionRequestObject) (gen.CreateSessionResponseObject, error) {
 	email := string(req.Body.Email)
+	var code string
+	if req.Body.TotpCode != nil {
+		code = *req.Body.TotpCode
+	}
 	signedIn, err := s.Sessions.SignIn(ctx, auth.Credentials{
 		Email:    email,
 		Password: req.Body.Password,
-		Code:     req.Body.TotpCode,
+		Code:     code,
 	})
 	var refused *apperr.Error
 	if errors.As(err, &refused) && refused.Code == apperr.RateLimited {
@@ -107,5 +111,6 @@ func currentUser(u auth.User) gen.CurrentUser {
 		DisplayName:    u.DisplayName,
 		Roles:          roles,
 		IsPractitioner: u.Practitioner,
+		TwoStepEnabled: u.TwoStep,
 	}
 }
