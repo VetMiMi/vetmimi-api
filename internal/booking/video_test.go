@@ -16,7 +16,6 @@ import (
 	"github.com/VetMiMi/vetmimi-api/internal/video"
 )
 
-// roomOf is the appointment's video room, or false.
 func roomOf(t *testing.T, id pgtype.UUID) (db.VideoRoom, bool) {
 	t.Helper()
 	room, ok, err := video.RoomOf(context.Background(), db.New(pgtest.Pool(t)), id)
@@ -67,7 +66,7 @@ func TestConfirm_NoRoomInManualModeOrInPerson(t *testing.T) {
 	require.NotContains(t, taskTypes(changed.Tasks), video.TaskCloseRoom)
 }
 
-// ADR-004 and the unique appointment_id: two confirms at once make one room.
+// The unique appointment_id: two confirms at once make one room.
 func TestConfirm_TwiceAtOnceMakesOneRoom(t *testing.T) {
 	appt, now := booked(t, booking.Pending)
 	errs := make(chan error, 2)

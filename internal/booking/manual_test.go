@@ -135,7 +135,7 @@ func TestManual_Refusals(t *testing.T) {
 	}
 }
 
-// ADR-004: Daw Mi books a phone caller into the time a visitor is
+// Daw Mi books a phone caller into the time a visitor is
 // requesting online at the same moment; exactly one gets it.
 func TestManual_RacesPublicRequest(t *testing.T) {
 	openEveryDay(t)

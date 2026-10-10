@@ -1,9 +1,14 @@
 package booking_test
 
 import (
+	"bytes"
 	"context"
 	"database/sql"
 	"errors"
+	"os"
+	"reflect"
+	"regexp"
+	"strings"
 	"sync"
 	"sync/atomic"
 	"testing"
@@ -18,7 +23,10 @@ import (
 	"github.com/VetMiMi/vetmimi-api/internal/booking"
 	"github.com/VetMiMi/vetmimi-api/internal/db"
 	"github.com/VetMiMi/vetmimi-api/internal/pgtest"
+	"github.com/VetMiMi/vetmimi-api/internal/tokens"
 )
+
+func TestMain(m *testing.M) { os.Exit(pgtest.Run(m)) }
 
 // days hands each test its own day, far in the future, so tests sharing the
 // database never overlap each other's appointments.
@@ -134,7 +142,7 @@ func TestOverlap_WebsiteRequestNeedsAcknowledgements(t *testing.T) {
 	require.Equal(t, "appointments_website_acknowledged", pgErr.ConstraintName)
 }
 
-// ADR-004: two requests for one slot in separate transactions, at once;
+// Two requests for one slot in separate transactions, at once;
 // the exclusion constraint lets exactly one commit.
 func TestOverlap_TwoWritersOneWinner(t *testing.T) {
 	pool := pgtest.Pool(t)
@@ -172,4 +180,77 @@ func TestOverlap_TwoWritersOneWinner(t *testing.T) {
 		}
 		require.Equal(t, 1, failed, "exactly one writer wins")
 	}
+}
+
+var testSecret = bytes.Repeat([]byte("s"), 32)
+
+func TestManagementTokenIsDerivedFromItsSeed(t *testing.T) {
+	seed, err := booking.NewSeed()
+	require.NoError(t, err)
+	require.Len(t, seed, 32)
+
+	token := tokens.Management(testSecret, seed)
+	require.Regexp(t, `^[A-Za-z0-9_-]{43}$`, token)
+	require.Equal(t, token, tokens.Management(testSecret, seed), "same seed, same token")
+
+	other, err := booking.NewSeed()
+	require.NoError(t, err)
+	require.NotEqual(t, token, tokens.Management(testSecret, other))
+	require.NotEqual(t, token, tokens.Management(bytes.Repeat([]byte("t"), 32), seed),
+		"the seed alone, as stored, gives no usable token")
+}
+
+var referencePattern = regexp.MustCompile(`^VM-[0-9ABCDEFGHJKMNPQRSTVWXYZ]{6}$`)
+
+func TestReferenceIsVMAndSixCrockfordCharacters(t *testing.T) {
+	seen := map[string]bool{}
+	for range 200 {
+		ref, err := tokens.NewReference("VM-")
+		require.NoError(t, err)
+		require.Regexp(t, referencePattern, ref)
+		seen[ref] = true
+	}
+	require.Greater(t, len(seen), 195, "references are random")
+}
+
+func TestAppendEventRecordsTheChange(t *testing.T) {
+	ctx := context.Background()
+	pool := pgtest.Pool(t)
+	day := freeDay()
+	a, err := insert(t, appointment(t, booking.Confirmed, day.Add(9*time.Hour)))
+	require.NoError(t, err)
+
+	late := true
+	require.NoError(t, booking.AppendEvent(ctx, db.New(pool), booking.Event{
+		AppointmentID: a.ID,
+		Kind:          "rescheduled",
+		Previous:      &booking.Period{Start: day.Add(9 * time.Hour), End: day.Add(10 * time.Hour)},
+		New:           &booking.Period{Start: day.Add(11 * time.Hour), End: day.Add(12 * time.Hour)},
+		Actor:         "admin",
+		ActorUserID:   practitioner(t),
+		Detail:        booking.EventDetail{LateCancellation: &late},
+	}))
+
+	var kind string
+	var from pgtype.Text
+	var previous pgtype.Range[pgtype.Timestamptz]
+	var detail []byte
+	require.NoError(t, pool.QueryRow(ctx,
+		"SELECT kind, from_status, previous_range, detail FROM appointment_events WHERE appointment_id = $1",
+		a.ID).Scan(&kind, &from, &previous, &detail))
+	require.Equal(t, "rescheduled", kind)
+	require.False(t, from.Valid, "no status change, no from_status")
+	require.Equal(t, day.Add(9*time.Hour), booking.PeriodOf(previous).Start.UTC())
+	require.JSONEq(t, `{"late_cancellation": true}`, string(detail))
+}
+
+// Event detail is a fixed set of non-personal facts. A new field fails this
+// test until someone has decided it holds no name, email or note.
+func TestEventDetailHoldsNoPersonalData(t *testing.T) {
+	var keys []string
+	for f := range reflect.TypeFor[booking.EventDetail]().Fields() {
+		name, _, _ := strings.Cut(f.Tag.Get("json"), ",")
+		keys = append(keys, name)
+	}
+	require.Equal(t, []string{"late_cancellation", "by", "source", "length", "preferred"}, keys)
 }
