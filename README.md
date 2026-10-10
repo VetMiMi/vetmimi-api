@@ -52,7 +52,7 @@ It is designed for its real scale: one practitioner, tens of appointments a mont
 - **Transactional email** through Resend: 12 kinds of message, each in English and Burmese, with appointment reminders.
 
 **Admin auth**
-- **Sign-in needs** email, password (argon2id) and a mandatory **TOTP** code.
+- **Sign-in needs** email, password (argon2id) and a **TOTP** code; accounts created with `--no-totp` sign in with the password alone until two-step setup moves into the admin website.
 - **Sessions** expire after 12 hours idle or 7 days at most.
 - **Lockouts and rate limits** slow down repeated failed sign-ins.
 - **Roles:** site admin, booking admin and content editor.
@@ -144,7 +144,7 @@ go run ./cmd/api --mode create-user --email you@example.com --name "Your Name" \
   --roles site_admin --practitioner
 ```
 
-It asks for a password twice, prints an `otpauth://` URI for your authenticator app, and saves nothing until you enter a valid code. `--practitioner` marks the person appointments are booked with, and booking needs exactly one. Running it again for the same email resets the password and TOTP secret and signs that user out everywhere.
+It asks for a password twice, prints an `otpauth://` URI for your authenticator app, and saves nothing until you enter a valid code. `--practitioner` marks the person appointments are booked with, and booking needs exactly one. Running it again for the same email resets the password and TOTP secret and signs that user out everywhere. `--no-totp` skips the authenticator step and saves (or resets to) a password-only account.
 
 **Environment variables:** [`.env.example`](.env.example) lists each one with its purpose.
 
