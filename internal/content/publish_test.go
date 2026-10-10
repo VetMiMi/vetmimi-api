@@ -23,8 +23,7 @@ import (
 
 var quiet = slog.New(slog.DiscardHandler)
 
-// worker is the publishing worker with publish standing in for every
-// channel's connector, and a clock the test moves.
+// worker uses publish for every social channel and reads the time from at.
 func worker(t *testing.T, at *time.Time, publish content.Publisher) *content.Tasks {
 	t.Helper()
 	tasks := &content.Tasks{Pool: pgtest.Pool(t), Log: quiet, Now: func() time.Time { return *at }}
@@ -48,9 +47,7 @@ func reload(t *testing.T, id pgtype.UUID) content.Post {
 	return p
 }
 
-// A scheduled post's task runs at its time and starts publishing: the
-// website at once, each social channel as a task of its own. Run early, or
-// after the schedule moved, it does nothing.
+// Run early, or after the schedule moved, the task does nothing.
 func TestScheduledPostPublishesAtItsTime(t *testing.T) {
 	f := newPost(t, "insight", website("scheduled-article"), facebook("Out tomorrow."))
 	require.NoError(t, f.submit())
@@ -87,8 +84,7 @@ func TestScheduledPostPublishesAtItsTime(t *testing.T) {
 	require.Equal(t, p.Version, reload(t, f.post.ID).Version, "a second run changes nothing")
 }
 
-// Until the connectors exist every social channel fails as not connected,
-// once and for good, leaving copy & open; retry gives it another round.
+// A channel with no connector fails once and for good; retry gives it another round.
 func TestNotConnectedChannelFailsAndCanBeRetried(t *testing.T) {
 	f := newPost(t, "announcement", facebook("Studio open day."), db.SavePostVersionParams{
 		Channel: "linkedin", Enabled: true, Text: textOf("Studio open day.")}).published()
@@ -123,8 +119,6 @@ func TestNotConnectedChannelFailsAndCanBeRetried(t *testing.T) {
 	require.NoError(t, w.PublishChannel(ctx, payload(t, task)), "a duplicate task does nothing")
 }
 
-// A transient failure is tried three more times, the task failing each
-// time so asynq backs off, and then the channel is failed.
 func TestTransientFailureRetriesThreeTimes(t *testing.T) {
 	f := newPost(t, "insight", facebook("Calm, in colour.")).published()
 	now := f.now
@@ -146,10 +140,8 @@ func TestTransientFailureRetriesThreeTimes(t *testing.T) {
 	require.Equal(t, 4, calls)
 }
 
-// The sweep rebuilds what Redis lost: a scheduled post past its time, and
-// a channel left waiting for ten minutes. A channel left running is never
-// sent again, since it may have posted: the sweep fails it as
-// unknown_outcome for Daw Mi to check, then retry or mark posted.
+// A channel left running may have posted, so it is never sent again: the
+// sweep fails it as unknown_outcome for Daw Mi to check.
 func TestSweepRebuildsLostTasks(t *testing.T) {
 	scheduled := newPost(t, "insight", website("swept-article"))
 	require.NoError(t, scheduled.submit())
@@ -197,8 +189,6 @@ func TestSweepRebuildsLostTasks(t *testing.T) {
 	require.Zero(t, sent)
 }
 
-// The website channel asks the site to revalidate the articles list and the
-// article; without the shared secret it skips the call.
 func TestRevalidateCallsTheSite(t *testing.T) {
 	var got *http.Request
 	var body []byte
@@ -226,10 +216,8 @@ func TestRevalidateCallsTheSite(t *testing.T) {
 	require.Error(t, w.Revalidate(ctx, task), "retried by asynq")
 }
 
-// A published article may be corrected: the edit goes back to review while
-// visitors keep reading the article as published, and publishing again
-// republishes the website only, keeping its first publication time; what
-// went out on Facebook stays. A post that went out is never deleted.
+// Visitors keep reading the article as published until it is published
+// again, which republishes the website only; what went out on Facebook stays.
 func TestEditingAPublishedArticleRepublishesTheWebsite(t *testing.T) {
 	f := newPost(t, "insight", website("corrected-article"), facebook("Read the new article.")).published()
 	pool := pgtest.Pool(t)

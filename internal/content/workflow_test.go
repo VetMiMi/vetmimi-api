@@ -14,9 +14,8 @@ import (
 	"github.com/VetMiMi/vetmimi-api/internal/pgtest"
 )
 
-// The whole path: draft → in_review → approved → scheduled → approved →
-// publishing (the website live, Facebook pending) → published once Daw Mi
-// marks Facebook posted by hand.
+// draft → in_review → approved → scheduled → approved → publishing →
+// published once Daw Mi marks Facebook posted by hand.
 func TestWorkflowFromDraftToPublished(t *testing.T) {
 	f := newPost(t, "insight", website("whole-path"), facebook("New article on the site."))
 	pool := pgtest.Pool(t)
@@ -55,8 +54,6 @@ func TestWorkflowFromDraftToPublished(t *testing.T) {
 	require.Equal(t, "https://www.facebook.com/vetmimi/posts/1", fb.Permalink.String)
 }
 
-// Each action starts only from its own statuses, and only as of the version
-// the caller read.
 func TestActionsRefuseOtherStatusesAndStaleVersions(t *testing.T) {
 	pool := pgtest.Pool(t)
 	f := newPost(t, "announcement", facebook("Studio closed on Monday."))
@@ -84,8 +81,6 @@ func TestActionsRefuseOtherStatusesAndStaleVersions(t *testing.T) {
 	requireCode(t, apperr.InvalidTransition, err)
 }
 
-// Saving an approved or scheduled post withdraws the approval, so nothing
-// unreviewed goes out.
 func TestEditingAnApprovedPostSendsItBackToReview(t *testing.T) {
 	f := newPost(t, "insight", website("edit-after-approval"))
 	require.NoError(t, f.submit())
