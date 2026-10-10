@@ -39,11 +39,21 @@ authenticator and saves a password-only account, clearing any existing secret.
 
 One package per domain under `internal/`, matching `AGENTS.md`. Domain packages
 take `context.Context` and a `*pgxpool.Pool` or `db.Querier`, return typed
-errors from `internal/platform/apperr`, and never import `net/http`.
+errors from `internal/apperr`, and never import `net/http`.
 
 | Package | Owns |
 |---|---|
-| `platform` | Configuration from the environment, the pgx pool, the Redis client, the rate limiter, the asynq client, the slog logger, the clock (`platform/clock`, injectable in tests), id and token generation, `platform/apperr` (typed errors with a stable code), `platform/settings` (typed read and write of the `settings` table). |
+| `config` | Configuration from the environment, read and checked once at start-up. |
+| `postgres` | The pgx pool and the goose migrations. |
+| `queue` | asynq: the `Task` domain functions return, the queue handlers enqueue them on, and the worker that runs task handlers and periodic tasks. |
+| `ratelimit` | Fixed-window request counters in Redis. |
+| `tokens` | Session tokens, management and join link tokens, OAuth state, booking and enquiry references. |
+| `listing` | Keyset cursors and search patterns shared by the admin lists. |
+| `apperr` | Typed errors with a stable code. |
+| `clock` | The current time, injectable in tests. |
+| `settings` | Typed read and write of the `settings` table. |
+| `idempotency` | Stored responses under a create's `Idempotency-Key`. |
+| `pgtest`, `redistest` | Test-only: a migrated database per test binary, and Redis clients. |
 | `httpapi` | The generated strict server (`httpapi/gen`, from `openapi.yaml`), handlers that parse → call a domain function → map the result, middleware (auth, rate limits, body caps, security headers, request logging), and the single `apperr` → `Problem` mapping. |
 | `auth` | Users, password hashing (argon2id), TOTP enrolment and verification, sessions, roles, the sign-in throttle. |
 | `booking` | Services, availability rules, overrides and blocks, slot generation, appointments, the status transition table (`status.go`), appointment events, management tokens, hold expiry, retention purge. |
@@ -366,7 +376,7 @@ content. Daw Mi holds all three roles.
   `min_notice_hours`) are absolute hours, so a 24-hour reminder is 24 real hours
   even across a daylight-saving change.
 - Dashboard "today" uses the local day. Emails show local time with AEST or
-  AEDT. All "now" comes from `platform/clock`, so tests can fix it.
+  AEDT. All "now" comes from `internal/clock`, so tests can fix it.
 
 ## Background jobs
 
@@ -388,7 +398,7 @@ content. Daw Mi holds all three roles.
 
 ## Configuration
 
-Read once at start-up by `platform`; a missing required variable stops the
+Read once at start-up by `internal/config`; a missing required variable stops the
 process with a clear error. `.env.example` lists exactly these, with empty
 values for secrets.
 
@@ -398,7 +408,7 @@ values for secrets.
 | `ENV` | `development` or `production`. Production refuses to start without every secret. |
 | `LOG_LEVEL` | `debug`, `info` (default), `warn`, `error`. |
 | `DATABASE_URL` | PostgreSQL connection string. |
-| `DATABASE_URL_TEST` | Server for `go test`; each test binary creates and drops its own `vetmimi_test_<random>` database on it (`internal/platform/pgtest`). |
+| `DATABASE_URL_TEST` | Server for `go test`; each test binary creates and drops its own `vetmimi_test_<random>` database on it (`internal/pgtest`). |
 | `REDIS_URL` | Redis for asynq and rate limits. |
 | `REDIS_URL_TEST` | Redis database used by tests (`/1`). Each test uses queue names and a rate-limit key prefix of its own and deletes only its own keys, never `FLUSHDB`, because test binaries share the database; a missing value fails the run. |
 | `SERVICE_KEY` | Shared with the Next server; required on public routes and sign-in. |

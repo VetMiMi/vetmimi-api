@@ -8,11 +8,11 @@ import (
 	"github.com/jackc/pgx/v5/pgtype"
 	"github.com/stretchr/testify/require"
 
+	"github.com/VetMiMi/vetmimi-api/internal/apperr"
 	"github.com/VetMiMi/vetmimi-api/internal/booking"
 	"github.com/VetMiMi/vetmimi-api/internal/db"
-	"github.com/VetMiMi/vetmimi-api/internal/platform"
-	"github.com/VetMiMi/vetmimi-api/internal/platform/apperr"
-	"github.com/VetMiMi/vetmimi-api/internal/platform/pgtest"
+	"github.com/VetMiMi/vetmimi-api/internal/pgtest"
+	"github.com/VetMiMi/vetmimi-api/internal/tokens"
 	"github.com/VetMiMi/vetmimi-api/internal/video"
 )
 
@@ -41,9 +41,9 @@ func TestConfirm_OnlineGetsARoomWithItsWindow(t *testing.T) {
 	require.Equal(t, 15*time.Minute, appt.StartsAt.Sub(room.OpensAt))
 	require.Equal(t, time.Hour, room.ClosesAt.Sub(appt.EndsAt))
 	require.Len(t, room.JoinTokenSeed, 32)
-	token := platform.NewJoinToken(testSecret, room.JoinTokenSeed)
+	token := tokens.Join(testSecret, room.JoinTokenSeed)
 	require.Len(t, token, 43)
-	require.Equal(t, platform.HashToken(token), room.JoinTokenHash, "only the token's hash is stored")
+	require.Equal(t, tokens.Hash(token), room.JoinTokenHash, "only the token's hash is stored")
 
 	last := changed.Tasks[len(changed.Tasks)-1]
 	require.Equal(t, video.TaskCloseRoom, last.Type)

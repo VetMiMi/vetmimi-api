@@ -10,8 +10,8 @@ import (
 
 	"github.com/VetMiMi/vetmimi-api/internal/comms"
 	"github.com/VetMiMi/vetmimi-api/internal/db"
-	"github.com/VetMiMi/vetmimi-api/internal/platform"
-	"github.com/VetMiMi/vetmimi-api/internal/platform/settings"
+	"github.com/VetMiMi/vetmimi-api/internal/queue"
+	"github.com/VetMiMi/vetmimi-api/internal/settings"
 	"github.com/VetMiMi/vetmimi-api/internal/video"
 )
 
@@ -61,9 +61,9 @@ func CancelByClient(ctx context.Context, pool *pgxpool.Pool, token, message stri
 		}
 		toHer, err := comms.Queue(ctx, q, comms.Message{AppointmentID: appt.ID,
 			Kind: comms.PractitionerClientCancelled, Recipient: cur.ContactEmail, Text: strings.TrimSpace(message)})
-		out.Tasks = []platform.Task{visitor, toHer}
+		out.Tasks = []queue.Task{visitor, toHer}
 		if from == Pending {
-			out.Remove = []platform.Task{holdTask(appt.ID, time.Time{})}
+			out.Remove = []queue.Task{holdTask(appt.ID, time.Time{})}
 		}
 		return err
 	})
@@ -97,7 +97,7 @@ func RequestReschedule(ctx context.Context, pool *pgxpool.Pool, token string, pr
 		}
 		task, err := comms.Queue(ctx, q, comms.Message{AppointmentID: appt.ID,
 			Kind: comms.PractitionerRescheduleRequested, Recipient: cur.ContactEmail, Text: strings.TrimSpace(message)})
-		out.Tasks = []platform.Task{task}
+		out.Tasks = []queue.Task{task}
 		return err
 	})
 	return out, err

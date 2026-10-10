@@ -22,7 +22,7 @@ Business rules Daw Mi may change without a deploy, one row per key (see "Setting
 | Column | Type | Null | Default | Notes |
 |---|---|---|---|---|
 | key | text | no | — | PK; unknown keys are refused by the API |
-| value | jsonb | no | — | typed and range-checked per key in `platform/settings` |
+| value | jsonb | no | — | typed and range-checked per key in `internal/settings` |
 | updated_by, updated_at | uuid, timestamptz | yes, no | —, now() | a patch lands whole or not at all |
 
 ## Accounts

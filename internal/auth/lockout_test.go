@@ -6,7 +6,6 @@ import (
 	"encoding/hex"
 	"errors"
 	"fmt"
-	"os"
 	"strings"
 	"testing"
 	"time"
@@ -14,10 +13,10 @@ import (
 	"github.com/redis/go-redis/v9"
 	"github.com/stretchr/testify/require"
 
+	"github.com/VetMiMi/vetmimi-api/internal/apperr"
 	"github.com/VetMiMi/vetmimi-api/internal/auth"
-	"github.com/VetMiMi/vetmimi-api/internal/platform"
-	"github.com/VetMiMi/vetmimi-api/internal/platform/apperr"
-	"github.com/VetMiMi/vetmimi-api/internal/platform/pgtest"
+	"github.com/VetMiMi/vetmimi-api/internal/pgtest"
+	"github.com/VetMiMi/vetmimi-api/internal/redistest"
 )
 
 // Failures with a wrong password hash with argon2 like any other sign-in, so
@@ -33,16 +32,9 @@ type testRedis struct {
 
 func newTestRedis(t *testing.T) *testRedis {
 	t.Helper()
-	url := os.Getenv("REDIS_URL_TEST")
-	if url == "" {
-		t.Fatal("REDIS_URL_TEST is not set; point it at a Redis database tests may write to, " +
-			"for example redis://localhost:6379/1")
-	}
-	client, err := platform.OpenRedis(url)
-	require.NoError(t, err)
-	t.Cleanup(func() { client.Close() })
+	client := redistest.Client(t)
 	random := make([]byte, 6)
-	_, err = rand.Read(random)
+	_, err := rand.Read(random)
 	require.NoError(t, err)
 	r := &testRedis{client: client, prefix: "test-" + hex.EncodeToString(random) + ":"}
 	t.Cleanup(func() {
@@ -244,9 +236,7 @@ func TestLockoutKeysHoldAHashOfTheEmailAndExpire(t *testing.T) {
 func TestSignInFailsClosedWithoutRedis(t *testing.T) {
 	f := newFixture(t)
 	a := f.newAdmin(t)
-	stopped, err := platform.OpenRedis("redis://127.0.0.1:1/0")
-	require.NoError(t, err)
-	t.Cleanup(func() { stopped.Close() })
+	stopped := redistest.Stopped(t)
 
 	for name, lockout := range map[string]*auth.Lockout{
 		"redis stopped": auth.NewLockout(stopped, "", f.clock.now),

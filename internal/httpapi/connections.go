@@ -3,9 +3,9 @@ package httpapi
 import (
 	"context"
 
+	"github.com/VetMiMi/vetmimi-api/internal/apperr"
 	"github.com/VetMiMi/vetmimi-api/internal/httpapi/gen"
 	"github.com/VetMiMi/vetmimi-api/internal/meta"
-	"github.com/VetMiMi/vetmimi-api/internal/platform/apperr"
 )
 
 var errNoMeta = apperr.New(apperr.Unavailable, "The Meta connector is not wired.")

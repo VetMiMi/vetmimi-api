@@ -11,8 +11,8 @@ import (
 	"github.com/jackc/pgx/v5/pgtype"
 
 	"github.com/VetMiMi/vetmimi-api/internal/db"
-	"github.com/VetMiMi/vetmimi-api/internal/platform"
-	"github.com/VetMiMi/vetmimi-api/internal/platform/settings"
+	"github.com/VetMiMi/vetmimi-api/internal/listing"
+	"github.com/VetMiMi/vetmimi-api/internal/settings"
 	"github.com/VetMiMi/vetmimi-api/internal/video"
 )
 
@@ -68,7 +68,7 @@ func ListAppointments(ctx context.Context, q db.Querier, f Filter, now time.Time
 		StartsBefore: optionalTime(f.To),
 		ServiceID:    f.ServiceID,
 		Format:       pgtype.Text{String: f.Format, Valid: f.Format != ""},
-		Search:       platform.LikePattern(f.Search),
+		Search:       listing.LikePattern(f.Search),
 		MaxRows:      int32(cmpLimit(f.Limit)) + 1,
 	}
 	preset := allStatuses
@@ -91,7 +91,7 @@ func ListAppointments(ctx context.Context, q db.Querier, f Filter, now time.Time
 		}
 	}
 	if f.Cursor != "" {
-		if p.AfterAt, p.AfterID, err = platform.DecodeCursor(f.Cursor); err != nil {
+		if p.AfterAt, p.AfterID, err = listing.DecodeCursor(f.Cursor); err != nil {
 			return Page{}, err
 		}
 	}
@@ -104,7 +104,7 @@ func ListAppointments(ctx context.Context, q db.Querier, f Filter, now time.Time
 	if limit := cmpLimit(f.Limit); len(rows) > limit {
 		page.Items = rows[:limit]
 		last := page.Items[limit-1]
-		page.NextCursor = platform.EncodeCursor(last.SortAt, last.ID)
+		page.NextCursor = listing.EncodeCursor(last.SortAt, last.ID)
 	}
 	return page, nil
 }

@@ -49,7 +49,6 @@ pages already do. Both halves matter.
 ```
 cmd/api/              main: config, wiring, HTTP server, workers
 internal/
-  platform/           config, database pool, Redis, logging, clock, ids
   httpapi/            generated server interface + handlers, middleware, errors
   auth/               sessions, password + TOTP, roles
   booking/            services, availability rules, slot generation, appointments
@@ -58,6 +57,17 @@ internal/
   media/              uploads, derivatives, object storage
   comms/              communication records, templates, asynq delivery
   db/                 sqlc output (generated) and queries/*.sql
+  config/             environment variables, read and checked once at start-up
+  postgres/           pgx pool and goose migrations
+  queue/              asynq tasks, queue and worker
+  ratelimit/          fixed-window counters in Redis
+  tokens/             session, link and OAuth-state tokens, booking references
+  listing/            keyset cursors and search patterns for admin lists
+  apperr/             typed errors with a stable code
+  clock/              the injectable current time
+  settings/           typed read and write of the settings table
+  idempotency/        Idempotency-Key storage for creates
+  pgtest/, redistest/ test databases and Redis clients
 migrations/           goose SQL migrations, numbered, never edited after merge
 openapi.yaml          the contract; everything under internal/httpapi/gen is generated from it
 deploy/               Dockerfile, compose for the live host, Caddyfile, Terraform for the Fargate target
@@ -67,7 +77,7 @@ docs/                 architecture, data model, status, ADRs
 
 Handlers are thin: parse → call a domain function → map the result. Domain
 packages take `context.Context` and a `*pgxpool.Pool` or `db.Querier`, return
-typed errors from `internal/platform/apperr`, and never import `net/http`.
+typed errors from `internal/apperr`, and never import `net/http`.
 
 ## Correctness rules that are not negotiable
 
@@ -95,7 +105,7 @@ typed errors from `internal/platform/apperr`, and never import `net/http`.
 - Every behaviour gets a success-path and a failure-path test.
 - Domain packages are tested against a real PostgreSQL. `DATABASE_URL_TEST`
   names a server (the local Homebrew one or the CI service container) whose
-  role may `CREATE DATABASE`; `internal/platform/pgtest` gives each test binary
+  role may `CREATE DATABASE`; `internal/pgtest` gives each test binary
   its own migrated `vetmimi_test_<random>` database and drops it afterwards.
   Call `pgtest.Run(m)` from `TestMain`. No mocks of the database; no
   testcontainers. A missing `DATABASE_URL_TEST` fails the run, never skips.

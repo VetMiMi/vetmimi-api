@@ -3,9 +3,9 @@ package httpapi
 import (
 	"context"
 
+	"github.com/VetMiMi/vetmimi-api/internal/apperr"
 	"github.com/VetMiMi/vetmimi-api/internal/httpapi/gen"
 	"github.com/VetMiMi/vetmimi-api/internal/linkedin"
-	"github.com/VetMiMi/vetmimi-api/internal/platform/apperr"
 )
 
 var errNoLinkedIn = apperr.New(apperr.Unavailable, "The LinkedIn connector is not wired.")

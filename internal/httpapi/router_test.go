@@ -8,8 +8,8 @@ import (
 
 	"github.com/stretchr/testify/require"
 
-	"github.com/VetMiMi/vetmimi-api/internal/platform"
-	"github.com/VetMiMi/vetmimi-api/internal/platform/pgtest"
+	"github.com/VetMiMi/vetmimi-api/internal/pgtest"
+	"github.com/VetMiMi/vetmimi-api/internal/tokens"
 )
 
 // mountAPI runs the key check, the session check, the role check, the rate
@@ -65,7 +65,7 @@ func TestMiddlewaresRunKeySessionLimitValidation(t *testing.T) {
 
 	// Session before limit: the token is over its limit, but once its
 	// session is gone it is refused as unauthenticated.
-	_, err := pgtest.Pool(t).Exec(context.Background(), "DELETE FROM sessions WHERE token_hash = $1", platform.HashToken(token))
+	_, err := pgtest.Pool(t).Exec(context.Background(), "DELETE FROM sessions WHERE token_hash = $1", tokens.Hash(token))
 	require.NoError(t, err)
 	requireUnauthenticated(t, a.send(http.MethodGet, meURL, bearer(token)...))
 

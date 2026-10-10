@@ -12,10 +12,10 @@ import (
 	"github.com/jackc/pgx/v5/pgtype"
 	"github.com/jackc/pgx/v5/pgxpool"
 
+	"github.com/VetMiMi/vetmimi-api/internal/clock"
 	"github.com/VetMiMi/vetmimi-api/internal/comms"
 	"github.com/VetMiMi/vetmimi-api/internal/db"
-	"github.com/VetMiMi/vetmimi-api/internal/platform"
-	"github.com/VetMiMi/vetmimi-api/internal/platform/clock"
+	"github.com/VetMiMi/vetmimi-api/internal/queue"
 )
 
 // Task types this package handles (docs/architecture.md, "Background jobs").
@@ -33,8 +33,8 @@ type holdPayload struct {
 
 // holdTask expires appointment id's hold at at. Its id makes enqueueing it
 // twice harmless.
-func holdTask(id pgtype.UUID, at time.Time) platform.Task {
-	return platform.Task{
+func holdTask(id pgtype.UUID, at time.Time) queue.Task {
+	return queue.Task{
 		Type:      TaskExpireHold,
 		Payload:   holdPayload{AppointmentID: id.String()},
 		ID:        "hold:" + id.String(),
@@ -47,8 +47,8 @@ func holdTask(id pgtype.UUID, at time.Time) platform.Task {
 // so reopens the slot, and the visitor is told. It locks the row and
 // re-checks it, so a request confirmed meanwhile, or a task that fires early
 // or twice, changes nothing. It returns the tasks to enqueue after commit.
-func ExpireHold(ctx context.Context, pool *pgxpool.Pool, id pgtype.UUID, now time.Time) ([]platform.Task, error) {
-	var tasks []platform.Task
+func ExpireHold(ctx context.Context, pool *pgxpool.Pool, id pgtype.UUID, now time.Time) ([]queue.Task, error) {
+	var tasks []queue.Task
 	err := pgx.BeginFunc(ctx, pool, func(tx pgx.Tx) error {
 		q := db.New(tx)
 		appt, err := q.LockAppointment(ctx, id)
@@ -76,7 +76,7 @@ func ExpireHold(ctx context.Context, pool *pgxpool.Pool, id pgtype.UUID, now tim
 		}
 		task, err := comms.Queue(ctx, q, comms.Message{AppointmentID: id, Kind: comms.RequestExpired,
 			Recipient: appt.VisitorEmail, Locale: appt.Locale})
-		tasks = []platform.Task{task}
+		tasks = []queue.Task{task}
 		return err
 	})
 	if err != nil {
@@ -87,12 +87,12 @@ func ExpireHold(ctx context.Context, pool *pgxpool.Pool, id pgtype.UUID, now tim
 
 // SweepHolds expires every overdue hold through ExpireHold, for the ones
 // whose task Redis lost, and returns the tasks to enqueue.
-func SweepHolds(ctx context.Context, pool *pgxpool.Pool, now time.Time) ([]platform.Task, error) {
+func SweepHolds(ctx context.Context, pool *pgxpool.Pool, now time.Time) ([]queue.Task, error) {
 	ids, err := db.New(pool).ListOverdueHolds(ctx, db.ListOverdueHoldsParams{Now: now, MaxRows: sweepHoldsLimit})
 	if err != nil {
 		return nil, err
 	}
-	var tasks []platform.Task
+	var tasks []queue.Task
 	for _, id := range ids {
 		t, err := ExpireHold(ctx, pool, id, now)
 		if err != nil {
@@ -107,7 +107,7 @@ func SweepHolds(ctx context.Context, pool *pgxpool.Pool, now time.Time) ([]platf
 // practice's, as settings held it when the worker started.
 type Tasks struct {
 	Pool     *pgxpool.Pool
-	Queue    *platform.Queue
+	Queue    *queue.Queue
 	Log      *slog.Logger
 	Now      clock.Now
 	Timezone string
@@ -116,7 +116,7 @@ type Tasks struct {
 // Register adds the hold and retention handlers and their schedules to w.
 // The purge runs at 03:00 practice time, which CRON_TZ keeps at 03:00 across
 // daylight saving.
-func (t *Tasks) Register(w *platform.Worker) {
+func (t *Tasks) Register(w *queue.Worker) {
 	w.Handle(TaskExpireHold, t.expireHold)
 	w.Handle(TaskSweepHolds, t.sweepHolds)
 	w.Handle(TaskPurgeRetention, t.purgeRetention)

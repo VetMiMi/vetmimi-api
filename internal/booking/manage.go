@@ -7,10 +7,10 @@ import (
 
 	"github.com/jackc/pgx/v5"
 
+	"github.com/VetMiMi/vetmimi-api/internal/apperr"
 	"github.com/VetMiMi/vetmimi-api/internal/db"
-	"github.com/VetMiMi/vetmimi-api/internal/platform"
-	"github.com/VetMiMi/vetmimi-api/internal/platform/apperr"
-	"github.com/VetMiMi/vetmimi-api/internal/platform/settings"
+	"github.com/VetMiMi/vetmimi-api/internal/settings"
+	"github.com/VetMiMi/vetmimi-api/internal/tokens"
 )
 
 // Managed is what the holder of a management link may see: the appointment
@@ -43,7 +43,7 @@ var (
 // looked up only by its hash. The link works until the appointment is final
 // and over.
 func GetManaged(ctx context.Context, q db.Querier, token string, now time.Time) (Managed, error) {
-	row, err := q.GetManagedAppointment(ctx, platform.HashToken(token))
+	row, err := q.GetManagedAppointment(ctx, tokens.Hash(token))
 	if errors.Is(err, pgx.ErrNoRows) || err == nil && linkExpired(Status(row.Status), row.EndsAt, now) {
 		return Managed{}, errLinkNotFound
 	}
@@ -99,7 +99,7 @@ func late(startsAt, now time.Time, notice time.Duration) bool {
 // lockByToken locks the appointment a management link names for a change,
 // refusing an unknown or expired link and an appointment past changing.
 func lockByToken(ctx context.Context, q db.Querier, token string, now time.Time) (db.Appointment, error) {
-	appt, err := q.LockAppointmentByTokenHash(ctx, platform.HashToken(token))
+	appt, err := q.LockAppointmentByTokenHash(ctx, tokens.Hash(token))
 	if errors.Is(err, pgx.ErrNoRows) || err == nil && linkExpired(Status(appt.Status), appt.EndsAt, now) {
 		return db.Appointment{}, errLinkNotFound
 	}

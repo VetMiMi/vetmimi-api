@@ -9,10 +9,10 @@ import (
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgtype"
 
+	"github.com/VetMiMi/vetmimi-api/internal/apperr"
 	"github.com/VetMiMi/vetmimi-api/internal/db"
-	"github.com/VetMiMi/vetmimi-api/internal/platform"
-	"github.com/VetMiMi/vetmimi-api/internal/platform/apperr"
-	"github.com/VetMiMi/vetmimi-api/internal/platform/settings"
+	"github.com/VetMiMi/vetmimi-api/internal/settings"
+	"github.com/VetMiMi/vetmimi-api/internal/tokens"
 )
 
 // What a join page may show (PublicSessionState.state).
@@ -59,7 +59,7 @@ func PublicState(roomState string, opens, closes, now time.Time) string {
 // FindSession reads the room a join token names. The token is looked up
 // only by its hash; an unknown one is not_found.
 func FindSession(ctx context.Context, q db.Querier, token string, now time.Time) (Session, error) {
-	row, err := q.GetVideoSessionByTokenHash(ctx, platform.HashToken(token))
+	row, err := q.GetVideoSessionByTokenHash(ctx, tokens.Hash(token))
 	if errors.Is(err, pgx.ErrNoRows) {
 		return Session{}, errSessionNotFound
 	}

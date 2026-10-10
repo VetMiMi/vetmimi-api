@@ -12,9 +12,9 @@ import (
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgtype"
 
+	"github.com/VetMiMi/vetmimi-api/internal/apperr"
 	"github.com/VetMiMi/vetmimi-api/internal/db"
-	"github.com/VetMiMi/vetmimi-api/internal/platform"
-	"github.com/VetMiMi/vetmimi-api/internal/platform/apperr"
+	"github.com/VetMiMi/vetmimi-api/internal/tokens"
 )
 
 const (
@@ -71,7 +71,7 @@ func (c *Connector) AuthorizeURL(user pgtype.UUID, now time.Time) (string, error
 	}
 	q := url.Values{
 		"client_id": {c.AppID}, "redirect_uri": {c.RedirectURL}, "response_type": {"code"},
-		"state": {platform.SignOAuthState(c.SigningSecret, platformName, user.String(), now.Add(stateLifetime))},
+		"state": {tokens.SignOAuthState(c.SigningSecret, platformName, user.String(), now.Add(stateLifetime))},
 	}
 	if c.ConfigID != "" {
 		q.Set("config_id", c.ConfigID)
@@ -88,7 +88,7 @@ func (c *Connector) Finish(ctx context.Context, user pgtype.UUID, code, st strin
 	if c.AppID == "" {
 		return Connection{}, errNotSetUp
 	}
-	if !platform.CheckOAuthState(c.SigningSecret, platformName, st, user.String(), now) {
+	if !tokens.CheckOAuthState(c.SigningSecret, platformName, st, user.String(), now) {
 		return Connection{}, errState
 	}
 	var short, long struct {

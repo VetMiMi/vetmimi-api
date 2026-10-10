@@ -11,13 +11,14 @@ import (
 	"github.com/VetMiMi/vetmimi-api/internal/auth"
 	"github.com/VetMiMi/vetmimi-api/internal/booking"
 	"github.com/VetMiMi/vetmimi-api/internal/comms"
+	"github.com/VetMiMi/vetmimi-api/internal/config"
 	"github.com/VetMiMi/vetmimi-api/internal/content"
 	"github.com/VetMiMi/vetmimi-api/internal/db"
+	"github.com/VetMiMi/vetmimi-api/internal/idempotency"
 	"github.com/VetMiMi/vetmimi-api/internal/linkedin"
 	"github.com/VetMiMi/vetmimi-api/internal/meta"
-	"github.com/VetMiMi/vetmimi-api/internal/platform"
-	"github.com/VetMiMi/vetmimi-api/internal/platform/idempotency"
-	"github.com/VetMiMi/vetmimi-api/internal/platform/settings"
+	"github.com/VetMiMi/vetmimi-api/internal/queue"
+	"github.com/VetMiMi/vetmimi-api/internal/settings"
 	"github.com/VetMiMi/vetmimi-api/internal/video"
 )
 
@@ -27,8 +28,8 @@ const taskCleanup = "platform:cleanup"
 
 // runWorker processes background tasks until ctx is done. Domain packages
 // register their task handlers and periodic tasks here as they arrive.
-func runWorker(ctx context.Context, log *slog.Logger, cfg platform.Config, pool *pgxpool.Pool, rdb *redis.Client) error {
-	w := platform.NewWorker(rdb, log)
+func runWorker(ctx context.Context, log *slog.Logger, cfg config.Config, pool *pgxpool.Pool, rdb *redis.Client) error {
+	w := queue.NewWorker(rdb, log)
 	w.Handle(taskCleanup, func(ctx context.Context, _ []byte) error {
 		return cleanup(ctx, log, db.New(pool), time.Now())
 	})
@@ -42,27 +43,27 @@ func runWorker(ctx context.Context, log *slog.Logger, cfg platform.Config, pool 
 	if err != nil {
 		return err
 	}
-	queue := platform.NewQueue(rdb, log)
+	tasks := queue.New(rdb, log)
 	(&comms.Tasks{
-		Pool: pool, Queue: queue, Resend: resend, From: cfg.EmailFrom, SiteURL: cfg.SiteURL,
+		Pool: pool, Queue: tasks, Resend: resend, From: cfg.EmailFrom, SiteURL: cfg.SiteURL,
 		SigningSecret: cfg.SigningSecret, Log: log, Now: time.Now,
 	}).Register(w)
-	(&booking.Tasks{Pool: pool, Queue: queue, Log: log, Now: time.Now, Timezone: cur.Timezone}).Register(w)
+	(&booking.Tasks{Pool: pool, Queue: tasks, Log: log, Now: time.Now, Timezone: cur.Timezone}).Register(w)
 	(&video.Tasks{Pool: pool, Log: log, Now: time.Now}).Register(w)
 	tokens, err := auth.NewTOTP(cfg.TOTPEncryptionKey, time.Now)
 	if err != nil {
 		return err
 	}
 	metaConnector, linkedIn := meta.New(cfg, pool, tokens, log), linkedin.New(cfg, pool, tokens, log)
-	(&content.Tasks{Pool: pool, Queue: queue, SiteURL: cfg.SiteURL, RevalidateSecret: cfg.SiteRevalidateSecret,
+	(&content.Tasks{Pool: pool, Queue: tasks, SiteURL: cfg.SiteURL, RevalidateSecret: cfg.SiteRevalidateSecret,
 		Publishers: map[string]content.Publisher{
 			"facebook": metaConnector.PublishFacebook, "instagram": metaConnector.PublishInstagram,
 			"linkedin": linkedIn.Publish,
 		},
 		Log: log, Now: time.Now}).Register(w)
 	// Rebuild at once any task Redis lost while the worker was down.
-	queue.Enqueue(ctx, platform.Task{Type: comms.TaskSweep}, platform.Task{Type: booking.TaskSweepHolds},
-		platform.Task{Type: content.TaskSweep})
+	tasks.Enqueue(ctx, queue.Task{Type: comms.TaskSweep}, queue.Task{Type: booking.TaskSweepHolds},
+		queue.Task{Type: content.TaskSweep})
 	return w.Run(ctx)
 }
 

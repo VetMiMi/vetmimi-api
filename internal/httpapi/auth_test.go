@@ -24,12 +24,13 @@ import (
 
 	"github.com/VetMiMi/vetmimi-api/internal/assistant"
 	"github.com/VetMiMi/vetmimi-api/internal/auth"
+	"github.com/VetMiMi/vetmimi-api/internal/clock"
 	"github.com/VetMiMi/vetmimi-api/internal/db"
 	"github.com/VetMiMi/vetmimi-api/internal/linkedin"
 	"github.com/VetMiMi/vetmimi-api/internal/meta"
-	"github.com/VetMiMi/vetmimi-api/internal/platform"
-	"github.com/VetMiMi/vetmimi-api/internal/platform/clock"
-	"github.com/VetMiMi/vetmimi-api/internal/platform/pgtest"
+	"github.com/VetMiMi/vetmimi-api/internal/pgtest"
+	"github.com/VetMiMi/vetmimi-api/internal/ratelimit"
+	"github.com/VetMiMi/vetmimi-api/internal/tokens"
 )
 
 func TestMain(m *testing.M) { os.Exit(pgtest.Run(m)) }
@@ -111,11 +112,11 @@ func insertSession(t *testing.T, now time.Time, roles ...string) string {
 // returns its token.
 func sessionFor(t *testing.T, userID pgtype.UUID, now time.Time) string {
 	t.Helper()
-	token, err := platform.NewSessionToken()
+	token, err := tokens.NewSession()
 	require.NoError(t, err)
 	_, err = db.New(pgtest.Pool(t)).CreateSession(context.Background(), db.CreateSessionParams{
 		UserID:    userID,
-		TokenHash: platform.HashToken(token),
+		TokenHash: tokens.Hash(token),
 		Now:       now,
 		ExpiresAt: now.Add(auth.SessionLifetime),
 	})
@@ -172,7 +173,7 @@ func newAuthAPI(t *testing.T) *authAPI {
 		PingRedis:      ok,
 		Log:            log,
 		ServiceKey:     testServiceKey,
-		RateLimits:     NewRateLimits(platform.NewLimiter(rdb, prefix, a.clock.now), log, a.clock.now),
+		RateLimits:     NewRateLimits(ratelimit.New(rdb, prefix, a.clock.now), log, a.clock.now),
 		Sessions:       sessions,
 		Pool:           pgtest.Pool(t),
 		SigningSecret:  []byte("test signing secret, 32 bytes ok"),
@@ -418,7 +419,7 @@ func TestSignedInRoutesNeedALiveSession(t *testing.T) {
 // A router built without Sessions, as most tests build it, refuses every
 // signed-in call instead of failing on it.
 func TestRouterWithoutSessionsRefusesSignedInCalls(t *testing.T) {
-	token, err := platform.NewSessionToken()
+	token, err := tokens.NewSession()
 	require.NoError(t, err)
 	req := httptest.NewRequest(http.MethodGet, "/auth/me", nil)
 	req.Header.Set("Authorization", "Bearer "+token)

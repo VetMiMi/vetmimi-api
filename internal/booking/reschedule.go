@@ -6,11 +6,11 @@ import (
 
 	"github.com/jackc/pgx/v5/pgxpool"
 
+	"github.com/VetMiMi/vetmimi-api/internal/apperr"
 	"github.com/VetMiMi/vetmimi-api/internal/comms"
 	"github.com/VetMiMi/vetmimi-api/internal/db"
-	"github.com/VetMiMi/vetmimi-api/internal/platform"
-	"github.com/VetMiMi/vetmimi-api/internal/platform/apperr"
-	"github.com/VetMiMi/vetmimi-api/internal/platform/settings"
+	"github.com/VetMiMi/vetmimi-api/internal/queue"
+	"github.com/VetMiMi/vetmimi-api/internal/settings"
 	"github.com/VetMiMi/vetmimi-api/internal/video"
 )
 
@@ -69,7 +69,7 @@ func rescheduled(ctx context.Context, q db.Querier, appt db.Appointment, cur set
 	now time.Time) (Changed, error) {
 	var out Changed
 	if Status(appt.Status) == Pending {
-		out.Replace = []platform.Task{holdTask(appt.ID, appt.HoldExpiresAt.Time)}
+		out.Replace = []queue.Task{holdTask(appt.ID, appt.HoldExpiresAt.Time)}
 	} else {
 		if err := CancelReminders(ctx, q, appt.ID, comms.SkipSuperseded); err != nil {
 			return Changed{}, err

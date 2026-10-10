@@ -16,8 +16,8 @@ import (
 	"strings"
 	"time"
 
-	"github.com/VetMiMi/vetmimi-api/internal/platform"
-	"github.com/VetMiMi/vetmimi-api/internal/platform/apperr"
+	"github.com/VetMiMi/vetmimi-api/internal/apperr"
+	"github.com/VetMiMi/vetmimi-api/internal/config"
 )
 
 const anthropicVersion = "2023-06-01"
@@ -41,7 +41,7 @@ type Client struct {
 }
 
 // New returns the client cmd/api wires from cfg.
-func New(cfg platform.Config, log *slog.Logger) *Client {
+func New(cfg config.Config, log *slog.Logger) *Client {
 	return &Client{APIKey: cfg.AnthropicAPIKey, Model: cfg.AnthropicModel, URL: "https://api.anthropic.com", Log: log}
 }
 

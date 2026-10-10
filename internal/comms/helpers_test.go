@@ -23,8 +23,8 @@ import (
 	"github.com/VetMiMi/vetmimi-api/internal/booking"
 	"github.com/VetMiMi/vetmimi-api/internal/comms"
 	"github.com/VetMiMi/vetmimi-api/internal/db"
-	"github.com/VetMiMi/vetmimi-api/internal/platform"
-	"github.com/VetMiMi/vetmimi-api/internal/platform/pgtest"
+	"github.com/VetMiMi/vetmimi-api/internal/pgtest"
+	taskqueue "github.com/VetMiMi/vetmimi-api/internal/queue"
 )
 
 func TestMain(m *testing.M) { os.Exit(pgtest.Run(m)) }
@@ -66,7 +66,7 @@ func newAppointment(t *testing.T, startsAt time.Time) db.Appointment {
 	return appt
 }
 
-func queue(t *testing.T, m comms.Message) (db.Communication, platform.Task) {
+func queue(t *testing.T, m comms.Message) (db.Communication, taskqueue.Task) {
 	t.Helper()
 	task, err := comms.Queue(context.Background(), db.New(pgtest.Pool(t)), m)
 	require.NoError(t, err)
@@ -147,7 +147,7 @@ func newTasks(t *testing.T, f *fakeResend, now time.Time) (*comms.Tasks, *bytes.
 	return tasks, logs
 }
 
-func deliver(t *testing.T, tasks *comms.Tasks, task platform.Task) error {
+func deliver(t *testing.T, tasks *comms.Tasks, task taskqueue.Task) error {
 	t.Helper()
 	payload, err := json.Marshal(task.Payload)
 	require.NoError(t, err)

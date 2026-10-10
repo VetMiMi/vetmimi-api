@@ -12,8 +12,8 @@ import (
 
 	"github.com/VetMiMi/vetmimi-api/internal/booking"
 	"github.com/VetMiMi/vetmimi-api/internal/db"
-	"github.com/VetMiMi/vetmimi-api/internal/platform"
-	"github.com/VetMiMi/vetmimi-api/internal/platform/pgtest"
+	"github.com/VetMiMi/vetmimi-api/internal/pgtest"
+	"github.com/VetMiMi/vetmimi-api/internal/tokens"
 	"github.com/VetMiMi/vetmimi-api/internal/video"
 )
 
@@ -42,7 +42,7 @@ func withRoom(t *testing.T, startsAt time.Time) (db.Appointment, db.VideoRoom, s
 	require.NoError(t, err)
 	room, _, err := video.RoomOf(ctx, q, appt.ID)
 	require.NoError(t, err)
-	return appt, room, platform.NewJoinToken(secret, room.JoinTokenSeed)
+	return appt, room, tokens.Join(secret, room.JoinTokenSeed)
 }
 
 func TestPublicSession_ReadyGivesAClientTicket(t *testing.T) {

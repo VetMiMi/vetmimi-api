@@ -11,12 +11,12 @@ import (
 
 	"github.com/VetMiMi/vetmimi-api/internal/assistant"
 	"github.com/VetMiMi/vetmimi-api/internal/auth"
+	"github.com/VetMiMi/vetmimi-api/internal/clock"
 	"github.com/VetMiMi/vetmimi-api/internal/httpapi/gen"
 	"github.com/VetMiMi/vetmimi-api/internal/linkedin"
 	"github.com/VetMiMi/vetmimi-api/internal/media"
 	"github.com/VetMiMi/vetmimi-api/internal/meta"
-	"github.com/VetMiMi/vetmimi-api/internal/platform"
-	"github.com/VetMiMi/vetmimi-api/internal/platform/clock"
+	"github.com/VetMiMi/vetmimi-api/internal/queue"
 	"github.com/VetMiMi/vetmimi-api/internal/video"
 )
 
@@ -46,7 +46,7 @@ type Deps struct {
 	RateLimits     *RateLimits
 	Sessions       *auth.Sessions
 	Pool           *pgxpool.Pool
-	Queue          *platform.Queue
+	Queue          *queue.Queue
 	SigningSecret  []byte
 	PublicAPIURL   string
 	TURNHost       string

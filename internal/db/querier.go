@@ -243,7 +243,7 @@ type Querier interface {
 	UpdateService(ctx context.Context, arg UpdateServiceParams) (Service, error)
 	// UpdateSettings writes every key of patch, a JSON object of key to value, in
 	// one statement, so a patch lands whole or not at all. Keys with no row are
-	// ignored; platform/settings only passes known keys.
+	// ignored; internal/settings only passes known keys.
 	UpdateSettings(ctx context.Context, arg UpdateSettingsParams) error
 }
 

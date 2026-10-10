@@ -8,7 +8,6 @@ import (
 	"log/slog"
 	"net/http"
 	"net/http/httptest"
-	"os"
 	"regexp"
 	"strconv"
 	"testing"
@@ -19,7 +18,8 @@ import (
 	"github.com/redis/go-redis/v9"
 	"github.com/stretchr/testify/require"
 
-	"github.com/VetMiMi/vetmimi-api/internal/platform"
+	"github.com/VetMiMi/vetmimi-api/internal/ratelimit"
+	"github.com/VetMiMi/vetmimi-api/internal/redistest"
 )
 
 // noRedis counts nothing, as if Redis were down, for tests not about limits.
@@ -78,9 +78,9 @@ func serveSpec(t *testing.T, rdb *redis.Client, prefix string, spec *openapi3.T,
 		prefix: prefix,
 	}
 	log := slog.New(slog.NewJSONHandler(a.logs, nil))
-	var limiter *platform.Limiter
+	var limiter *ratelimit.Limiter
 	if rdb != nil {
-		limiter = platform.NewLimiter(rdb, prefix, a.clock.now)
+		limiter = ratelimit.New(rdb, prefix, a.clock.now)
 	}
 	deps := Deps{
 		PingPostgres: ok,
@@ -111,16 +111,9 @@ func liveAPI(t *testing.T) *limitedAPI {
 // test ends; the database is never flushed.
 func liveRedis(t *testing.T) (*redis.Client, string) {
 	t.Helper()
-	url := os.Getenv("REDIS_URL_TEST")
-	if url == "" {
-		t.Fatal("REDIS_URL_TEST is not set; point it at a Redis database tests may write to, " +
-			"for example redis://localhost:6379/1")
-	}
-	rdb, err := platform.OpenRedis(url)
-	require.NoError(t, err)
-	t.Cleanup(func() { rdb.Close() })
+	rdb := redistest.Client(t)
 	random := make([]byte, 6)
-	_, err = rand.Read(random)
+	_, err := rand.Read(random)
 	require.NoError(t, err)
 	prefix := "test-" + hex.EncodeToString(random) + ":"
 	t.Cleanup(func() {
@@ -252,7 +245,7 @@ func TestManageLinkIsCountedPerTokenAcrossItsOperations(t *testing.T) {
 
 func TestRoomUpgradeIsLimitedPerRoom(t *testing.T) {
 	a := liveAPI(t)
-	limits := NewRateLimits(platform.NewLimiter(a.rdb, a.prefix, a.clock.now), quiet, a.clock.now)
+	limits := NewRateLimits(ratelimit.New(a.rdb, a.prefix, a.clock.now), quiet, a.clock.now)
 	upgrade := func(room string) *httptest.ResponseRecorder {
 		res := httptest.NewRecorder()
 		if limits.AllowRoomUpgrade(res, httptest.NewRequest(http.MethodGet, "/video/rooms/x/ws", nil), room) {
@@ -294,9 +287,7 @@ func TestRedisKeysHoldNoAddressTokenOrKey(t *testing.T) {
 // limit would help an attacker, so it alone answers 503. Each request waits
 // at most the limiter's short timeout.
 func TestRedisDownLetsPublicCallsThroughAndSignInIs503(t *testing.T) {
-	rdb, err := platform.OpenRedis("redis://127.0.0.1:1/0")
-	require.NoError(t, err)
-	defer rdb.Close()
+	rdb := redistest.Stopped(t)
 	a := newLimitedAPI(t, rdb, "")
 	key := []string{"X-Service-Key", testServiceKey, "X-Visitor-IP", visitorIP}
 

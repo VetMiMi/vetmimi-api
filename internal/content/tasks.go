@@ -13,9 +13,9 @@ import (
 	"github.com/jackc/pgx/v5/pgtype"
 	"github.com/jackc/pgx/v5/pgxpool"
 
+	"github.com/VetMiMi/vetmimi-api/internal/clock"
 	"github.com/VetMiMi/vetmimi-api/internal/db"
-	"github.com/VetMiMi/vetmimi-api/internal/platform"
-	"github.com/VetMiMi/vetmimi-api/internal/platform/clock"
+	"github.com/VetMiMi/vetmimi-api/internal/queue"
 )
 
 // Tasks runs the publishing worker: scheduled posts, one task per social
@@ -23,7 +23,7 @@ import (
 type Tasks struct {
 	Pool *pgxpool.Pool
 	// Queue takes the tasks a handler leads to; nil drops them, as in tests.
-	Queue *platform.Queue
+	Queue *queue.Queue
 	// Publishers posts each social channel; a channel missing from it is
 	// not connected.
 	Publishers map[string]Publisher
@@ -38,7 +38,7 @@ type Tasks struct {
 }
 
 // Register adds the publishing handlers and the sweep schedule to w.
-func (t *Tasks) Register(w *platform.Worker) {
+func (t *Tasks) Register(w *queue.Worker) {
 	w.Handle(TaskPublishScheduled, t.PublishScheduled)
 	w.Handle(TaskPublishChannel, t.PublishChannel)
 	w.Handle(TaskRevalidate, t.Revalidate)
@@ -128,7 +128,7 @@ func (t *Tasks) Revalidate(ctx context.Context, payload []byte) error {
 	return nil
 }
 
-func (t *Tasks) enqueue(ctx context.Context, tasks ...platform.Task) {
+func (t *Tasks) enqueue(ctx context.Context, tasks ...queue.Task) {
 	if t.Queue != nil {
 		t.Queue.Enqueue(ctx, tasks...)
 	}
