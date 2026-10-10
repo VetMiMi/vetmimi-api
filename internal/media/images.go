@@ -17,13 +17,10 @@ import (
 )
 
 const (
-	// MaxUploadBytes is the largest image accepted.
 	MaxUploadBytes = 20 << 20
-	// maxPixels refuses images that would decode to more than about 200 MB,
-	// so a small file cannot claim a huge canvas.
+	// maxPixels stops a small file from claiming a huge canvas (~200 MB decoded).
 	maxPixels = 50_000_000
-	// The standard library has no WebP encoder, so every stored file is a
-	// JPEG: quality 82 for the web sizes, 90 for the kept original.
+	// Every stored file is a JPEG: the standard library has no WebP encoder.
 	webQuality      = 82
 	originalQuality = 90
 )
@@ -35,8 +32,13 @@ var webWidths = []int{1600, 800, 400}
 // decodes to about 200 MB and the live host has 2 GB.
 var decoding = make(chan struct{}, 1)
 
-// encoded is an image re-encoded for storage. Re-encoding writes no
-// metadata, so the camera, time and location in the upload are gone.
+var (
+	errNotAnImage = apperr.New(apperr.UnsupportedMediaType, "Upload a JPEG, PNG or WebP image.")
+	errTooManyPx  = apperr.New(apperr.PayloadTooLarge, "The image is over 50 megapixels.")
+)
+
+// encoded is an image re-encoded for storage. Re-encoding drops all
+// metadata, so the camera, time and location of the photo are gone.
 type encoded struct {
 	width, height int
 	original      []byte
@@ -44,20 +46,11 @@ type encoded struct {
 	widths        []int32 // largest first
 }
 
-var (
-	errNotAnImage = apperr.New(apperr.UnsupportedMediaType, "Upload a JPEG, PNG or WebP image.")
-	errTooManyPx  = apperr.New(apperr.PayloadTooLarge, "The image is over 50 megapixels.")
-)
-
-// encode decodes data as a JPEG, PNG or WebP image, turned upright by its
-// EXIF orientation, and re-encodes it as the original and the web sizes.
+// encode turns a JPEG, PNG or WebP upright by its EXIF orientation and
+// re-encodes it as the original and the web sizes.
 func encode(ctx context.Context, data []byte) (encoded, error) {
-	cfg, format, err := image.DecodeConfig(bytes.NewReader(data))
-	if err != nil || !slices.Contains([]string{"jpeg", "png", "webp"}, format) {
-		return encoded{}, errNotAnImage
-	}
-	if cfg.Width*cfg.Height > maxPixels {
-		return encoded{}, errTooManyPx
+	if err := checkImage(data); err != nil {
+		return encoded{}, err
 	}
 	select {
 	case decoding <- struct{}{}:
@@ -71,30 +64,51 @@ func encode(ctx context.Context, data []byte) (encoded, error) {
 		return encoded{}, errNotAnImage
 	}
 	img = onWhite(img)
-	b := img.Bounds()
-	out := encoded{width: b.Dx(), height: b.Dy(), sizes: map[int32][]byte{}}
-	if out.original, err = jpegBytes(img, originalQuality); err != nil {
+	out := encoded{width: img.Bounds().Dx(), height: img.Bounds().Dy(), sizes: map[int32][]byte{}}
+	out.original, err = jpegBytes(img, originalQuality)
+	if err != nil {
 		return encoded{}, err
 	}
-	for _, target := range webWidths {
-		w := int32(min(target, out.width))
-		if slices.Contains(out.widths, w) {
-			continue
-		}
+	out.widths = widthsFor(out.width)
+	for _, w := range out.widths {
 		sized := img
 		if int(w) < out.width {
 			sized = imaging.Resize(img, int(w), 0, imaging.Lanczos)
 		}
-		if out.sizes[w], err = jpegBytes(sized, webQuality); err != nil {
+		out.sizes[w], err = jpegBytes(sized, webQuality)
+		if err != nil {
 			return encoded{}, err
 		}
-		out.widths = append(out.widths, w)
 	}
 	return out, nil
 }
 
-// onWhite flattens transparency onto white, which JPEG cannot hold and
-// would otherwise turn black.
+// checkImage reads only the header, so a bad upload is refused before it is decoded.
+func checkImage(data []byte) error {
+	cfg, format, err := image.DecodeConfig(bytes.NewReader(data))
+	if err != nil || !slices.Contains([]string{"jpeg", "png", "webp"}, format) {
+		return errNotAnImage
+	}
+	if cfg.Width*cfg.Height > maxPixels {
+		return errTooManyPx
+	}
+	return nil
+}
+
+// widthsFor returns the web widths for an image this wide, largest first:
+// narrower images are never enlarged.
+func widthsFor(width int) []int32 {
+	var out []int32
+	for _, target := range webWidths {
+		w := int32(min(target, width))
+		if !slices.Contains(out, w) {
+			out = append(out, w)
+		}
+	}
+	return out
+}
+
+// onWhite flattens transparency onto white; JPEG cannot hold it and would turn it black.
 func onWhite(img image.Image) image.Image {
 	if o, ok := img.(interface{ Opaque() bool }); ok && o.Opaque() {
 		return img
