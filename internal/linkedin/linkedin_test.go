@@ -20,11 +20,11 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"github.com/VetMiMi/vetmimi-api/internal/apperr"
-	"github.com/VetMiMi/vetmimi-api/internal/auth"
 	"github.com/VetMiMi/vetmimi-api/internal/content"
 	"github.com/VetMiMi/vetmimi-api/internal/db"
 	"github.com/VetMiMi/vetmimi-api/internal/linkedin"
 	"github.com/VetMiMi/vetmimi-api/internal/pgtest"
+	"github.com/VetMiMi/vetmimi-api/internal/secretbox"
 )
 
 func TestMain(m *testing.M) { os.Exit(pgtest.Run(m)) }
@@ -44,8 +44,7 @@ type request struct {
 }
 
 // fake is LinkedIn's OAuth, REST and upload endpoints, and the media
-// bucket: answers maps "METHOD path" to a status, a JSON body and, for a
-// created post, its x-restli-id.
+// bucket: answers maps "METHOD path" to a reply.
 type fake struct {
 	mu       sync.Mutex
 	answers  map[string]answer
@@ -99,7 +98,7 @@ func newConnector(t *testing.T) (*linkedin.Connector, *fake) {
 	f := &fake{answers: map[string]answer{}}
 	srv := httptest.NewServer(f)
 	t.Cleanup(srv.Close)
-	tokens, err := auth.NewTOTP([]byte("0123456789abcdef0123456789abcdef"), func() time.Time { return now })
+	tokens, err := secretbox.New([]byte("0123456789abcdef0123456789abcdef"))
 	require.NoError(t, err)
 	return &linkedin.Connector{
 		Pool: pgtest.Pool(t), Tokens: tokens, ClientID: "client-1", ClientSecret: "client-secret",
@@ -136,17 +135,14 @@ func stateOf(t *testing.T, c *linkedin.Connector, user pgtype.UUID) string {
 	return u.Query().Get("state")
 }
 
-// signIn answers the code exchange with a 60-day token and the member's
-// OpenID Connect profile.
+// signIn answers the code exchange with a 60-day token and the member's profile.
 func signIn(f *fake, scope string) {
 	f.on("POST /oauth/v2/accessToken", http.StatusOK,
 		`{"access_token": "`+memberToken+`", "expires_in": 5184000, "scope": "`+scope+`"}`, "")
 	f.on("GET /v2/userinfo", http.StatusOK, `{"sub": "abc123", "name": "Daw Mi"}`, "")
 }
 
-// Daw Mi signs in to LinkedIn from the Connections page: her member id and
-// name are kept with the sealed token and its expiry, which the status
-// warns about a week ahead and asks her to renew once passed.
+// The status warns a week before the token expires and asks for a reconnect once it has.
 func TestConnect(t *testing.T) {
 	c, f := newConnector(t)
 	user := newUser(t)
@@ -201,8 +197,7 @@ func TestConnect(t *testing.T) {
 	require.ErrorIs(t, err, content.ErrNotConnected)
 }
 
-// A sign-in that did not allow sharing, or a code LinkedIn refuses, does
-// not connect.
+// A sign-in without sharing, or a refused code, does not connect.
 func TestConnectRefused(t *testing.T) {
 	c, f := newConnector(t)
 	user := newUser(t)
@@ -245,8 +240,7 @@ func posted(t *testing.T, f *fake, i int) map[string]any {
 	return body
 }
 
-// Text alone, text with an article link titled after the post, and text
-// with one image uploaded first, each to her profile's main feed.
+// Text alone, text with an article link, and text with one image.
 func TestPublish(t *testing.T) {
 	c, f := connected(t)
 	f.on("POST /rest/posts", http.StatusCreated, "", "urn:li:share:7001")
@@ -302,10 +296,8 @@ func reason(t *testing.T, err error) *content.ChannelError {
 
 func errOf(_ content.Posted, err error) error { return err }
 
-// A refusal is final; a rate limit is tried again; a lost answer to the
-// post may hide one that went out (unknown_outcome); a refused or expired
-// token asks Daw Mi to connect again, and an expired one asks LinkedIn
-// nothing.
+// A refusal is final, a rate limit is retried, a lost answer is
+// unknown_outcome, and a refused or expired token needs a reconnect.
 func TestPublishFailures(t *testing.T) {
 	c, f := connected(t)
 	v := db.PostVersion{Text: text("x")}

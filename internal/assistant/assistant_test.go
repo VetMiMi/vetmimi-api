@@ -21,8 +21,7 @@ import (
 
 var ctx = context.Background()
 
-// fakeClaude answers every Messages API call with status and a text
-// answer, and keeps the last request.
+// fakeClaude answers every Messages API call the same way and keeps the last request.
 type fakeClaude struct {
 	status     int
 	answer     string
@@ -71,10 +70,8 @@ func post(en, my string) content.Post {
 
 const article = "Painting slowly helps me notice my breath."
 
-// The suggestions come back for each channel asked for, from an answer
-// with prose around its JSON; hashtags are tidied. The request carries the
-// key and version headers and the post's own text, and the log keeps
-// neither the prompt nor the answer.
+// The answer's JSON is found inside prose and hashtags are tidied. The log
+// keeps neither the prompt nor the answer.
 func TestSuggest(t *testing.T) {
 	c, f, logs := newClient(t, "Here you go:\n```json\n"+`{
 		"facebook": {"text": "A new article on slowing down."},
@@ -104,8 +101,7 @@ func TestSuggest(t *testing.T) {
 	require.NotContains(t, logs.String(), "sk-test")
 }
 
-// A translation of the website version goes from the other language into
-// the one asked for; without text there, nothing is asked.
+// A translation goes from the other language; without text there, nothing is asked.
 func TestTranslateWebsite(t *testing.T) {
 	c, f, _ := newClient(t, `{"website": {"title": "ငြိမ်သက်မှု", "excerpt": "", "body": "ပန်းချီ"}}`)
 	got, err := c.Suggest(ctx, post(article, ""), assistant.Request{Channels: []string{"website"}, Language: "my"})
@@ -127,8 +123,7 @@ func requireCode(t *testing.T, code apperr.Code, err error) {
 	require.Equal(t, code, e.Code, e.Detail)
 }
 
-// Without a key the assistant is off; without website text it has nothing
-// to work from; either way the model is not asked.
+// Without a key or website text, the model is not asked.
 func TestSuggestRefusals(t *testing.T) {
 	c, f, _ := newClient(t, "{}")
 	_, err := c.Suggest(ctx, post("", ""), assistant.Request{Channels: []string{"facebook"}, Language: "en"})
@@ -140,8 +135,7 @@ func TestSuggestRefusals(t *testing.T) {
 	require.Zero(t, f.calls)
 }
 
-// An answer that is not JSON, misses a channel, breaks a platform limit or
-// was cut short, or a model that does not answer, is ai_failed.
+// Every unusable answer is ai_failed.
 func TestUnusableAnswers(t *testing.T) {
 	r := assistant.Request{Channels: []string{"linkedin"}, Language: "en"}
 	for name, answer := range map[string]string{

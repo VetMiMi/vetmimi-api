@@ -120,8 +120,8 @@ func runAPI(ctx context.Context, log *slog.Logger, cfg config.Config, pool *pgxp
 		Hub:            hub,
 		Media:          media.NewStore(cfg),
 		MediaPublicURL: cfg.MediaPublicURL,
-		Meta:           meta.New(cfg, pool, codes, log),
-		LinkedIn:       linkedin.New(cfg, pool, codes, log),
+		Meta:           meta.New(cfg, pool, codes.Box, log),
+		LinkedIn:       linkedin.New(cfg, pool, codes.Box, log),
 		Assistant:      assistant.New(cfg, log),
 		Now:            time.Now,
 	}))

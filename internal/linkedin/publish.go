@@ -18,52 +18,17 @@ import (
 	"github.com/VetMiMi/vetmimi-api/internal/media"
 )
 
-// maxImageBytes bounds a web size read back from the bucket; the largest
-// is far smaller.
 const maxImageBytes = 20 << 20
 
-// Publish posts v to Daw Mi's profile: its text alone, with its link as an
-// article, or with its one image uploaded first (the link then goes in the
-// text, since a post carries one kind of content).
 func (c *Connector) Publish(ctx context.Context, v db.PostVersion) (content.Posted, error) {
-	author, token, err := c.member(ctx)
+	author, token, err := c.connectedMember(ctx)
 	if err != nil {
 		return content.Posted{}, err
 	}
-	commentary := littleText(v.Text.String)
-	post := map[string]any{
-		"author":     author,
-		"visibility": "PUBLIC",
-		"distribution": map[string]any{
-			"feedDistribution": "MAIN_FEED", "targetEntities": []any{}, "thirdPartyDistributionChannels": []any{},
-		},
-		"lifecycleState":            "PUBLISHED",
-		"isReshareDisabledByAuthor": false,
+	post, err := c.post(ctx, author, token, v)
+	if err != nil {
+		return content.Posted{}, err
 	}
-	switch {
-	case len(v.ImageIds) > 0:
-		image, alt, err := c.uploadImage(ctx, token, author, v)
-		if err != nil {
-			return content.Posted{}, err
-		}
-		if v.LinkUrl.Valid {
-			commentary += "\n\n" + littleText(v.LinkUrl.String)
-		}
-		attached := map[string]any{"id": image}
-		if alt != "" {
-			attached["altText"] = alt
-		}
-		post["content"] = map[string]any{"media": attached}
-	case v.LinkUrl.Valid:
-		// The Posts API does not read the page, so the article needs a title:
-		// the post's own.
-		p, err := db.New(c.Pool).GetPost(ctx, v.PostID)
-		if err != nil {
-			return content.Posted{}, err
-		}
-		post["content"] = map[string]any{"article": map[string]any{"source": v.LinkUrl.String, "title": p.Title}}
-	}
-	post["commentary"] = commentary
 	req, err := c.rest(ctx, http.MethodPost, "/rest/posts", token, post)
 	if err != nil {
 		return content.Posted{}, err
@@ -80,10 +45,49 @@ func (c *Connector) Publish(ctx context.Context, v db.PostVersion) (content.Post
 	return out, nil
 }
 
-// member reads the connected member's URN and token. Without a connection
-// the channel is not connected; with an expired token it needs Daw Mi to
-// connect again, and LinkedIn is not asked.
-func (c *Connector) member(ctx context.Context) (author, token string, err error) {
+// post is the Posts API body for v: its text alone, with its link as an
+// article, or with its one image. A post carries one kind of content, so
+// with an image the link goes in the text.
+func (c *Connector) post(ctx context.Context, author, token string, v db.PostVersion) (map[string]any, error) {
+	commentary := littleText(v.Text.String)
+	post := map[string]any{
+		"author":     author,
+		"visibility": "PUBLIC",
+		"distribution": map[string]any{
+			"feedDistribution": "MAIN_FEED", "targetEntities": []any{}, "thirdPartyDistributionChannels": []any{},
+		},
+		"lifecycleState":            "PUBLISHED",
+		"isReshareDisabledByAuthor": false,
+	}
+	switch {
+	case len(v.ImageIds) > 0:
+		image, alt, err := c.uploadImage(ctx, token, author, v)
+		if err != nil {
+			return nil, err
+		}
+		if v.LinkUrl.Valid {
+			commentary += "\n\n" + littleText(v.LinkUrl.String)
+		}
+		attached := map[string]any{"id": image}
+		if alt != "" {
+			attached["altText"] = alt
+		}
+		post["content"] = map[string]any{"media": attached}
+	case v.LinkUrl.Valid:
+		// LinkedIn does not read the linked page, so the article takes the post's own title.
+		p, err := db.New(c.Pool).GetPost(ctx, v.PostID)
+		if err != nil {
+			return nil, err
+		}
+		post["content"] = map[string]any{"article": map[string]any{"source": v.LinkUrl.String, "title": p.Title}}
+	}
+	post["commentary"] = commentary
+	return post, nil
+}
+
+// connectedMember reads the member's URN and token. An expired token needs
+// Daw Mi to reconnect, so LinkedIn is not asked.
+func (c *Connector) connectedMember(ctx context.Context) (author, token string, err error) {
 	row, err := db.New(c.Pool).GetConnection(ctx, platformName)
 	if errors.Is(err, pgx.ErrNoRows) {
 		return "", "", content.ErrNotConnected
@@ -105,7 +109,7 @@ func (c *Connector) member(ctx context.Context) (author, token string, err error
 	return "urn:li:person:" + row.AccountID.String, string(opened), nil
 }
 
-// uploadImage copies v's image, its largest web size, to LinkedIn and
+// uploadImage copies the largest web size of v's image to LinkedIn and
 // returns its image URN and English alt text.
 func (c *Connector) uploadImage(ctx context.Context, token, author string, v db.PostVersion) (urn, alt string, err error) {
 	m, err := db.New(c.Pool).GetMedia(ctx, v.ImageIds[0])
@@ -116,10 +120,26 @@ func (c *Connector) uploadImage(ctx context.Context, token, author string, v db.
 		return "", "", err
 	}
 	var alts map[string]string
-	_ = json.Unmarshal(m.Alt, &alts) // no alt text is allowed
+	_ = json.Unmarshal(m.Alt, &alts) // alt text is optional
 	data, err := c.download(ctx, media.Sizes(c.MediaPublicURL, m.ID, m.Widths)[0].URL)
 	if err != nil {
 		return "", "", c.failed(ctx, err, false)
+	}
+	uploadURL, urn, err := c.initializeUpload(ctx, token, author)
+	if err != nil {
+		return "", "", err
+	}
+	if err := c.putImage(ctx, token, uploadURL, data); err != nil {
+		return "", "", err
+	}
+	return urn, alts["en"], nil
+}
+
+func (c *Connector) initializeUpload(ctx context.Context, token, author string) (uploadURL, urn string, err error) {
+	req, err := c.rest(ctx, http.MethodPost, "/rest/images?action=initializeUpload", token,
+		map[string]any{"initializeUploadRequest": map[string]string{"owner": author}})
+	if err != nil {
+		return "", "", err
 	}
 	var started struct {
 		Value struct {
@@ -127,27 +147,25 @@ func (c *Connector) uploadImage(ctx context.Context, token, author string, v db.
 			Image     string `json:"image"`
 		} `json:"value"`
 	}
-	req, err := c.rest(ctx, http.MethodPost, "/rest/images?action=initializeUpload", token,
-		map[string]any{"initializeUploadRequest": map[string]string{"owner": author}})
-	if err != nil {
-		return "", "", err
-	}
 	if _, err := c.do(req, &started); err != nil {
 		return "", "", c.failed(ctx, err, false)
 	}
-	put, err := http.NewRequestWithContext(ctx, http.MethodPut, started.Value.UploadURL, bytes.NewReader(data))
-	if err != nil {
-		return "", "", c.failed(ctx, err, false)
-	}
-	put.Header.Set("Authorization", "Bearer "+token)
-	put.Header.Set("Content-Type", "image/jpeg")
-	if _, err := c.do(put, nil); err != nil {
-		return "", "", c.failed(ctx, err, false)
-	}
-	return started.Value.Image, alts["en"], nil
+	return started.Value.UploadURL, started.Value.Image, nil
 }
 
-// download reads a web size from the public media address.
+func (c *Connector) putImage(ctx context.Context, token, uploadURL string, data []byte) error {
+	req, err := http.NewRequestWithContext(ctx, http.MethodPut, uploadURL, bytes.NewReader(data))
+	if err != nil {
+		return c.failed(ctx, err, false)
+	}
+	req.Header.Set("Authorization", "Bearer "+token)
+	req.Header.Set("Content-Type", "image/jpeg")
+	if _, err := c.do(req, nil); err != nil {
+		return c.failed(ctx, err, false)
+	}
+	return nil
+}
+
 func (c *Connector) download(ctx context.Context, link string) ([]byte, error) {
 	req, err := http.NewRequestWithContext(ctx, http.MethodGet, link, nil)
 	if err != nil {
@@ -168,10 +186,9 @@ func (c *Connector) download(ctx context.Context, link string) ([]byte, error) {
 	return io.ReadAll(io.LimitReader(res.Body, maxImageBytes))
 }
 
-// failed says why a LinkedIn call did not post. A refusal is certain
-// nothing went out; a lost answer to the call that posts (final) may hide a
-// post that did, so it is never sent again on its own: Daw Mi checks
-// LinkedIn first (unknown_outcome).
+// failed says why a LinkedIn call did not post. A refusal means nothing
+// went out; a lost answer to the final, posting call may hide a post that
+// did, so it is unknown_outcome and never retried on its own.
 func (c *Connector) failed(ctx context.Context, err error, final bool) error {
 	var ae *apiError
 	if !errors.As(err, &ae) || ae.Status/100 != 4 {
@@ -192,8 +209,7 @@ func (c *Connector) failed(ctx context.Context, err error, final bool) error {
 	return &content.ChannelError{Reason: "rejected"}
 }
 
-// markError shows on the Connections page that the connection needs Daw Mi;
-// failing to record it changes nothing about the channel's own failure.
+// markError flags the connection on the Connections page; a failure to record it is only logged.
 func (c *Connector) markError(ctx context.Context, reason string) {
 	err := db.New(c.Pool).SetConnectionError(ctx, db.SetConnectionErrorParams{
 		Platform: platformName, LastError: text(reason), Now: c.Now(),
@@ -205,8 +221,8 @@ func (c *Connector) markError(ctx context.Context, reason string) {
 
 var (
 	hashtag = regexp.MustCompile(`#[\p{L}\p{N}_]+`)
-	// reserved are the characters LinkedIn's "little text" commentary
-	// format gives a meaning; unescaped, they can cut a post short.
+	// reserved are the characters LinkedIn's "little text" format gives a
+	// meaning; unescaped, they can cut a post short.
 	reserved = strings.NewReplacer(`\`, `\\`, `|`, `\|`, `{`, `\{`, `}`, `\}`, `@`, `\@`, `[`, `\[`, `]`, `\]`,
 		`(`, `\(`, `)`, `\)`, `<`, `\<`, `>`, `\>`, `#`, `\#`, `*`, `\*`, `_`, `\_`, `~`, `\~`)
 )

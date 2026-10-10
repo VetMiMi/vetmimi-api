@@ -161,10 +161,10 @@ func newAuthAPI(t *testing.T) *authAPI {
 	}))
 	sessions, err := auth.NewSessions(pgtest.Pool(t), a.codes, auth.NewLockout(rdb, prefix, a.clock.now), a.clock.now)
 	require.NoError(t, err)
-	a.meta = &meta.Connector{Pool: pgtest.Pool(t), Tokens: a.codes, AppID: "app-1", AppSecret: "app-secret",
+	a.meta = &meta.Connector{Pool: pgtest.Pool(t), Tokens: a.codes.Box, AppID: "app-1", AppSecret: "app-secret",
 		Version: "v24.0", RedirectURL: siteOrigin + "/admin/settings/connections",
 		SigningSecret: []byte("test signing secret, 32 bytes ok"), Log: log, Now: a.clock.now}
-	a.linkedin = &linkedin.Connector{Pool: pgtest.Pool(t), Tokens: a.codes, ClientID: "client-1",
+	a.linkedin = &linkedin.Connector{Pool: pgtest.Pool(t), Tokens: a.codes.Box, ClientID: "client-1",
 		ClientSecret: "client-secret", Version: "202609", RedirectURL: siteOrigin + "/admin/settings/connections/linkedin",
 		SigningSecret: []byte("test signing secret, 32 bytes ok"), Log: log, Now: a.clock.now}
 	a.assistant = &assistant.Client{APIKey: "sk-test", Model: "claude-haiku-4-5-20251001", Log: log}

@@ -2,12 +2,8 @@ package auth
 
 import (
 	"context"
-	"crypto/aes"
-	"crypto/cipher"
-	"crypto/rand"
 	"crypto/subtle"
 	"encoding/base32"
-	"errors"
 	"time"
 
 	"github.com/jackc/pgx/v5/pgtype"
@@ -16,6 +12,7 @@ import (
 
 	"github.com/VetMiMi/vetmimi-api/internal/clock"
 	"github.com/VetMiMi/vetmimi-api/internal/db"
+	"github.com/VetMiMi/vetmimi-api/internal/secretbox"
 )
 
 // Settings every authenticator app understands: a 20-byte secret, HMAC-SHA-1,
@@ -24,33 +21,25 @@ const (
 	totpIssuer      = "VetMiMi"
 	totpPeriod      = 30
 	totpSecretBytes = 20
-	totpKeyBytes    = 32 // AES-256
 )
 
 var totpCodeOpts = totp.ValidateOpts{Period: totpPeriod, Digits: otp.DigitsSix, Algorithm: otp.AlgorithmSHA1}
 
 var b32 = base32.StdEncoding.WithPadding(base32.NoPadding)
 
-// TOTP checks codes against secrets and encrypts the secrets at rest.
+// TOTP checks codes against secrets; its Box seals the secrets at rest.
 type TOTP struct {
-	aead cipher.AEAD
-	now  clock.Now
+	*secretbox.Box
+	now clock.Now
 }
 
 // NewTOTP takes TOTP_ENCRYPTION_KEY, which must be 32 bytes.
 func NewTOTP(key []byte, now clock.Now) (*TOTP, error) {
-	if len(key) != totpKeyBytes {
-		return nil, errors.New("auth: the TOTP encryption key must be 32 bytes")
-	}
-	block, err := aes.NewCipher(key)
+	box, err := secretbox.New(key)
 	if err != nil {
 		return nil, err
 	}
-	aead, err := cipher.NewGCM(block)
-	if err != nil {
-		return nil, err
-	}
-	return &TOTP{aead: aead, now: now}, nil
+	return &TOTP{Box: box, now: now}, nil
 }
 
 // Enrolment is a new secret and the otpauth:// URI that carries it to an
@@ -77,24 +66,6 @@ func NewEnrolment(email string) (Enrolment, error) {
 		return Enrolment{}, err
 	}
 	return Enrolment{Secret: secret, URI: key.URL()}, nil
-}
-
-// Seal encrypts with AES-256-GCM and prepends the random nonce.
-func (t *TOTP) Seal(secret []byte) ([]byte, error) {
-	nonce := make([]byte, t.aead.NonceSize())
-	if _, err := rand.Read(nonce); err != nil {
-		return nil, err
-	}
-	return t.aead.Seal(nonce, nonce, secret, nil), nil
-}
-
-// Open fails if sealed was altered or sealed under another key.
-func (t *TOTP) Open(sealed []byte) ([]byte, error) {
-	n := t.aead.NonceSize()
-	if len(sealed) < n {
-		return nil, errors.New("auth: sealed TOTP secret is too short")
-	}
-	return t.aead.Open(nil, sealed[:n], sealed[n:], nil)
 }
 
 // Match returns the step whose code equals code: the current step, or the one
