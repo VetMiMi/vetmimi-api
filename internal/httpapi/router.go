@@ -1,6 +1,6 @@
-// Package httpapi serves the API in openapi.yaml. router.go builds the chain:
-// shared middleware, then per operation the service key, session, role, rate
-// limit and validation checks; each handler parses, calls a domain function and maps the result.
+// Package httpapi serves openapi.yaml. router.go builds the middleware chain and
+// the per-operation checks (service key, session, role, rate limit, validation);
+// handlers, one file per API area, parse, call a domain function and map the result.
 package httpapi
 
 import (
