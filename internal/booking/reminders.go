@@ -45,7 +45,7 @@ func CancelReminders(ctx context.Context, q db.Querier, appointmentID pgtype.UUI
 		return err
 	}
 	for _, id := range ids {
-		if err := comms.Cancel(ctx, q, id, reason); err != nil {
+		if _, err := comms.Cancel(ctx, q, id, reason); err != nil {
 			return err
 		}
 	}

@@ -118,29 +118,41 @@ func Queue(ctx context.Context, q db.Querier, m Message) (platform.Task, error) 
 	return deliverTask(row.ID, Kind(row.Kind), row.ScheduledFor), nil
 }
 
-func Cancel(ctx context.Context, q db.Querier, id pgtype.UUID, reason string) error {
+// Cancel reports false when the row is missing or no longer queued.
+func Cancel(ctx context.Context, q db.Querier, id pgtype.UUID, reason string) (bool, error) {
 	row, err := q.GetCommunication(ctx, id)
 	if errors.Is(err, pgx.ErrNoRows) {
-		return nil
+		return false, nil
 	}
 	if err != nil {
-		return err
+		return false, err
 	}
 	return setStatus(ctx, q, row, StatusCancelled, reason)
 }
 
-// setStatus does nothing when CanTransition refuses the change.
-func setStatus(ctx context.Context, q db.Querier, row db.Communication, to Status, code string) error {
+// setStatus reports false when the row is no longer queued.
+func setStatus(ctx context.Context, q db.Querier, row db.Communication, to Status, code string) (bool, error) {
 	if !CanTransition(Status(row.Status), to) {
-		return nil
+		return false, nil
 	}
-	_, err := q.SetCommunicationStatus(ctx, db.SetCommunicationStatusParams{
+	n, err := q.SetCommunicationStatus(ctx, db.SetCommunicationStatusParams{
 		ID:                row.ID,
 		Status:            string(to),
 		Error:             pgtype.Text{String: code, Valid: code != ""},
 		Attempts:          row.Attempts,
 		SentAt:            row.SentAt,
 		ProviderMessageID: row.ProviderMessageID,
+	})
+	return n > 0, err
+}
+
+// keepQueued records a failed attempt on a row that will be sent again.
+func keepQueued(ctx context.Context, q db.Querier, row db.Communication, code string) error {
+	_, err := q.SetCommunicationStatus(ctx, db.SetCommunicationStatusParams{
+		ID:       row.ID,
+		Status:   string(StatusQueued),
+		Error:    pgtype.Text{String: code, Valid: true},
+		Attempts: row.Attempts,
 	})
 	return err
 }
