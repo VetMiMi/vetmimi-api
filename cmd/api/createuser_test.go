@@ -205,6 +205,33 @@ func TestCreateUserUpdatesAnExistingEmail(t *testing.T) {
 	require.Zero(t, sessions, "a new password signs the user out everywhere")
 }
 
+func TestCreateUserNoTOTPCreatesAndResets(t *testing.T) {
+	f := newFlags(t)
+	f.noTOTP = true
+	r := createUserWith(t, f, []string{password, password}, &typist{})
+	require.NoError(t, r.err)
+	require.NotContains(t, r.out, "otpauth://")
+	require.True(t, strings.HasSuffix(r.out, "created\n"), r.out)
+	u, ok := lookup(t, f.email)
+	require.True(t, ok)
+	require.Nil(t, u.totpSecretEnc)
+	require.False(t, u.totpLastStep.Valid)
+
+	f.noTOTP = false
+	require.NoError(t, createUserWith(t, f, []string{password, password}, &typist{right: true}).err)
+	enrolled, _ := lookup(t, f.email)
+	require.NotNil(t, enrolled.totpSecretEnc)
+
+	f.noTOTP = true
+	r = createUserWith(t, f, []string{password, password}, &typist{})
+	require.NoError(t, r.err)
+	require.True(t, strings.HasSuffix(r.out, "updated\n"), r.out)
+	reset, _ := lookup(t, f.email)
+	require.Equal(t, enrolled.id, reset.id)
+	require.Nil(t, reset.totpSecretEnc, "a lost phone is reset to password only")
+	require.False(t, reset.totpLastStep.Valid)
+}
+
 func TestCreateUserAllowsThreeTries(t *testing.T) {
 	f := newFlags(t)
 	r := createUserWith(t, f, []string{password, password}, &typist{wrong: 2, right: true})

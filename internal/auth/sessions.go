@@ -34,6 +34,9 @@ type User struct {
 	DisplayName  string
 	Roles        []string
 	Practitioner bool
+	// TwoStep is whether the user signs in with a TOTP code as well as the
+	// password.
+	TwoStep bool
 }
 
 // Session is the live session a request authenticated with.
@@ -102,6 +105,7 @@ func (s *Sessions) Authenticate(ctx context.Context, token string) (Session, err
 		DisplayName:  row.DisplayName,
 		Roles:        row.Roles,
 		Practitioner: row.IsPractitioner,
+		TwoStep:      row.TwoStepEnabled,
 	}}, nil
 }
 

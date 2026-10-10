@@ -38,7 +38,8 @@ type Querier interface {
 	CreateService(ctx context.Context, arg CreateServiceParams) (Service, error)
 	CreateSession(ctx context.Context, arg CreateSessionParams) (pgtype.UUID, error)
 	// CreateUser and ReplaceUserCredentials store the step of the code typed at
-	// enrolment as already accepted, so that code can never also sign in.
+	// enrolment as already accepted, so that code can never also sign in. A
+	// password-only user has a NULL secret and step.
 	CreateUser(ctx context.Context, arg CreateUserParams) (pgtype.UUID, error)
 	DeleteArticle(ctx context.Context, postID pgtype.UUID) error
 	DeleteAvailabilityBlock(ctx context.Context, id pgtype.UUID) (int64, error)

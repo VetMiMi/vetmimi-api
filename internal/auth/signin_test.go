@@ -50,6 +50,7 @@ func TestSignInStartsASession(t *testing.T) {
 		Email:       a.email,
 		DisplayName: "Daw Mi",
 		Roles:       []string{"booking_admin", "site_admin"},
+		TwoStep:     true,
 	}, got.Session.User)
 
 	row := loadSession(t, got.Session.ID)
@@ -68,6 +69,47 @@ func TestSignInStartsASession(t *testing.T) {
 	session, err := f.authenticate(got.Token)
 	require.NoError(t, err)
 	require.Equal(t, got.Session, session)
+}
+
+// A password-only user signs in with the password alone; a code, if sent,
+// is ignored.
+func TestPasswordOnlyUserSignsInWithThePassword(t *testing.T) {
+	f := newFixture(t)
+	a := f.newPasswordOnlyAdmin(t)
+
+	got, err := f.signIn(t, a.email, password, "")
+	require.NoError(t, err)
+	require.False(t, got.Session.User.TwoStep)
+	session, err := f.authenticate(got.Token)
+	require.NoError(t, err)
+	require.Equal(t, got.Session, session)
+
+	_, err = f.signIn(t, a.email, password, "123456")
+	require.NoError(t, err, "a code sent for a password-only user is ignored")
+	require.Zero(t, lastStep(t, a.id), "no step is claimed")
+	require.Equal(t, 2, sessionCount(t, a.id))
+}
+
+// A wrong password is refused with the same error whether or not the user
+// has TOTP, and still counts towards the lockout; a TOTP user still needs a
+// code.
+func TestPasswordOnlyDoesNotWeakenOtherRules(t *testing.T) {
+	f := newFixture(t)
+	passwordOnly := f.newPasswordOnlyAdmin(t)
+	twoStep := f.newAdmin(t)
+
+	_, errPasswordOnly := f.signIn(t, passwordOnly.email, password+"!", "")
+	requireInvalidCredentials(t, errPasswordOnly)
+	_, errTwoStep := f.signIn(t, twoStep.email, password+"!", codeAt(t, twoStep.secret, now))
+	require.Equal(t, errTwoStep, errPasswordOnly)
+	require.Zero(t, sessionCount(t, passwordOnly.id))
+	failures, err := f.redis.client.ZCard(context.Background(), auth.FailuresKey(f.redis.prefix, passwordOnly.email)).Result()
+	require.NoError(t, err)
+	require.EqualValues(t, 1, failures, "a wrong password counts towards the lockout")
+
+	_, err = f.signIn(t, twoStep.email, password, "")
+	requireInvalidCredentials(t, err)
+	require.Zero(t, sessionCount(t, twoStep.id))
 }
 
 // An unknown email costs an argon2 hash like any other: it is checked

@@ -75,7 +75,8 @@ func (q *Queries) DeleteUserSessions(ctx context.Context, userID pgtype.UUID) er
 
 const getSession = `-- name: GetSession :one
 SELECT s.id, s.last_seen_at, s.expires_at,
-       u.id AS user_id, u.email, u.display_name, u.roles, u.is_practitioner, u.disabled_at
+       u.id AS user_id, u.email, u.display_name, u.roles, u.is_practitioner, u.disabled_at,
+       (u.totp_secret_enc IS NOT NULL)::boolean AS two_step_enabled
 FROM sessions s
 JOIN users u ON u.id = s.user_id
 WHERE s.token_hash = $1
@@ -91,6 +92,7 @@ type GetSessionRow struct {
 	Roles          []string
 	IsPractitioner bool
 	DisabledAt     sql.NullTime
+	TwoStepEnabled bool
 }
 
 // GetSession returns the session a token hash names together with its user,
@@ -108,6 +110,7 @@ func (q *Queries) GetSession(ctx context.Context, tokenHash []byte) (GetSessionR
 		&i.Roles,
 		&i.IsPractitioner,
 		&i.DisabledAt,
+		&i.TwoStepEnabled,
 	)
 	return i, err
 }

@@ -47,11 +47,12 @@ type CreateUserParams struct {
 	Roles          []string
 	IsPractitioner bool
 	TotpSecretEnc  []byte
-	TotpLastStep   int64
+	TotpLastStep   pgtype.Int8
 }
 
 // CreateUser and ReplaceUserCredentials store the step of the code typed at
-// enrolment as already accepted, so that code can never also sign in.
+// enrolment as already accepted, so that code can never also sign in. A
+// password-only user has a NULL secret and step.
 func (q *Queries) CreateUser(ctx context.Context, arg CreateUserParams) (pgtype.UUID, error) {
 	row := q.db.QueryRow(ctx, createUser,
 		arg.Email,
@@ -152,7 +153,7 @@ type ReplaceUserCredentialsParams struct {
 	Roles          []string
 	IsPractitioner bool
 	TotpSecretEnc  []byte
-	TotpLastStep   int64
+	TotpLastStep   pgtype.Int8
 	Email          string
 }
 

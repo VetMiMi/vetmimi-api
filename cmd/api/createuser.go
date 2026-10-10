@@ -42,6 +42,7 @@ type userFlags struct {
 	name         string
 	roles        string
 	practitioner bool
+	noTOTP       bool
 }
 
 func (f *userFlags) register(fs *flag.FlagSet) {
@@ -49,6 +50,7 @@ func (f *userFlags) register(fs *flag.FlagSet) {
 	fs.StringVar(&f.name, "name", "", "create-user: the name shown in the admin")
 	fs.StringVar(&f.roles, "roles", "", "create-user: comma-separated, from "+strings.Join(auth.Roles, ", "))
 	fs.BoolVar(&f.practitioner, "practitioner", false, "create-user: appointments are booked with this user")
+	fs.BoolVar(&f.noTOTP, "no-totp", false, "create-user: password only, no authenticator app; clears an existing user's TOTP secret")
 }
 
 // terminal is where create-user talks to the administrator. readPassword
@@ -90,7 +92,9 @@ func runCreateUser(ctx context.Context, log *slog.Logger, cfg platform.Config, p
 
 // createUser creates an administrator, or re-enrols an existing one and signs
 // them out everywhere. It saves nothing until the administrator proves the
-// authenticator app holds the new secret by typing a code from it.
+// authenticator app holds the new secret by typing a code from it. With
+// --no-totp there is no authenticator step: the account signs in with the
+// password alone until two-step setup moves into the admin website (#142).
 func createUser(ctx context.Context, log *slog.Logger, pool *pgxpool.Pool, codes *auth.TOTP, f userFlags, t terminal) error {
 	account, err := f.account()
 	if err != nil {
@@ -100,19 +104,12 @@ func createUser(ctx context.Context, log *slog.Logger, pool *pgxpool.Pool, codes
 	if err != nil {
 		return err
 	}
-	enrolment, err := auth.NewEnrolment(account.Email)
-	if err != nil {
-		return err
+	if !f.noTOTP {
+		if err := enrol(codes, &account, t); err != nil {
+			return err
+		}
 	}
-	fmt.Fprintf(t.out, "Add this account to an authenticator app:\n\n%s\n\n", enrolment.URI)
-	if account.EnrolmentStep, err = confirmCode(codes, enrolment.Secret, t); err != nil {
-		return err
-	}
-
 	if account.PasswordHash, err = auth.HashPassword(password); err != nil {
-		return err
-	}
-	if account.SealedTOTPSecret, err = codes.Seal(enrolment.Secret); err != nil {
 		return err
 	}
 	id, created, err := auth.SaveAccount(ctx, pool, account)
@@ -126,6 +123,21 @@ func createUser(ctx context.Context, log *slog.Logger, pool *pgxpool.Pool, codes
 	log.Info("user "+outcome, "user_id", id.String())
 	fmt.Fprintln(t.out, outcome)
 	return nil
+}
+
+// enrol shows a new TOTP secret, waits for a valid code from the app and
+// puts the sealed secret and the code's step in account.
+func enrol(codes *auth.TOTP, account *auth.Account, t terminal) error {
+	enrolment, err := auth.NewEnrolment(account.Email)
+	if err != nil {
+		return err
+	}
+	fmt.Fprintf(t.out, "Add this account to an authenticator app:\n\n%s\n\n", enrolment.URI)
+	if account.EnrolmentStep, err = confirmCode(codes, enrolment.Secret, t); err != nil {
+		return err
+	}
+	account.SealedTOTPSecret, err = codes.Seal(enrolment.Secret)
+	return err
 }
 
 // account checks the flags. Its errors never quote the email.
