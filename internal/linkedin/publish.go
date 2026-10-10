@@ -171,11 +171,7 @@ func (c *Connector) download(ctx context.Context, link string) ([]byte, error) {
 	if err != nil {
 		return nil, err
 	}
-	client := c.HTTP
-	if client == nil {
-		client = http.DefaultClient
-	}
-	res, err := client.Do(req)
+	res, err := c.httpClient().Do(req)
 	if err != nil {
 		return nil, err
 	}

@@ -12,9 +12,8 @@ import (
 	"github.com/VetMiMi/vetmimi-api/internal/httpapi/gen"
 )
 
-// CreateContactEnquiry stores an enquiry and, once it has committed,
-// enqueues Daw Mi's notification. The visitor gets no email of their own
-// at launch; the site shows the success state. The log carries the id only.
+// CreateContactEnquiry stores an enquiry, then enqueues Daw Mi's
+// notification. The visitor gets no email; the site shows the success state.
 func (s *server) CreateContactEnquiry(ctx context.Context, req gen.CreateContactEnquiryRequestObject) (gen.CreateContactEnquiryResponseObject, error) {
 	b := req.Body
 	raw, err := json.Marshal(b)
@@ -40,9 +39,7 @@ func (s *server) CreateContactEnquiry(ctx context.Context, req gen.CreateContact
 	if err != nil {
 		return nil, err
 	}
-	if s.Queue != nil {
-		s.Queue.Enqueue(ctx, res.Tasks...)
-	}
+	s.enqueue(ctx, res.Tasks...)
 	s.Log.InfoContext(ctx, "contact enquiry received", "request_id", RequestID(ctx),
 		"enquiry_id", res.ID.String(), "replayed", res.Replayed)
 	receipt := gen.CreateContactEnquiry201JSONResponse{Reference: res.Receipt.Reference, CreatedAt: res.Receipt.CreatedAt}
@@ -61,7 +58,6 @@ func (r replayedEnquiry) VisitCreateContactEnquiryResponse(w http.ResponseWriter
 	return r.CreateContactEnquiry201JSONResponse.VisitCreateContactEnquiryResponse(w)
 }
 
-// ListContactEnquiries lists enquiries newest first.
 func (s *server) ListContactEnquiries(ctx context.Context, req gen.ListContactEnquiriesRequestObject) (gen.ListContactEnquiriesResponseObject, error) {
 	p := req.Params
 	page, err := comms.ListEnquiries(ctx, db.New(s.Pool), comms.EnquiryFilter{
@@ -81,7 +77,6 @@ func (s *server) ListContactEnquiries(ctx context.Context, req gen.ListContactEn
 	return out, nil
 }
 
-// GetContactEnquiry shows one enquiry in full.
 func (s *server) GetContactEnquiry(ctx context.Context, req gen.GetContactEnquiryRequestObject) (gen.GetContactEnquiryResponseObject, error) {
 	e, err := comms.GetEnquiry(ctx, db.New(s.Pool), uuid(req.EnquiryId))
 	if err != nil {
@@ -90,8 +85,7 @@ func (s *server) GetContactEnquiry(ctx context.Context, req gen.GetContactEnquir
 	return gen.GetContactEnquiry200JSONResponse(enquiryView(e)), nil
 }
 
-// MarkContactEnquiryHandled marks an enquiry handled; a second call changes
-// nothing.
+// MarkContactEnquiryHandled changes nothing the second time.
 func (s *server) MarkContactEnquiryHandled(ctx context.Context, req gen.MarkContactEnquiryHandledRequestObject) (gen.MarkContactEnquiryHandledResponseObject, error) {
 	e, err := comms.MarkHandled(ctx, db.New(s.Pool), uuid(req.EnquiryId), actor(ctx), s.Now())
 	if err != nil {

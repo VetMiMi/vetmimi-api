@@ -39,6 +39,9 @@ const (
 
 var errNoOpenRoom = apperr.New(apperr.InvalidTransition, "This appointment has no open video room.")
 
+// ErrRoomOver means the room is unknown, ended or past its window.
+var ErrRoomOver = errors.New("video: room over")
+
 // Window is when the room for an appointment from start to end is open.
 func Window(start, end time.Time) (opens, closes time.Time) {
 	return start.Add(-OpensBefore), end.Add(ClosesAfter)
@@ -140,4 +143,23 @@ func RoomOf(ctx context.Context, q db.Querier, appointmentID pgtype.UUID) (db.Vi
 		return db.VideoRoom{}, false, err
 	}
 	return room, true, nil
+}
+
+// OpenRoom returns a room that still accepts participants, or ErrRoomOver.
+func OpenRoom(ctx context.Context, q db.Querier, id pgtype.UUID, now time.Time) (db.VideoRoom, error) {
+	room, err := q.GetVideoRoom(ctx, id)
+	if errors.Is(err, pgx.ErrNoRows) {
+		return db.VideoRoom{}, ErrRoomOver
+	}
+	if err != nil {
+		return db.VideoRoom{}, err
+	}
+	if isOver(room, now) {
+		return db.VideoRoom{}, ErrRoomOver
+	}
+	return room, nil
+}
+
+func isOver(room db.VideoRoom, now time.Time) bool {
+	return room.State == StateEnded || !now.Before(room.ClosesAt)
 }

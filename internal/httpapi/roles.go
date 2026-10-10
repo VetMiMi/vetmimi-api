@@ -8,9 +8,8 @@ import (
 	"github.com/VetMiMi/vetmimi-api/internal/httpapi/gen"
 )
 
-// The role sets the table below uses. auth.HasRole lets site_admin act as
-// either of the other two, so a row names the narrowest role that may use
-// it, and site_admin alone only where the other two may not.
+// auth.HasRole lets site_admin act as either other role, so each row names the
+// narrowest role allowed.
 var (
 	everyRole     = []auth.Role{auth.ContentEditor, auth.BookingAdmin, auth.SiteAdmin}
 	bookingAdmin  = []auth.Role{auth.BookingAdmin}
@@ -18,14 +17,10 @@ var (
 	siteAdmin     = []auth.Role{auth.SiteAdmin}
 )
 
-// rolesByOperation is the roles each sessionToken operation in openapi.yaml
-// allows: docs/architecture.md, "Authentication and roles". Content editors
-// never reach booking data and booking administrators never edit content
-// (ADR-002). TestEverySessionOperationHasRoles keeps it in step with the
-// contract. Rules finer than an operation, such as settings key groups,
-// belong to the domain, through auth.FromContext.
+// rolesByOperation is who may call each sessionToken operation. An operation
+// missing here allows no one. Finer rules, such as settings key groups, belong
+// to the domain.
 var rolesByOperation = map[string][]auth.Role{
-	// The settings domain decides which keys each role sees and changes.
 	"deleteCurrentSession": everyRole,
 	"getCurrentUser":       everyRole,
 	"getSettings":          everyRole,
@@ -74,9 +69,7 @@ var rolesByOperation = map[string][]auth.Role{
 	"getContactEnquiry":           bookingAdmin,
 	"markContactEnquiryHandled":   bookingAdmin,
 
-	// The publishing portal (ADR-009): editors write, submit, and retry or
-	// mark posted by hand a channel that failed; only a site administrator reviews, schedules,
-	// publishes or archives.
+	// Editors write and submit; only a site administrator reviews and publishes.
 	"listPosts":             contentEditor,
 	"createPost":            contentEditor,
 	"getPost":               contentEditor,
@@ -92,20 +85,15 @@ var rolesByOperation = map[string][]auth.Role{
 	"publishPost":           siteAdmin,
 	"archivePost":           siteAdmin,
 
-	// The media library belongs to whoever writes posts; a delete is
-	// refused while any post uses the image.
 	"listMedia":   contentEditor,
 	"uploadMedia": contentEditor,
 	"getMedia":    contentEditor,
 	"updateMedia": contentEditor,
 	"deleteMedia": contentEditor,
 
-	// The AI assistant helps whoever writes posts.
 	"suggestPostVersions": contentEditor,
 	"getAIStatus":         contentEditor,
 
-	// Connecting the practice's own Facebook Page, Instagram and her LinkedIn
-	// profile is Daw Mi's.
 	"getMetaConnection":    siteAdmin,
 	"startMetaConnection":  siteAdmin,
 	"finishMetaConnection": siteAdmin,
@@ -118,13 +106,8 @@ var rolesByOperation = map[string][]auth.Role{
 	"disconnectLinkedIn":       siteAdmin,
 }
 
-// requireRoles answers 403 forbidden to a request for a sessionToken
-// operation whose user holds none of the roles rolesByOperation allows it.
-// The body is the same for every operation, so a refusal names no route or
-// resource (Booking & Admin UX, section 29). An operation missing from the
-// table allows no one: a new signed-in route stays closed until it is given
-// roles. It runs after the session check, which put the session in the
-// context; other operations are left alone.
+// requireRoles answers 403 to a sessionToken operation the user's roles do
+// not allow. The body is the same for every operation, so it names nothing.
 func requireRoles(ops operations) gen.MiddlewareFunc {
 	return func(next http.Handler) http.Handler {
 		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
@@ -143,7 +126,6 @@ func requireRoles(ops operations) gen.MiddlewareFunc {
 	}
 }
 
-// permits reports whether a user holding held may act as any of allowed.
 func permits(allowed []auth.Role, held []string) bool {
 	for _, r := range allowed {
 		if auth.HasRole(held, r) {

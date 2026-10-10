@@ -243,7 +243,7 @@ func (h *Hub) endFinishedRooms(ctx context.Context) {
 	}
 	now := h.now()
 	for _, r := range rooms {
-		if r.State == StateEnded || !now.Before(r.ClosesAt) {
+		if isOver(r, now) {
 			h.EndRoom(r.ID)
 		}
 	}

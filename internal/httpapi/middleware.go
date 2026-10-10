@@ -4,7 +4,9 @@ import (
 	"context"
 	"crypto/rand"
 	"encoding/hex"
+	"errors"
 	"fmt"
+	"io"
 	"log/slog"
 	"net/http"
 	"net/netip"
@@ -13,11 +15,30 @@ import (
 	"time"
 
 	"github.com/VetMiMi/vetmimi-api/internal/apperr"
+	"github.com/VetMiMi/vetmimi-api/internal/httpapi/gen"
 )
+
+// Every route in the API group gets these unless it asks for others.
+const (
+	defaultTimeout = 30 * time.Second
+	defaultBodyCap = 64 << 10
+)
+
+// Posts carry a whole article in two languages.
+var bodyCapByOperation = map[string]int64{
+	"createPost": 512 << 10,
+	"updatePost": 512 << 10,
+}
+
+// The assistant reads the post, then waits up to 30 seconds for the model.
+var timeoutByOperation = map[string]time.Duration{
+	"suggestPostVersions": 45 * time.Second,
+}
 
 type (
 	requestIDKey struct{}
 	clientIPKey  struct{}
+	timeoutKey   struct{}
 )
 
 // RequestID is the id of the request ctx belongs to, or "" outside one.
@@ -26,17 +47,14 @@ func RequestID(ctx context.Context) string {
 	return id
 }
 
-// ClientIP is the visitor's address, for rate limits: X-Visitor-IP on a
-// request that carried a valid service key, else the address the request came
-// from. It is the zero Addr when neither parses.
+// ClientIP is the visitor's address for rate limits, or the zero Addr.
 func ClientIP(ctx context.Context) netip.Addr {
 	ip, _ := ctx.Value(clientIPKey{}).(netip.Addr)
 	return ip
 }
 
 // requestID reuses the caller's X-Request-Id, so the site's logs and ours
-// share one id, but only when it is short and plain enough to be safe in a
-// log line; anything else is replaced.
+// share one id, but only when it is safe to put in a log line.
 func requestID(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		id := r.Header.Get("X-Request-Id")
@@ -64,9 +82,8 @@ func validRequestID(id string) bool {
 	return true
 }
 
-// realIP trusts only the last X-Forwarded-For address: the API port is
-// reachable only through Caddy, which appends the address it saw, and every
-// earlier entry is whatever the client chose to send.
+// realIP trusts only the last X-Forwarded-For address: Caddy appends the one
+// it saw, and every earlier entry is whatever the client sent.
 func realIP(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		ctx := context.WithValue(r.Context(), clientIPKey{}, clientAddr(r))
@@ -87,9 +104,8 @@ func clientAddr(r *http.Request) netip.Addr {
 	return netip.Addr{}
 }
 
-// logRequests writes one line per request once it completes. It logs the
-// route pattern, never the path or query, because management and join tokens
-// travel in paths.
+// logRequests logs the route pattern, never the path: management and join
+// tokens travel in paths.
 func logRequests(log *slog.Logger) func(http.Handler) http.Handler {
 	return func(next http.Handler) http.Handler {
 		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
@@ -112,9 +128,8 @@ func logRequests(log *slog.Logger) func(http.Handler) http.Handler {
 	}
 }
 
-// recoverPanics answers a panic as 500 internal_error and logs its stack, so
-// one bad request cannot take the process down. http.ErrAbortHandler is the
-// standard way to abort a response and is passed on to net/http.
+// recoverPanics answers a panic 500 and logs its stack. http.ErrAbortHandler
+// is the standard way to abort a response, so it is passed on.
 func recoverPanics(log *slog.Logger) func(http.Handler) http.Handler {
 	return func(next http.Handler) http.Handler {
 		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
@@ -140,8 +155,7 @@ func recoverPanics(log *slog.Logger) func(http.Handler) http.Handler {
 	}
 }
 
-// securityHeaders apply to every response, errors and 404s included. The API
-// only ever answers JSON, so nothing it sends should be framed, sniffed,
+// The API only answers JSON, so nothing it sends should be framed, sniffed,
 // cached or allowed to load anything.
 var securityHeaders = map[string]string{
 	"X-Content-Type-Options":  "nosniff",
@@ -160,8 +174,81 @@ func setSecurityHeaders(next http.Handler) http.Handler {
 	})
 }
 
-// recorder notes what was written, for the request log and for the
-// middleware that must not answer a request a second time.
+// timeout is shared by every WithTimeout on one request, so the outermost can
+// tell whether the deadline the handler ran under was reached.
+type timeout struct {
+	untimed context.Context // ends only when the client goes
+	handler context.Context // the innermost deadline, the one handlers see
+}
+
+// WithTimeout gives the request a deadline of d, replacing any outer one, and
+// answers 503 when the handler returns without answering after it passed.
+func WithTimeout(d time.Duration) func(http.Handler) http.Handler {
+	return func(next http.Handler) http.Handler {
+		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			parent := r.Context()
+			t, nested := parent.Value(timeoutKey{}).(*timeout)
+			if !nested {
+				t = &timeout{untimed: parent}
+				parent = context.WithValue(parent, timeoutKey{}, t)
+			}
+			// Detached from the outer deadline so a route can have longer than
+			// its group, then tied back to the client's connection.
+			ctx, cancel := context.WithTimeout(context.WithoutCancel(parent), d)
+			defer cancel()
+			defer context.AfterFunc(t.untimed, cancel)()
+			t.handler = ctx
+
+			rw := track(w)
+			next.ServeHTTP(rw, r.WithContext(ctx))
+			if !nested && !rw.started() && errors.Is(t.handler.Err(), context.DeadlineExceeded) {
+				writeProblem(rw, apperr.New(apperr.Unavailable, "The request ran out of time."))
+			}
+		})
+	}
+}
+
+// cappedBody remembers the uncapped body, so a route's own cap replaces its
+// group's instead of sitting behind it.
+type cappedBody struct {
+	io.ReadCloser
+	raw io.ReadCloser
+}
+
+// WithBodyCap limits the request body to n bytes, replacing any outer cap.
+// Reading past it fails with *http.MaxBytesError, answered 413.
+func WithBodyCap(n int64) func(http.Handler) http.Handler {
+	return func(next http.Handler) http.Handler {
+		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			raw := r.Body
+			if c, ok := raw.(*cappedBody); ok {
+				raw = c.raw
+			}
+			r.Body = &cappedBody{ReadCloser: http.MaxBytesReader(w, raw, n), raw: raw}
+			next.ServeHTTP(w, r)
+		})
+	}
+}
+
+// operationLimits applies bodyCapByOperation and timeoutByOperation.
+func operationLimits(ops operations) gen.MiddlewareFunc {
+	return func(next http.Handler) http.Handler {
+		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			op, _ := ops.lookup(r)
+			h := next
+			if n, ok := bodyCapByOperation[op.ID]; ok {
+				h = WithBodyCap(n)(h)
+			}
+			if d, ok := timeoutByOperation[op.ID]; ok {
+				h = WithTimeout(d)(h)
+			}
+			h.ServeHTTP(w, r)
+		})
+	}
+}
+
+// recorder notes what was written, for the request log and for middleware
+// that must not answer twice.
 type recorder struct {
 	http.ResponseWriter
 	status int

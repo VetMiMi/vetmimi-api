@@ -95,15 +95,18 @@ func (c *Connector) rest(ctx context.Context, method, path, token string, body a
 	return req, nil
 }
 
+func (c *Connector) httpClient() *http.Client {
+	if c.HTTP != nil {
+		return c.HTTP
+	}
+	return &http.Client{Timeout: 30 * time.Second}
+}
+
 // do sends req. out, if not nil, receives the JSON answer. The headers are
 // returned because a created post's id comes in X-Restli-Id.
 func (c *Connector) do(req *http.Request, out any) (http.Header, error) {
-	client := c.HTTP
-	if client == nil {
-		client = &http.Client{Timeout: 30 * time.Second}
-	}
 	what := req.Method + " " + req.URL.Path
-	res, err := client.Do(req)
+	res, err := c.httpClient().Do(req)
 	if err != nil {
 		// An upload URL carries a signed ticket: keep it out of the logged error.
 		var ue *url.Error

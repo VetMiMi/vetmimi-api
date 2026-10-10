@@ -323,3 +323,11 @@ func TestPublishFailures(t *testing.T) {
 	require.Equal(t, &content.ChannelError{Reason: "reconnect_required"}, reason(t, errOf(c.Publish(ctx, v))))
 	require.Empty(t, f.find("/rest/posts"))
 }
+
+// Every call, image downloads included, needs a timeout; http.DefaultClient has none.
+func TestDefaultClientTimesOut(t *testing.T) {
+	require.Equal(t, 30*time.Second, linkedin.HTTPClient(&linkedin.Connector{}).Timeout)
+
+	own := &http.Client{}
+	require.Same(t, own, linkedin.HTTPClient(&linkedin.Connector{HTTP: own}))
+}

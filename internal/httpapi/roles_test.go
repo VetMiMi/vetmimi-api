@@ -16,10 +16,6 @@ import (
 	"github.com/VetMiMi/vetmimi-api/internal/httpapi/gen"
 )
 
-// Only the auth and settings tags are generated yet, so most of the table is
-// tested against the middleware directly, with requests routed to the
-// operations in openapi.yaml; the generated routes test it end to end.
-
 func requireForbidden(t *testing.T, res *httptest.ResponseRecorder) {
 	t.Helper()
 	require.Equal(t, http.StatusForbidden, res.Code, res.Body.String())
@@ -72,8 +68,8 @@ func TestOnlyAuthAndSettingsReadAreSharedByEditorsAndBookingAdmins(t *testing.T)
 	require.Equal(t, map[string]bool{"deleteCurrentSession": true, "getCurrentUser": true, "getSettings": true}, shared)
 }
 
-// roleCheck is the role check over the whole contract, not only the
-// generated tags, with each signed-in operation's method and route pattern.
+// roleCheck is the role check over the whole contract, with each signed-in
+// operation's method and route pattern.
 type roleCheck struct {
 	check  gen.MiddlewareFunc
 	routes map[string][2]string
@@ -140,7 +136,7 @@ func TestEachRolePassesItsOwnRows(t *testing.T) {
 }
 
 // A refusal answers the same bytes whatever was refused, so it names no
-// operation, route or resource (Booking & Admin UX, section 29).
+// operation, route or resource.
 func TestContentEditorIsRefusedBookingWithNoResourceData(t *testing.T) {
 	rc := newRoleCheck(t)
 	var first string

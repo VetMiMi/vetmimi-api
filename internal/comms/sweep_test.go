@@ -11,6 +11,7 @@ import (
 	"github.com/VetMiMi/vetmimi-api/internal/db"
 	"github.com/VetMiMi/vetmimi-api/internal/pgtest"
 	taskqueue "github.com/VetMiMi/vetmimi-api/internal/queue"
+	"github.com/VetMiMi/vetmimi-api/internal/settings"
 )
 
 func dueIDs(t *testing.T, now time.Time) map[string]taskqueue.Task {
@@ -75,4 +76,14 @@ func TestRescheduleReminderRows_MovesQueuedRemindersToTheNewOffset(t *testing.T)
 	require.NotNil(t, moved)
 	require.True(t, want.Equal(moved.ProcessAt))
 	require.Equal(t, taskqueue.Critical, moved.Queue)
+}
+
+func TestReminderRescheduleTasks_OnlyWhenReminderHoursChanges(t *testing.T) {
+	now := time.Date(2026, 10, 11, 9, 0, 0, 0, time.UTC)
+	require.Empty(t, comms.ReminderRescheduleTasks(settings.Patch{"pending_hold_hours": []byte("12")}, now))
+
+	tasks := comms.ReminderRescheduleTasks(settings.Patch{"reminder_hours": []byte("48")}, now)
+	require.Len(t, tasks, 1)
+	require.Equal(t, comms.TaskRescheduleReminders, tasks[0].Type)
+	require.Equal(t, "reminders:1791709200000000000", tasks[0].ID)
 }
