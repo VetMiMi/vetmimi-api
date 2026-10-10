@@ -15,17 +15,44 @@ import (
 	"github.com/VetMiMi/vetmimi-api/internal/db"
 )
 
-// The workflow (docs/data-model.md, "Posts"): idea ⇄ draft → in_review →
-// approved → scheduled → publishing → published. A request for changes
-// sends in_review back to draft, an edit sends approved, scheduled or (the
-// website version only) publishing and published back to in_review, and any
-// status may be archived. Each action below names the
-// statuses it starts from; the HTTP role table decides who may take it.
+type action struct {
+	name string   // as in "cannot be <name>"
+	from []string // the statuses it may start from
+}
 
-// Submit puts an idea or a draft in front of the reviewer.
+// idea ⇄ draft → in_review → approved → scheduled → publishing → published;
+// an edit sends approved and later posts back to in_review (editStatus).
+var (
+	submit         = action{"submitted", []string{"idea", "draft"}}
+	requestChanges = action{"sent back", []string{"in_review"}}
+	approve        = action{"approved", []string{"in_review"}}
+	schedule       = action{"scheduled", []string{"approved", "scheduled"}}
+	unschedule     = action{"unscheduled", []string{"scheduled"}}
+	publishNow     = action{"published", []string{"approved", "scheduled"}}
+	markPosted     = action{"marked posted", []string{"publishing", "published"}}
+	retry          = action{"retried", []string{"publishing"}}
+	archive        = action{"archived", []string{"idea", "draft", "in_review", "approved", "scheduled", "publishing", "published"}}
+)
+
+func (a action) check(p *db.Post) error {
+	if slices.Contains(a.from, p.Status) {
+		return nil
+	}
+	return errTransition(p, a.name)
+}
+
+func errTransition(p *db.Post, name string) error {
+	return apperr.New(apperr.InvalidTransition, "A post that is "+p.Status+" cannot be "+name+".")
+}
+
+var (
+	errNotWaiting = apperr.New(apperr.ActionNotAllowed, "This channel is not waiting to be posted by hand.")
+	errNotFailed  = apperr.New(apperr.ActionNotAllowed, "Only a channel that failed can be retried.")
+)
+
 func Submit(ctx context.Context, pool *pgxpool.Pool, id pgtype.UUID, version int32, now time.Time) (Post, error) {
-	return change(ctx, pool, id, version, now, func(_ *db.Queries, p *db.Post) error {
-		if err := requireStatus(p, "submitted", "idea", "draft"); err != nil {
+	return changePost(ctx, pool, id, version, now, func(_ *db.Queries, p *db.Post) error {
+		if err := submit.check(p); err != nil {
 			return err
 		}
 		p.Status = "in_review"
@@ -33,10 +60,9 @@ func Submit(ctx context.Context, pool *pgxpool.Pool, id pgtype.UUID, version int
 	})
 }
 
-// RequestChanges sends a post in review back to its author with a note.
 func RequestChanges(ctx context.Context, pool *pgxpool.Pool, id pgtype.UUID, version int32, note string, now time.Time) (Post, error) {
-	return change(ctx, pool, id, version, now, func(_ *db.Queries, p *db.Post) error {
-		if err := requireStatus(p, "sent back", "in_review"); err != nil {
+	return changePost(ctx, pool, id, version, now, func(_ *db.Queries, p *db.Post) error {
+		if err := requestChanges.check(p); err != nil {
 			return err
 		}
 		p.Status = "draft"
@@ -45,11 +71,9 @@ func RequestChanges(ctx context.Context, pool *pgxpool.Pool, id pgtype.UUID, ver
 	})
 }
 
-// Approve approves a post in review once every enabled channel version is
-// ready for its platform and a True Story's consent is confirmed.
 func Approve(ctx context.Context, pool *pgxpool.Pool, id pgtype.UUID, version int32, by pgtype.UUID, now time.Time) (Post, error) {
-	return change(ctx, pool, id, version, now, func(q *db.Queries, p *db.Post) error {
-		if err := requireStatus(p, "approved", "in_review"); err != nil {
+	return changePost(ctx, pool, id, version, now, func(q *db.Queries, p *db.Post) error {
+		if err := approve.check(p); err != nil {
 			return err
 		}
 		versions, err := q.ListPostVersions(ctx, p.ID)
@@ -70,11 +94,9 @@ func Approve(ctx context.Context, pool *pgxpool.Pool, id pgtype.UUID, version in
 	})
 }
 
-// Schedule sets an approved post, or moves a scheduled one, to go out at a
-// future time.
 func Schedule(ctx context.Context, pool *pgxpool.Pool, id pgtype.UUID, version int32, at, now time.Time) (Post, error) {
-	return change(ctx, pool, id, version, now, func(_ *db.Queries, p *db.Post) error {
-		if err := requireStatus(p, "scheduled", "approved", "scheduled"); err != nil {
+	return changePost(ctx, pool, id, version, now, func(_ *db.Queries, p *db.Post) error {
+		if err := schedule.check(p); err != nil {
 			return err
 		}
 		if !at.After(now) {
@@ -87,10 +109,9 @@ func Schedule(ctx context.Context, pool *pgxpool.Pool, id pgtype.UUID, version i
 	})
 }
 
-// Unschedule takes a scheduled post back to approved.
 func Unschedule(ctx context.Context, pool *pgxpool.Pool, id pgtype.UUID, version int32, now time.Time) (Post, error) {
-	return change(ctx, pool, id, version, now, func(_ *db.Queries, p *db.Post) error {
-		if err := requireStatus(p, "unscheduled", "scheduled"); err != nil {
+	return changePost(ctx, pool, id, version, now, func(_ *db.Queries, p *db.Post) error {
+		if err := unschedule.check(p); err != nil {
 			return err
 		}
 		p.Status = "approved"
@@ -99,22 +120,20 @@ func Unschedule(ctx context.Context, pool *pgxpool.Pool, id pgtype.UUID, version
 	})
 }
 
-// PublishNow publishes an approved or scheduled post at once.
 func PublishNow(ctx context.Context, pool *pgxpool.Pool, id pgtype.UUID, version int32, now time.Time) (Post, error) {
-	return change(ctx, pool, id, version, now, func(q *db.Queries, p *db.Post) error {
-		if err := requireStatus(p, "published", "approved", "scheduled"); err != nil {
+	return changePost(ctx, pool, id, version, now, func(q *db.Queries, p *db.Post) error {
+		if err := publishNow.check(p); err != nil {
 			return err
 		}
 		return startPublishing(ctx, q, p, now)
 	})
 }
 
-// Archive takes a post out of the workflow; a published article leaves the
-// website. Its record and publications stay.
+// Archive takes a published article off the website but keeps its record.
 func Archive(ctx context.Context, pool *pgxpool.Pool, id pgtype.UUID, version int32, now time.Time) (Post, error) {
-	return change(ctx, pool, id, version, now, func(_ *db.Queries, p *db.Post) error {
-		if p.Status == "archived" {
-			return errTransition(p, "archived")
+	return changePost(ctx, pool, id, version, now, func(_ *db.Queries, p *db.Post) error {
+		if err := archive.check(p); err != nil {
+			return err
 		}
 		p.Status = "archived"
 		p.ScheduledAt = sql.NullTime{}
@@ -122,18 +141,14 @@ func Archive(ctx context.Context, pool *pgxpool.Pool, id pgtype.UUID, version in
 	})
 }
 
-var errNotWaiting = apperr.New(apperr.ActionNotAllowed, "This channel is not waiting to be posted by hand.")
-
-// MarkPosted records that Daw Mi posted a social channel herself (copy &
-// open), with the post's address when she has it.
+// MarkPosted records that Daw Mi posted a social channel by hand.
 func MarkPosted(ctx context.Context, pool *pgxpool.Pool, id pgtype.UUID, channel, permalink string, now time.Time) (Post, error) {
-	return change(ctx, pool, id, anyVersion, now, func(q *db.Queries, p *db.Post) error {
-		if err := requireStatus(p, "marked posted", "publishing", "published"); err != nil {
+	return changePost(ctx, pool, id, anyVersion, now, func(q *db.Queries, p *db.Post) error {
+		if err := markPosted.check(p); err != nil {
 			return err
 		}
 		_, err := q.MarkPublicationManual(ctx, db.MarkPublicationManualParams{
-			PostID: p.ID, Channel: channel, Now: now,
-			Permalink: pgtype.Text{String: permalink, Valid: permalink != ""},
+			PostID: p.ID, Channel: channel, Permalink: optionalText(permalink), Now: now,
 		})
 		if errors.Is(err, pgx.ErrNoRows) {
 			return errNotWaiting
@@ -145,17 +160,26 @@ func MarkPosted(ctx context.Context, pool *pgxpool.Pool, id pgtype.UUID, channel
 	})
 }
 
-// startPublishing opens a publication for every enabled channel, for
-// Publish now and for the scheduled task alike. The website goes live at
-// once, its article copied to what visitors read; social channels wait as
-// pending for the publishing worker (Tasks), or for Daw Mi to post them by
-// hand. A post published before and edited since republishes its website
-// only, and one whose website was switched off since leaves the site.
+func Retry(ctx context.Context, pool *pgxpool.Pool, id pgtype.UUID, channel string, now time.Time) (Post, error) {
+	return changePost(ctx, pool, id, anyVersion, now, func(q *db.Queries, p *db.Post) error {
+		if err := retry.check(p); err != nil {
+			return err
+		}
+		_, err := q.RetryPostPublication(ctx, db.RetryPostPublicationParams{PostID: id, Channel: channel, Now: now})
+		if errors.Is(err, pgx.ErrNoRows) {
+			return errNotFailed
+		}
+		return err
+	})
+}
+
+// startPublishing puts the website live at once and leaves social channels pending.
 func startPublishing(ctx context.Context, q *db.Queries, p *db.Post, now time.Time) error {
 	versions, err := q.ListPostVersions(ctx, p.ID)
 	if err != nil {
 		return err
 	}
+	// Delete the old copy first, so a post whose website was switched off leaves the site.
 	if err := q.DeleteArticle(ctx, p.ID); err != nil {
 		return err
 	}
@@ -170,6 +194,7 @@ func startPublishing(ctx context.Context, q *db.Queries, p *db.Post, now time.Ti
 				return err
 			}
 		}
+		// A social channel opened before is left as it is, so publishing again never re-sends it.
 		if err := q.OpenPostPublication(ctx, pub); err != nil {
 			return err
 		}
@@ -177,8 +202,7 @@ func startPublishing(ctx context.Context, q *db.Queries, p *db.Post, now time.Ti
 	return settle(ctx, q, p, now)
 }
 
-// settle makes the post published once every channel it opened is
-// published or posted by hand, and publishing until then.
+// settle marks the post published once every channel is published or posted by hand.
 func settle(ctx context.Context, q *db.Queries, p *db.Post, now time.Time) error {
 	pubs, err := q.ListPostPublications(ctx, p.ID)
 	if err != nil {
@@ -196,20 +220,8 @@ func settle(ctx context.Context, q *db.Queries, p *db.Post, now time.Time) error
 	return nil
 }
 
-// backToReview withdraws an approval, and any schedule with it.
 func backToReview(p *db.Post) {
 	p.Status = "in_review"
 	p.ScheduledAt = sql.NullTime{}
 	p.ApprovedAt, p.ApprovedBy = sql.NullTime{}, pgtype.UUID{}
-}
-
-func requireStatus(p *db.Post, action string, from ...string) error {
-	if slices.Contains(from, p.Status) {
-		return nil
-	}
-	return errTransition(p, action)
-}
-
-func errTransition(p *db.Post, action string) error {
-	return apperr.New(apperr.InvalidTransition, "A post that is "+p.Status+" cannot be "+action+".")
 }

@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"strings"
 	"time"
 
 	"github.com/jackc/pgx/v5"
@@ -13,8 +14,7 @@ import (
 	"github.com/VetMiMi/vetmimi-api/internal/db"
 )
 
-// Article is a post's website version as last published, in one locale. Body, SEOTitle and
-// SEODescription are empty in a list.
+// Article is a post's website version as last published; a list leaves Body and SEO empty.
 type Article struct {
 	Slug           string
 	Kind           string
@@ -27,8 +27,6 @@ type Article struct {
 	PublishedAt    time.Time
 }
 
-// Cover is an article's cover image from the media library, with its alt
-// text in the article's locale.
 type Cover struct {
 	ID            pgtype.UUID
 	Width, Height int32
@@ -36,20 +34,11 @@ type Cover struct {
 	Alt           string
 }
 
-func cover(id pgtype.UUID, width, height pgtype.Int4, widths []int32, alt json.RawMessage, locale string) *Cover {
-	if !id.Valid {
-		return nil
-	}
-	return &Cover{ID: id, Width: width.Int32, Height: height.Int32, Widths: widths, Alt: inLocale(alt, locale)}
-}
-
 var errNoArticle = apperr.New(apperr.NotFound, "No published article has this slug.")
 
-// ListArticles lists the published articles newest first, of kind when it
-// is not empty, in locale with English as the fallback.
 func ListArticles(ctx context.Context, q db.Querier, locale, kind string, limit int) ([]Article, error) {
 	rows, err := q.ListPublicArticles(ctx, db.ListPublicArticlesParams{
-		Kind:    pgtype.Text{String: kind, Valid: kind != ""},
+		Kind:    optionalText(kind),
 		MaxRows: int32(limit),
 	})
 	if err != nil {
@@ -66,8 +55,6 @@ func ListArticles(ctx context.Context, q db.Querier, locale, kind string, limit 
 	return out, nil
 }
 
-// GetArticle reads one published article in locale, English as the
-// fallback. The SEO title and description default to the title and excerpt.
 func GetArticle(ctx context.Context, q db.Querier, slug, locale string) (Article, error) {
 	r, err := q.GetPublicArticle(ctx, slug)
 	if errors.Is(err, pgx.ErrNoRows) {
@@ -90,3 +77,24 @@ func GetArticle(ctx context.Context, q db.Querier, slug, locale string) (Article
 	}
 	return a, nil
 }
+
+func cover(id pgtype.UUID, width, height pgtype.Int4, widths []int32, alt json.RawMessage, locale string) *Cover {
+	if !id.Valid {
+		return nil
+	}
+	return &Cover{ID: id, Width: width.Int32, Height: height.Int32, Widths: widths, Alt: inLocale(alt, locale)}
+}
+
+// inLocale falls back to English when raw has no text for locale.
+func inLocale(raw json.RawMessage, locale string) string {
+	var text map[string]string
+	if json.Unmarshal(raw, &text) != nil {
+		return ""
+	}
+	if s := text[locale]; !blank(s) {
+		return s
+	}
+	return text["en"]
+}
+
+func blank(s string) bool { return strings.TrimSpace(s) == "" }

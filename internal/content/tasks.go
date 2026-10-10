@@ -18,26 +18,18 @@ import (
 	"github.com/VetMiMi/vetmimi-api/internal/queue"
 )
 
-// Tasks runs the publishing worker: scheduled posts, one task per social
-// channel, site revalidation, and the sweep that rebuilds lost tasks.
+// Tasks runs the publishing worker.
 type Tasks struct {
-	Pool *pgxpool.Pool
-	// Queue takes the tasks a handler leads to; nil drops them, as in tests.
-	Queue *queue.Queue
-	// Publishers posts each social channel; a channel missing from it is
-	// not connected.
-	Publishers map[string]Publisher
-	// SiteURL and RevalidateSecret reach the site's POST /api/revalidate;
-	// without the secret, as in development, revalidation is skipped.
+	Pool             *pgxpool.Pool
+	Queue            *queue.Queue         // nil drops the tasks, as in tests
+	Publishers       map[string]Publisher // a channel missing here is not connected
 	SiteURL          string
-	RevalidateSecret string
-	// HTTP calls the site; nil means a client with a 10-second timeout.
-	HTTP *http.Client
-	Log  *slog.Logger
-	Now  clock.Now
+	RevalidateSecret string       // empty skips revalidation, as in development
+	HTTP             *http.Client // nil means a client with a 10-second timeout
+	Log              *slog.Logger
+	Now              clock.Now
 }
 
-// Register adds the publishing handlers and the sweep schedule to w.
 func (t *Tasks) Register(w *queue.Worker) {
 	w.Handle(TaskPublishScheduled, t.PublishScheduled)
 	w.Handle(TaskPublishChannel, t.PublishChannel)
@@ -46,10 +38,8 @@ func (t *Tasks) Register(w *queue.Worker) {
 	w.Every("@every 5m", TaskSweep)
 }
 
-// PublishScheduled starts publishing a scheduled post whose time has come.
 func (t *Tasks) PublishScheduled(ctx context.Context, payload []byte) error {
-	var p postPayload
-	id, err := decodeID(payload, &p, &p.PostID)
+	id, _, err := parsePublishPayload(payload)
 	if err != nil {
 		return err
 	}
@@ -61,21 +51,18 @@ func (t *Tasks) PublishScheduled(ctx context.Context, payload []byte) error {
 	return nil
 }
 
-// PublishChannel makes one attempt at a social channel.
 func (t *Tasks) PublishChannel(ctx context.Context, payload []byte) error {
-	var p channelPayload
-	id, err := decodeID(payload, &p, &p.PostID)
+	id, channel, err := parsePublishPayload(payload)
 	if err != nil {
 		return err
 	}
-	publish, ok := t.Publishers[p.Channel]
+	publish, ok := t.Publishers[channel]
 	if !ok {
 		publish = NotConnected
 	}
-	return PublishChannel(ctx, t.Pool, id, p.Channel, publish, t.Now())
+	return PublishChannel(ctx, t.Pool, id, channel, publish, t.Now())
 }
 
-// Sweep fails the channels FailStuck finds and enqueues DueTasks.
 func (t *Tasks) Sweep(ctx context.Context, _ []byte) error {
 	q := db.New(t.Pool)
 	failed, err := FailStuck(ctx, q, t.Now())
@@ -91,8 +78,7 @@ func (t *Tasks) Sweep(ctx context.Context, _ []byte) error {
 	return nil
 }
 
-// Revalidate asks the site to drop its cached article list and the one
-// article. Revalidating twice is harmless, so a failure is simply retried.
+// Revalidate is harmless to repeat, so a failure is simply retried.
 func (t *Tasks) Revalidate(ctx context.Context, payload []byte) error {
 	var p revalidatePayload
 	if err := json.Unmarshal(payload, &p); err != nil {
@@ -102,7 +88,11 @@ func (t *Tasks) Revalidate(ctx context.Context, payload []byte) error {
 		t.Log.InfoContext(ctx, "revalidation skipped", "reason", "SITE_REVALIDATE_SECRET is empty")
 		return nil
 	}
-	body, err := json.Marshal(map[string][]string{"tags": {"articles", "article:" + p.Slug}})
+	return t.callRevalidate(ctx, p.Slug)
+}
+
+func (t *Tasks) callRevalidate(ctx context.Context, slug string) error {
+	body, err := json.Marshal(map[string][]string{"tags": {"articles", "article:" + slug}})
 	if err != nil {
 		return err
 	}
@@ -134,14 +124,14 @@ func (t *Tasks) enqueue(ctx context.Context, tasks ...queue.Task) {
 	}
 }
 
-// decodeID unmarshals payload into v and parses the post id it holds.
-func decodeID(payload []byte, v any, postID *string) (pgtype.UUID, error) {
+func parsePublishPayload(payload []byte) (pgtype.UUID, string, error) {
+	var p publishPayload
 	var id pgtype.UUID
-	if err := json.Unmarshal(payload, v); err != nil {
-		return id, fmt.Errorf("content: task payload: %w", err)
+	if err := json.Unmarshal(payload, &p); err != nil {
+		return id, "", fmt.Errorf("content: task payload: %w", err)
 	}
-	if err := id.Scan(*postID); err != nil {
-		return id, fmt.Errorf("content: task payload: %w", err)
+	if err := id.Scan(p.PostID); err != nil {
+		return id, "", fmt.Errorf("content: task payload: %w", err)
 	}
-	return id, nil
+	return id, p.Channel, nil
 }

@@ -1,6 +1,6 @@
-// Package content is the publishing portal (ADR-009): posts, a version of
-// each post for every channel, the workflow from idea to published, and the
-// website articles the site reads.
+// Package content is the publishing portal: posts, a version of each post per
+// channel, and the workflow from idea to published. Publishing puts the website
+// article live at once and leaves each social channel to the worker (Tasks).
 package content
 
 import (
@@ -8,7 +8,6 @@ import (
 	"context"
 	"database/sql"
 	"errors"
-	"slices"
 	"time"
 
 	"github.com/jackc/pgx/v5"
@@ -21,17 +20,13 @@ import (
 	"github.com/VetMiMi/vetmimi-api/internal/listing"
 )
 
-// Post is a post with its channel versions and how each channel's
-// publishing went.
 type Post struct {
 	db.Post
 	Versions     []db.PostVersion
 	Publications []db.PostPublication
 }
 
-// Edit is an author's change to a post. An empty Title, Kind or Status and a
-// nil Consent leave that field as it is; each of Versions replaces that
-// channel's version whole.
+// Edit leaves empty fields and a nil Consent as they are; each version is replaced whole.
 type Edit struct {
 	Title    string
 	Kind     string
@@ -40,20 +35,35 @@ type Edit struct {
 	Versions []db.SavePostVersionParams
 }
 
-// Consent is the author's confirmation that a True Story's storyteller
-// agreed to the post, and where that agreement is kept.
+// Consent is a True Story storyteller's agreement; Note says where it is kept.
 type Consent struct {
 	Confirmed bool
 	Note      string
 }
 
+type PostFilter struct {
+	Status, Search, Cursor string
+	Limit                  int
+}
+
+type PostPage struct {
+	Items      []db.ListPostsRow
+	NextCursor string
+}
+
+// anyVersion skips the version check, for changes that cannot overwrite what the caller read.
+const anyVersion = 0
+
 var (
 	errPostNotFound = apperr.New(apperr.NotFound, "No post has this id.")
 	errStalePost    = apperr.New(apperr.StaleVersion, "The post changed since it was read; reload it.")
 	errSlugTaken    = apperr.New(apperr.SlugTaken, "Another article uses this slug.")
+	errLiveEdit     = apperr.New(apperr.ActionNotAllowed,
+		"Once a post has gone out, only its title and website version can be edited.")
+	errNotDeletable = apperr.New(apperr.InvalidTransition,
+		"Only ideas and drafts that never went out can be deleted; archive the post instead.")
 )
 
-// GetPost reads a post with its versions and publications.
 func GetPost(ctx context.Context, q db.Querier, id pgtype.UUID) (Post, error) {
 	p, err := q.GetPost(ctx, id)
 	if errors.Is(err, pgx.ErrNoRows) {
@@ -65,58 +75,30 @@ func GetPost(ctx context.Context, q db.Querier, id pgtype.UUID) (Post, error) {
 	return withChannels(ctx, q, p)
 }
 
-func withChannels(ctx context.Context, q db.Querier, p db.Post) (Post, error) {
-	versions, err := q.ListPostVersions(ctx, p.ID)
-	if err != nil {
-		return Post{}, err
-	}
-	pubs, err := q.ListPostPublications(ctx, p.ID)
-	if err != nil {
-		return Post{}, err
-	}
-	return Post{Post: p, Versions: versions, Publications: pubs}, nil
-}
-
-// PostFilter narrows the post list; empty fields do not filter.
-type PostFilter struct {
-	Status, Search, Cursor string
-	Limit                  int
-}
-
-// PostPage is one page of posts, newest first.
-type PostPage struct {
-	Items      []db.ListPostsRow
-	NextCursor string
-}
-
-// ListPosts lists posts newest first, with the channels each has enabled.
 func ListPosts(ctx context.Context, q db.Querier, f PostFilter) (PostPage, error) {
 	limit := cmp.Or(f.Limit, 50)
-	p := db.ListPostsParams{
-		Status:  pgtype.Text{String: f.Status, Valid: f.Status != ""},
+	params := db.ListPostsParams{
+		Status:  optionalText(f.Status),
 		Search:  listing.LikePattern(f.Search),
 		MaxRows: int32(limit) + 1,
 	}
 	if f.Cursor != "" {
 		var err error
-		if p.AfterAt, p.AfterID, err = listing.DecodeCursor(f.Cursor); err != nil {
+		if params.AfterAt, params.AfterID, err = listing.DecodeCursor(f.Cursor); err != nil {
 			return PostPage{}, err
 		}
 	}
-	rows, err := q.ListPosts(ctx, p)
+	rows, err := q.ListPosts(ctx, params)
 	if err != nil {
 		return PostPage{}, err
 	}
-	page := PostPage{Items: rows}
-	if len(rows) > limit {
-		page.Items = rows[:limit]
-		last := page.Items[limit-1]
-		page.NextCursor = listing.EncodeCursor(last.CreatedAt, last.ID)
+	if len(rows) <= limit {
+		return PostPage{Items: rows}, nil
 	}
-	return page, nil
+	last := rows[limit-1]
+	return PostPage{Items: rows[:limit], NextCursor: listing.EncodeCursor(last.CreatedAt, last.ID)}, nil
 }
 
-// CreatePost saves a new post by author, a draft unless e makes it an idea.
 func CreatePost(ctx context.Context, pool *pgxpool.Pool, e Edit, author pgtype.UUID, now time.Time) (Post, error) {
 	var out Post
 	err := pgx.BeginFunc(ctx, pool, func(tx pgx.Tx) error {
@@ -136,39 +118,14 @@ func CreatePost(ctx context.Context, pool *pgxpool.Pool, e Edit, author pgtype.U
 		out, err = withChannels(ctx, q, created)
 		return err
 	})
-	return out, refusal(err)
+	return out, asSlugTaken(err)
 }
 
-var errLiveEdit = apperr.New(apperr.ActionNotAllowed,
-	"Once a post has gone out, only its title and website version can be edited.")
-
-// UpdatePost applies e to the post as of version. Saving an approved or
-// scheduled post sends it back to review, so nothing unreviewed goes out.
-// Once publishing has started only the title and the website version can
-// change: that too goes back to review, while visitors keep reading the
-// article as last published until it is published again. What went out on
-// social channels stays.
 func UpdatePost(ctx context.Context, pool *pgxpool.Pool, id pgtype.UUID, version int32, e Edit,
 	actor pgtype.UUID, now time.Time) (Post, error) {
-	return change(ctx, pool, id, version, now, func(q *db.Queries, p *db.Post) error {
-		if e.Status != "" {
-			if err := requireStatus(p, "moved to "+e.Status, "idea", "draft"); err != nil {
-				return err
-			}
-			p.Status = e.Status
-		}
-		switch p.Status {
-		case "idea", "draft", "in_review":
-		case "approved", "scheduled":
-			backToReview(p)
-		case "publishing", "published":
-			if e.Kind != "" || e.Consent != nil ||
-				slices.ContainsFunc(e.Versions, func(v db.SavePostVersionParams) bool { return v.Channel != "website" }) {
-				return errLiveEdit
-			}
-			backToReview(p)
-		default:
-			return apperr.New(apperr.InvalidTransition, "A post that is "+p.Status+" cannot be edited.")
+	return changePost(ctx, pool, id, version, now, func(q *db.Queries, p *db.Post) error {
+		if err := editStatus(p, e); err != nil {
+			return err
 		}
 		p.Title = cmp.Or(e.Title, p.Title)
 		p.Kind = cmp.Or(e.Kind, p.Kind)
@@ -177,8 +134,44 @@ func UpdatePost(ctx context.Context, pool *pgxpool.Pool, id pgtype.UUID, version
 	})
 }
 
-// DeletePost deletes an idea or a draft that never went out; anything
-// further along is archived instead, so what was published keeps its record.
+// editStatus sends an approved or published post back to review, so nothing unreviewed goes out.
+func editStatus(p *db.Post, e Edit) error {
+	if e.Status != "" {
+		move := action{"moved to " + e.Status, []string{"idea", "draft"}}
+		if err := move.check(p); err != nil {
+			return err
+		}
+		p.Status = e.Status
+	}
+	switch p.Status {
+	case "idea", "draft", "in_review":
+		return nil
+	case "approved", "scheduled":
+		backToReview(p)
+		return nil
+	case "publishing", "published":
+		if !websiteOnly(e) {
+			return errLiveEdit
+		}
+		backToReview(p)
+		return nil
+	}
+	return errTransition(p, "edited")
+}
+
+func websiteOnly(e Edit) bool {
+	if e.Kind != "" || e.Consent != nil {
+		return false
+	}
+	for _, v := range e.Versions {
+		if v.Channel != "website" {
+			return false
+		}
+	}
+	return true
+}
+
+// DeletePost deletes only ideas and drafts that never went out; the rest are archived.
 func DeletePost(ctx context.Context, q db.Querier, id pgtype.UUID) error {
 	n, err := q.DeletePost(ctx, id)
 	if err != nil || n > 0 {
@@ -187,17 +180,15 @@ func DeletePost(ctx context.Context, q db.Querier, id pgtype.UUID) error {
 	if _, err := GetPost(ctx, q, id); err != nil {
 		return err
 	}
-	return apperr.New(apperr.InvalidTransition,
-		"Only ideas and drafts that never went out can be deleted; archive the post instead.")
+	return errNotDeletable
 }
 
-// setConsent records who confirmed consent and when; confirming again keeps
-// the first confirmation.
+// setConsent keeps the first confirmation when consent is confirmed again.
 func setConsent(p *db.Post, c *Consent, by pgtype.UUID, now time.Time) {
 	if c == nil {
 		return
 	}
-	p.ConsentNote = pgtype.Text{String: c.Note, Valid: c.Note != ""}
+	p.ConsentNote = optionalText(c.Note)
 	switch {
 	case !c.Confirmed:
 		p.ConsentConfirmedAt, p.ConsentConfirmedBy = sql.NullTime{}, pgtype.UUID{}
@@ -219,13 +210,8 @@ func saveVersions(ctx context.Context, q *db.Queries, id pgtype.UUID, versions [
 	return nil
 }
 
-// anyVersion skips the version check, for changes that cannot overwrite
-// what the caller last read, such as marking one channel posted.
-const anyVersion = 0
-
-// change applies fn to the post as of version, holding the post's lock
-// until the change is saved, and returns the post as saved.
-func change(ctx context.Context, pool *pgxpool.Pool, id pgtype.UUID, version int32, now time.Time,
+// changePost locks the post, checks version, applies fn and saves the result.
+func changePost(ctx context.Context, pool *pgxpool.Pool, id pgtype.UUID, version int32, now time.Time,
 	fn func(q *db.Queries, p *db.Post) error) (Post, error) {
 	var out Post
 	err := pgx.BeginFunc(ctx, pool, func(tx pgx.Tx) error {
@@ -255,13 +241,23 @@ func change(ctx context.Context, pool *pgxpool.Pool, id pgtype.UUID, version int
 		out, err = withChannels(ctx, q, saved)
 		return err
 	})
-	return out, refusal(err)
+	return out, asSlugTaken(err)
 }
 
-// refusal names the one constraint an author's input can break; the unique
-// indexes are the guard, so two drafts racing for a slug cannot both win, nor
-// can a post take the slug another's live article still has.
-func refusal(err error) error {
+func withChannels(ctx context.Context, q db.Querier, p db.Post) (Post, error) {
+	versions, err := q.ListPostVersions(ctx, p.ID)
+	if err != nil {
+		return Post{}, err
+	}
+	pubs, err := q.ListPostPublications(ctx, p.ID)
+	if err != nil {
+		return Post{}, err
+	}
+	return Post{Post: p, Versions: versions, Publications: pubs}, nil
+}
+
+// asSlugTaken relies on the unique indexes, so two drafts racing for a slug cannot both win.
+func asSlugTaken(err error) error {
 	var pgErr *pgconn.PgError
 	if errors.As(err, &pgErr) && (pgErr.ConstraintName == "post_versions_slug_key" ||
 		pgErr.ConstraintName == "published_articles_slug_key") {
@@ -269,3 +265,5 @@ func refusal(err error) error {
 	}
 	return err
 }
+
+func optionalText(s string) pgtype.Text { return pgtype.Text{String: s, Valid: s != ""} }

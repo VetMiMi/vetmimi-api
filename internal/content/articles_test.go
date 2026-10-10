@@ -19,9 +19,7 @@ func slugs(articles []content.Article) []string {
 	return out
 }
 
-// Visitors see website versions of published posts only, in their locale
-// with English as the fallback; approved, archived or social-only posts
-// never show.
+// Approved, archived and social-only posts never show.
 func TestPublicArticlesAreOnlyPublishedWebsiteVersions(t *testing.T) {
 	q := db.New(pgtest.Pool(t))
 	withCover := website("live-both-languages")

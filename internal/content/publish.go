@@ -1,7 +1,6 @@
 package content
 
 import (
-	"cmp"
 	"context"
 	"database/sql"
 	"errors"
@@ -12,12 +11,10 @@ import (
 	"github.com/jackc/pgx/v5/pgtype"
 	"github.com/jackc/pgx/v5/pgxpool"
 
-	"github.com/VetMiMi/vetmimi-api/internal/apperr"
 	"github.com/VetMiMi/vetmimi-api/internal/db"
 	"github.com/VetMiMi/vetmimi-api/internal/queue"
 )
 
-// The publishing worker's tasks (docs/architecture.md, "Background jobs").
 const (
 	TaskPublishScheduled = "content:publish-scheduled"
 	TaskPublishChannel   = "content:publish-channel"
@@ -26,29 +23,19 @@ const (
 )
 
 const (
-	// maxAttempts is a first try and three retries, which asynq spaces out
-	// with its backoff.
-	maxAttempts = 4
-	// stuckAfter is how long a channel may wait before the sweep enqueues
-	// it again, or run before the sweep fails it as unknown_outcome; an
-	// attempt, polling included, is over well within it.
-	stuckAfter = 10 * time.Minute
-	// scheduleGrace leaves a scheduled post that has just come due to its
-	// own task.
-	scheduleGrace = time.Minute
+	maxAttempts   = 4                // a first try and three retries, spaced out by asynq
+	stuckAfter    = 10 * time.Minute // far longer than any attempt; then the sweep steps in
+	scheduleGrace = time.Minute      // a post just due is left to its own task
 	sweepLimit    = 100
 )
 
-// Posted is where a channel's post went on its platform.
 type Posted struct {
 	ExternalID, Permalink string
 }
 
-// Publisher posts one social channel version to its platform.
 type Publisher func(ctx context.Context, v db.PostVersion) (Posted, error)
 
-// ChannelError is why a channel was not posted; Reason is the code the
-// portal shows next to copy & open. A transient error is tried again.
+// ChannelError's Reason is the code the portal shows; a transient one is tried again.
 type ChannelError struct {
 	Reason    string
 	Transient bool
@@ -56,86 +43,64 @@ type ChannelError struct {
 
 func (e *ChannelError) Error() string { return "content: channel not posted: " + e.Reason }
 
-// ErrNotConnected is a channel with no platform connection yet.
 var ErrNotConnected = &ChannelError{Reason: "not_connected"}
 
-// NotConnected is the Publisher of a channel with no connector wired: Daw Mi
-// posts it by hand.
+// NotConnected is the Publisher of a channel Daw Mi posts by hand.
 func NotConnected(context.Context, db.PostVersion) (Posted, error) { return Posted{}, ErrNotConnected }
 
-type postPayload struct {
-	PostID string `json:"postId"`
-}
-
-type channelPayload struct {
+type publishPayload struct {
 	PostID  string `json:"postId"`
-	Channel string `json:"channel"`
+	Channel string `json:"channel,omitempty"`
 }
 
 type revalidatePayload struct {
 	Slug string `json:"slug"`
 }
 
-func scheduledTask(id pgtype.UUID, at time.Time) queue.Task {
-	return queue.Task{Type: TaskPublishScheduled, ID: fmt.Sprintf("post:%s:%d", id, at.Unix()),
-		Payload: postPayload{PostID: id.String()}, ProcessAt: at}
-}
-
-// channelTask's id names the attempt, so a retry after a final failure is a
-// new task, while a duplicate of a waiting one is not added.
-func channelTask(pub db.PostPublication) queue.Task {
-	return queue.Task{Type: TaskPublishChannel,
-		ID:      fmt.Sprintf("publish:%s:%s:%d", pub.PostID, pub.Channel, pub.Attempts),
-		Payload: channelPayload{PostID: pub.PostID.String(), Channel: pub.Channel}}
-}
-
-// ScheduledTask publishes p at its scheduled time. A task left behind by a
-// moved or cancelled schedule finds the post not due and does nothing.
+// ScheduledTask is p's publish task; one left behind by a moved schedule does nothing.
 func ScheduledTask(p Post) []queue.Task {
 	if p.Status != "scheduled" {
 		return nil
 	}
-	return []queue.Task{scheduledTask(p.ID, p.ScheduledAt.Time)}
+	return []queue.Task{newScheduledTask(p.ID, p.ScheduledAt.Time)}
 }
 
-// PublishTasks are the tasks for p's channels waiting for the worker.
 func PublishTasks(p Post) []queue.Task {
 	var out []queue.Task
 	for _, pub := range p.Publications {
 		if pub.Status == "pending" {
-			out = append(out, channelTask(pub))
+			out = append(out, newChannelTask(pub))
 		}
 	}
 	return out
 }
 
-// RevalidateTasks asks the site to refresh p's article once p has been on
-// the website: after it goes live, goes live again after an edit, or is
-// archived. An edit alone changes nothing visitors read.
+// RevalidateTasks is empty until the website is live: an edit alone changes nothing visitors read.
 func RevalidateTasks(p Post) []queue.Task {
-	for _, v := range p.Versions {
-		if v.Channel == "website" && v.Slug.Valid && publication(p, "website").Status == "published" {
-			return []queue.Task{{Type: TaskRevalidate, Payload: revalidatePayload{Slug: v.Slug.String}}}
-		}
+	site := channelVersion(p.Versions, "website")
+	if !site.Slug.Valid || publication(p, "website").Status != "published" {
+		return nil
 	}
-	return nil
+	return []queue.Task{{Type: TaskRevalidate, Payload: revalidatePayload{Slug: site.Slug.String}}}
 }
 
-func publication(p Post, channel string) db.PostPublication {
-	for _, pub := range p.Publications {
-		if pub.Channel == channel {
-			return pub
-		}
-	}
-	return db.PostPublication{}
+func newScheduledTask(id pgtype.UUID, at time.Time) queue.Task {
+	return queue.Task{Type: TaskPublishScheduled, ID: fmt.Sprintf("post:%s:%d", id, at.Unix()),
+		Payload: publishPayload{PostID: id.String()}, ProcessAt: at}
+}
+
+// The id names the attempt, so a retry is a new task but a duplicate is not added.
+func newChannelTask(pub db.PostPublication) queue.Task {
+	return queue.Task{Type: TaskPublishChannel,
+		ID:      fmt.Sprintf("publish:%s:%s:%d", pub.PostID, pub.Channel, pub.Attempts),
+		Payload: publishPayload{PostID: pub.PostID.String(), Channel: pub.Channel}}
 }
 
 var errNotDue = errors.New("content: post not due")
 
-// PublishScheduled starts publishing post id if it is still scheduled and
-// its time has come; otherwise it changes nothing and returns no post.
+// PublishScheduled returns no post when the post is gone, no longer scheduled or not yet due.
 func PublishScheduled(ctx context.Context, pool *pgxpool.Pool, id pgtype.UUID, now time.Time) (Post, error) {
-	p, err := change(ctx, pool, id, anyVersion, now, func(q *db.Queries, p *db.Post) error {
+	p, err := changePost(ctx, pool, id, anyVersion, now, func(q *db.Queries, p *db.Post) error {
 		if p.Status != "scheduled" || p.ScheduledAt.Time.After(now) {
 			return errNotDue
 		}
@@ -147,16 +112,14 @@ func PublishScheduled(ctx context.Context, pool *pgxpool.Pool, id pgtype.UUID, n
 	return p, err
 }
 
-// PublishChannel makes one attempt at posting channel of post id through
-// publish. It returns an error only when the attempt failed and should be
-// retried; a permanent failure, or the last attempt, leaves the channel
-// failed for Daw Mi to retry or post by hand.
+// PublishChannel makes one attempt and returns an error only when asynq should try again.
 func PublishChannel(ctx context.Context, pool *pgxpool.Pool, id pgtype.UUID, channel string, publish Publisher,
 	now time.Time) error {
 	q := db.New(pool)
+	// A channel already publishing is never claimed again: its attempt may have posted.
 	pub, err := q.ClaimPostPublication(ctx, db.ClaimPostPublicationParams{PostID: id, Channel: channel, Now: now})
 	if errors.Is(err, pgx.ErrNoRows) {
-		return nil // done, taken by another worker, or the post moved on
+		return nil
 	}
 	if err != nil {
 		return err
@@ -165,60 +128,51 @@ func PublishChannel(ctx context.Context, pool *pgxpool.Pool, id pgtype.UUID, cha
 	if err != nil {
 		return err
 	}
-	var version db.PostVersion
-	for _, v := range versions {
-		if v.Channel == channel {
-			version = v
-		}
+	posted, sendErr := publish(ctx, channelVersion(versions, channel))
+	result, retryErr := attemptResult(pub, posted, sendErr, now)
+	if err := recordAttempt(ctx, pool, result, now); err != nil {
+		return err
 	}
+	return retryErr
+}
 
-	posted, sendErr := publish(ctx, version)
-	result := db.FinishPostPublicationParams{PostID: id, Channel: channel, Status: "published", Now: now}
-	var retry error
+// attemptResult returns the error asynq should retry on, or nil.
+func attemptResult(pub db.PostPublication, posted Posted, sendErr error, now time.Time) (db.FinishPostPublicationParams, error) {
+	result := db.FinishPostPublicationParams{PostID: pub.PostID, Channel: pub.Channel, Now: now}
 	if sendErr == nil {
-		result.ExternalID = pgtype.Text{String: posted.ExternalID, Valid: posted.ExternalID != ""}
-		result.Permalink = pgtype.Text{String: posted.Permalink, Valid: posted.Permalink != ""}
+		result.Status = "published"
+		result.ExternalID = optionalText(posted.ExternalID)
+		result.Permalink = optionalText(posted.Permalink)
 		result.PublishedAt = sql.NullTime{Time: now, Valid: true}
-	} else {
-		ce := &ChannelError{Reason: "connection_failed", Transient: true}
-		errors.As(sendErr, &ce)
-		result.Status, result.Error = "failed", pgtype.Text{String: ce.Reason, Valid: true}
-		if ce.Transient && pub.Attempts < maxAttempts {
-			result.Status, retry = "pending", sendErr
-		}
+		return result, nil
 	}
-	_, err = change(ctx, pool, id, anyVersion, now, func(q *db.Queries, p *db.Post) error {
+	// An error that is not a ChannelError counts as a transient connection failure.
+	ce := &ChannelError{Reason: "connection_failed", Transient: true}
+	errors.As(sendErr, &ce)
+	result.Error = pgtype.Text{String: ce.Reason, Valid: true}
+	if ce.Transient && pub.Attempts < maxAttempts {
+		result.Status = "pending"
+		return result, sendErr
+	}
+	result.Status = "failed"
+	return result, nil
+}
+
+func recordAttempt(ctx context.Context, pool *pgxpool.Pool, result db.FinishPostPublicationParams, now time.Time) error {
+	_, err := changePost(ctx, pool, result.PostID, anyVersion, now, func(q *db.Queries, p *db.Post) error {
 		if _, err := q.FinishPostPublication(ctx, result); err != nil {
 			return err
 		}
+		// Sent back to review meanwhile: publishing it again settles it.
 		if p.Status != "publishing" {
-			return nil // sent back to review meanwhile; publishing it again settles it
+			return nil
 		}
 		return settle(ctx, q, p, now)
 	})
-	return cmp.Or(err, retry)
+	return err
 }
 
-var errNotFailed = apperr.New(apperr.ActionNotAllowed, "Only a channel that failed can be retried.")
-
-// Retry gives a failed social channel a fresh set of attempts.
-func Retry(ctx context.Context, pool *pgxpool.Pool, id pgtype.UUID, channel string, now time.Time) (Post, error) {
-	return change(ctx, pool, id, anyVersion, now, func(q *db.Queries, p *db.Post) error {
-		if err := requireStatus(p, "retried", "publishing"); err != nil {
-			return err
-		}
-		_, err := q.RetryPostPublication(ctx, db.RetryPostPublicationParams{PostID: id, Channel: channel, Now: now})
-		if errors.Is(err, pgx.ErrNoRows) {
-			return errNotFailed
-		}
-		return err
-	})
-}
-
-// DueTasks rebuilds the tasks Redis lost (ADR-006): scheduled posts past
-// their time, and social channels waiting for longer than stuckAfter. Task
-// ids match the ones first given, so a task still queued is not added
-// twice.
+// DueTasks rebuilds the tasks Redis lost, with their first ids so none is added twice.
 func DueTasks(ctx context.Context, q db.Querier, now time.Time) ([]queue.Task, error) {
 	posts, err := q.ListDueScheduledPosts(ctx, db.ListDueScheduledPostsParams{
 		Before: now.Add(-scheduleGrace), MaxRows: sweepLimit,
@@ -234,18 +188,34 @@ func DueTasks(ctx context.Context, q db.Querier, now time.Time) ([]queue.Task, e
 	}
 	var tasks []queue.Task
 	for _, p := range posts {
-		tasks = append(tasks, scheduledTask(p.ID, p.ScheduledAt.Time))
+		tasks = append(tasks, newScheduledTask(p.ID, p.ScheduledAt.Time))
 	}
 	for _, pub := range pubs {
-		tasks = append(tasks, channelTask(pub))
+		tasks = append(tasks, newChannelTask(pub))
 	}
 	return tasks, nil
 }
 
-// FailStuck fails as unknown_outcome every channel whose attempt has run for
-// longer than stuckAfter: its worker died mid-call, so the post may be on
-// the platform already. Sending it again could post it twice, so Daw Mi
-// checks the platform and then retries or marks it posted.
+// FailStuck marks long-running attempts unknown_outcome and never re-sends them:
+// the worker died mid-call, so the post may already be on the platform.
 func FailStuck(ctx context.Context, q db.Querier, now time.Time) (int64, error) {
 	return q.FailStuckPostPublications(ctx, db.FailStuckPostPublicationsParams{Before: now.Add(-stuckAfter), Now: now})
+}
+
+func channelVersion(versions []db.PostVersion, channel string) db.PostVersion {
+	for _, v := range versions {
+		if v.Channel == channel {
+			return v
+		}
+	}
+	return db.PostVersion{}
+}
+
+func publication(p Post, channel string) db.PostPublication {
+	for _, pub := range p.Publications {
+		if pub.Channel == channel {
+			return pub
+		}
+	}
+	return db.PostPublication{}
 }
