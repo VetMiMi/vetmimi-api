@@ -242,7 +242,7 @@ func TestRequest_Refusals(t *testing.T) {
 		"only the stored request keeps its key; refused ones roll theirs back")
 }
 
-// ADR-004: two visitors, different keys, one slot, at once: exactly one
+// Two visitors, different keys, one slot, at once: exactly one
 // stores a request and the other is told the slot is gone.
 func TestRequest_TwoVisitorsOneSlot(t *testing.T) {
 	openEveryDay(t)

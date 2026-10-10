@@ -125,7 +125,7 @@ func TestReschedule_FinalRefused(t *testing.T) {
 	requireCode(t, apperr.InvalidTransition, err)
 }
 
-// ADR-004: two appointments moved into the same free time at once; one
+// Two appointments moved into the same free time at once; one
 // moves, the other keeps its time.
 func TestReschedule_TwoIntoOneSlot(t *testing.T) {
 	openEveryDay(t)
