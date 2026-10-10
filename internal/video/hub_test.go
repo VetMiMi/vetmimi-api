@@ -231,14 +231,14 @@ func TestHub_EndRoomClosesBoth(t *testing.T) {
 func TestHub_ClosesAtWindowEnd(t *testing.T) {
 	ht := newHubTest(t)
 	client, practitioner := ht.both(t)
-	ht.hub.Check(context.Background())
+	ht.hub.EndFinishedRooms(context.Background())
 	ht.mu.Lock()
 	ht.now = ht.room.ClosesAt
 	ht.mu.Unlock()
 	send(t, client, `{"type":"ice","candidate":{"candidate":""}}`)
 	until(t, practitioner, func(f []byte) bool { return strings.Contains(string(f), `"ice"`) })
 
-	ht.hub.Check(context.Background())
+	ht.hub.EndFinishedRooms(context.Background())
 	require.Equal(t, video.CloseRoomEnded, closeCode(t, client), "even before the worker ends the row")
 	require.Equal(t, video.CloseRoomEnded, closeCode(t, practitioner))
 }
@@ -248,7 +248,7 @@ func TestHub_ClosesRoomsTheWorkerEnded(t *testing.T) {
 	client, _ := ht.both(t)
 	_, err := pgtest.Pool(t).Exec(context.Background(), "UPDATE video_rooms SET state = 'ended' WHERE id = $1", ht.room.ID)
 	require.NoError(t, err)
-	ht.hub.Check(context.Background())
+	ht.hub.EndFinishedRooms(context.Background())
 	require.Equal(t, video.CloseRoomEnded, closeCode(t, client))
 }
 
