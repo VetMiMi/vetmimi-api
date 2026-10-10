@@ -8,7 +8,7 @@ proves the code is well-formed, not that an apply would succeed.
 | Root | What it holds |
 |---|---|
 | [`budget/`](budget) | The monthly cost budget for resources tagged `Project = vetmimi`. Separate state, so destroying the host never destroys the alarm. Apply it first and leave it |
-| [`live/`](live) | The live host of ADR-010: EC2 `t4g.small`, Elastic IP, security group, instance role, media and backups buckets |
+| [`live/`](live) | The live host of ADR-010: EC2 `t4g.small`, Elastic IP, security group, instance role, media and backups buckets, ECR repositories, GitHub's OIDC release role, CloudWatch alarms |
 
 The runbook is [`../README.md`](../README.md).
 

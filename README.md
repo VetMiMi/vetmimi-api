@@ -189,8 +189,9 @@ Written and checked, not yet applied: [ADR-010](docs/adr/010-live-host-on-ec2-wi
   - PostgreSQL 17 and Redis 7
   - Caddy for TLS
   - coturn for TURN
-- **Releases:** after CI passes on `main`, `release.yml` builds an arm64 image, pushes it to GHCR and deploys over SSH. A release that fails its health check within a minute is rolled back automatically.
+- **Releases:** after CI passes on `main`, `release.yml` builds an arm64 image, pushes it to ECR through GitHub's OIDC role and deploys over SSH. A release that fails its health check within a minute is rolled back automatically.
 - **Backups:** a nightly `pg_dump` to a private S3 bucket, kept 30 days.
+- **Alarms:** CloudWatch emails the owner on failed status checks (recovering or rebooting the instance), high CPU, memory or disk.
 - **Later target:** ECS Fargate behind an ALB, with RDS, written in Terraform. CI validates it but never applies it.
 
 ## Project status

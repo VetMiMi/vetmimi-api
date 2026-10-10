@@ -1,8 +1,9 @@
 name: Release
 
 # After CI passes on main: build the API image for the live host's arm64 CPU,
-# push it to GHCR, and release it there over the forced-command SSH key
-# (deploy/README.md). Pull requests never reach this workflow.
+# push it to ECR with the OIDC role AWS_RELEASE_ROLE_ARN, and release it there
+# over the forced-command SSH key (deploy/README.md). Pull requests never
+# reach this workflow.
 
 on:
   workflow_run:
@@ -25,32 +26,59 @@ jobs:
     runs-on: ubuntu-24.04-arm
     permissions:
       contents: read
-      packages: write
+      id-token: write
+    env:
+      AWS_RELEASE_ROLE_ARN: ${{ vars.AWS_RELEASE_ROLE_ARN }}
     outputs:
       sha: ${{ steps.sha.outputs.sha }}
+      pushed: ${{ steps.role.outputs.configured }}
     steps:
       - id: sha
         env:
           SHA: ${{ github.event.workflow_run.head_sha || github.sha }}
         run: echo "sha=$SHA" >> "$GITHUB_OUTPUT"
+
+      # Until the owner applies deploy/terraform/live and sets the variable,
+      # there is nowhere to push, so main stays green without a release.
+      - name: Check that a release role is configured
+        id: role
+        run: |
+          if [ -n "$AWS_RELEASE_ROLE_ARN" ]; then
+            echo "configured=true" >> "$GITHUB_OUTPUT"
+          elif [ "$GITHUB_EVENT_NAME" = workflow_dispatch ]; then
+            echo "::error::AWS_RELEASE_ROLE_ARN is not set; add it as a repository variable"
+            exit 1
+          else
+            echo "::notice::AWS_RELEASE_ROLE_ARN is not set; skipping push and deploy"
+          fi
+
       - uses: actions/checkout@v5
+        if: steps.role.outputs.configured == 'true'
         with:
           ref: ${{ steps.sha.outputs.sha }}
-      - uses: docker/setup-buildx-action@v3
-      - uses: docker/login-action@v3
+      - uses: aws-actions/configure-aws-credentials@v6
+        if: steps.role.outputs.configured == 'true'
         with:
-          registry: ghcr.io
-          username: ${{ github.actor }}
-          password: ${{ secrets.GITHUB_TOKEN }}
+          role-to-assume: ${{ env.AWS_RELEASE_ROLE_ARN }}
+          aws-region: ap-southeast-2
+      - id: ecr
+        if: steps.role.outputs.configured == 'true'
+        uses: aws-actions/amazon-ecr-login@v2
+      - uses: docker/setup-buildx-action@v3
+        if: steps.role.outputs.configured == 'true'
       - uses: docker/build-push-action@v6
+        if: steps.role.outputs.configured == 'true'
         with:
           context: .
           file: deploy/Dockerfile
           platforms: linux/arm64
           push: true
+          # One plain image per push: an attestation index would leave
+          # untagged children that ECR's keep-15 lifecycle rule counts.
+          provenance: false
           tags: |
-            ghcr.io/vetmimi/vetmimi-api:${{ steps.sha.outputs.sha }}
-            ghcr.io/vetmimi/vetmimi-api:main
+            ${{ steps.ecr.outputs.registry }}/vetmimi-api:${{ steps.sha.outputs.sha }}
+            ${{ steps.ecr.outputs.registry }}/vetmimi-api:main
           labels: |
             org.opencontainers.image.source=https://github.com/${{ github.repository }}
             org.opencontainers.image.revision=${{ steps.sha.outputs.sha }}
@@ -60,6 +88,7 @@ jobs:
   deploy:
     name: Deploy to the live host
     needs: image
+    if: needs.image.outputs.pushed == 'true'
     runs-on: ubuntu-latest
     environment: production
     concurrency:

@@ -70,7 +70,7 @@ services:
     logging: *logging
 
   api:
-    image: ghcr.io/vetmimi/vetmimi-api:${API_TAG:-main}
+    image: ${ECR_REGISTRY:?set in .env}/vetmimi-api:${API_TAG:-main}
     restart: unless-stopped
     env_file: api.env
     environment: *app-environment
@@ -85,7 +85,7 @@ services:
     logging: *logging
 
   worker:
-    image: ghcr.io/vetmimi/vetmimi-api:${API_TAG:-main}
+    image: ${ECR_REGISTRY:?set in .env}/vetmimi-api:${API_TAG:-main}
     restart: unless-stopped
     command: [--mode, worker]
     env_file: api.env
@@ -95,7 +95,7 @@ services:
     logging: *logging
 
   web:
-    image: ghcr.io/vetmimi/vetmimi-next:${WEB_TAG:-main}
+    image: ${ECR_REGISTRY:?set in .env}/vetmimi-next:${WEB_TAG:-main}
     restart: unless-stopped
     environment:
       # Next standalone binds to HOSTNAME, which Docker sets to the container id.
