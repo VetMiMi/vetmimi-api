@@ -511,12 +511,13 @@ routes, SDP and ICE payloads. Error logs carry codes and ids only.
 As ADR-010 (which updates ADR-005): one EC2 `t4g.small` in Sydney runs Docker
 Compose with `api`, `worker` (same image, `--mode worker`), `web` (the
 `vetmimi-next` image), `postgres:17`, `redis:7`, `caddy` and `coturn`. After CI
-passes on `main`, GitHub Actions builds the arm64 image, pushes it to GHCR
-tagged with the SHA, and runs `deploy/deploy.sh` on the host, which polls the
-public `/healthz` for a minute and rolls back on failure. Nightly `pg_dump`
-goes to a private S3 bucket. `deploy/README.md` is the runbook; the Fargate
-topology is a later bundle in `deploy/terraform/`, validated in CI and never
-applied by agents.
+passes on `main`, GitHub Actions builds the arm64 image, pushes it to ECR
+tagged with the SHA (through an OIDC role, no stored key), and runs
+`deploy/deploy.sh` on the host, which polls the public `/healthz` for a minute
+and rolls back on failure. Nightly `pg_dump` goes to a private S3 bucket, and
+CloudWatch alarms email the owner. `deploy/README.md` is the runbook; the
+Fargate topology is a later bundle in `deploy/terraform/`, validated in CI and
+never applied by agents.
 
 ## Open points
 

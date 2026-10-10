@@ -1,3 +1,4 @@
 # Copy to terraform.tfvars and fill in. terraform.tfvars is gitignored.
 aws_region     = "ap-southeast-2"
 ssh_public_key = "ssh-ed25519 AAAA... replace-me"
+alert_email    = "you@example.com"

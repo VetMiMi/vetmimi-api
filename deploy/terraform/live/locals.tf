@@ -1,6 +1,9 @@
 locals {
   name = "${var.project_name}-${var.environment}"
 
+  # The CloudWatch agent's namespace; bootstrap.sh writes the same name.
+  metrics_namespace = "VetMiMi"
+
   tags = {
     Project     = var.project_name
     Environment = var.environment

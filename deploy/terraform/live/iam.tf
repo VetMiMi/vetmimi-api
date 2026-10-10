@@ -1,6 +1,6 @@
-# The instance role: the API's media access and backup.sh's uploads, and
-# nothing else. Any container on the host can reach it (compute.tf), so it
-# grants only these two buckets.
+# The instance role: the API's media access, backup.sh's uploads, image pulls
+# for deploy.sh and the CloudWatch agent's two metrics, and nothing else. Any
+# container on the host can reach it (compute.tf), so it grants only these.
 
 data "aws_iam_policy_document" "assume_ec2" {
   statement {
@@ -43,10 +43,40 @@ data "aws_iam_policy_document" "live" {
     actions   = ["s3:ListBucket"]
     resources = [aws_s3_bucket.backups.arn]
   }
+
+  statement {
+    sid       = "RegistryLogin"
+    actions   = ["ecr:GetAuthorizationToken"]
+    resources = ["*"]
+  }
+
+  statement {
+    sid = "PullImages"
+    actions = [
+      "ecr:BatchCheckLayerAvailability",
+      "ecr:BatchGetImage",
+      "ecr:GetDownloadUrlForLayer",
+    ]
+    resources = [for repo in aws_ecr_repository.image : repo.arn]
+  }
+
+  # The minimal part of CloudWatchAgentServerPolicy the agent's config in
+  # bootstrap.sh needs: metrics into the project's namespace, no logs.
+  statement {
+    sid       = "AgentMetrics"
+    actions   = ["cloudwatch:PutMetricData"]
+    resources = ["*"]
+
+    condition {
+      test     = "StringEquals"
+      variable = "cloudwatch:namespace"
+      values   = [local.metrics_namespace]
+    }
+  }
 }
 
 resource "aws_iam_role_policy" "live" {
-  name   = "buckets"
+  name   = "host"
   role   = aws_iam_role.live.id
   policy = data.aws_iam_policy_document.live.json
 }

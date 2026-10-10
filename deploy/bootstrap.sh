@@ -23,7 +23,8 @@ echo "deb [arch=$(dpkg --print-architecture) signed-by=/etc/apt/keyrings/docker.
 apt-get update
 apt-get install -y docker-ce docker-ce-cli containerd.io docker-buildx-plugin docker-compose-plugin
 
-# Ubuntu 24.04 packages no AWS CLI v2; backup.sh needs it for the bucket.
+# Ubuntu 24.04 packages no AWS CLI v2; backup.sh needs it for the bucket and
+# deploy.sh for the registry login.
 if ! command -v aws > /dev/null; then
   work=$(mktemp -d)
   curl -fsSL "https://awscli.amazonaws.com/awscli-exe-linux-$(uname -m).zip" -o "$work/awscli.zip"
@@ -31,6 +32,36 @@ if ! command -v aws > /dev/null; then
   "$work/aws/install"
   rm -rf "$work"
 fi
+
+# The CloudWatch agent sends the two metrics EC2 cannot see, memory and the
+# root disk, for the alarms in terraform/live/alarms.tf. The namespace and
+# dimensions must match them; the instance role allows only this namespace.
+if ! dpkg -s amazon-cloudwatch-agent > /dev/null 2>&1; then
+  work=$(mktemp -d)
+  curl -fsSL "https://amazoncloudwatch-agent-ap-southeast-2.s3.ap-southeast-2.amazonaws.com/ubuntu/$(dpkg --print-architecture)/latest/amazon-cloudwatch-agent.deb" \
+    -o "$work/amazon-cloudwatch-agent.deb"
+  dpkg -i -E "$work/amazon-cloudwatch-agent.deb"
+  rm -rf "$work"
+fi
+cat > /opt/aws/amazon-cloudwatch-agent/etc/vetmimi.json << 'EOF'
+{
+  "agent": {
+    "metrics_collection_interval": 300,
+    "omit_hostname": true,
+    "run_as_user": "cwagent"
+  },
+  "metrics": {
+    "namespace": "VetMiMi",
+    "append_dimensions": { "InstanceId": "${aws:InstanceId}" },
+    "metrics_collected": {
+      "mem": { "measurement": ["mem_used_percent"] },
+      "disk": { "measurement": ["used_percent"], "resources": ["/"], "drop_device": true }
+    }
+  }
+}
+EOF
+/opt/aws/amazon-cloudwatch-agent/bin/amazon-cloudwatch-agent-ctl -a fetch-config -m ec2 -s \
+  -c file:/opt/aws/amazon-cloudwatch-agent/etc/vetmimi.json
 
 if [[ ! -f /swapfile ]]; then
   fallocate -l 2G /swapfile

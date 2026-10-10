@@ -16,7 +16,7 @@ to the command as arguments.
 | Path | What it is |
 |---|---|
 | `terraform/budget/` | The monthly cost budget, its own state, applied once and never destroyed |
-| `terraform/live/` | The instance, Elastic IP, security group, instance role and the two buckets |
+| `terraform/live/` | The instance, Elastic IP, security group, instance role, the two buckets, the two image repositories, GitHub's release role and the alarms |
 | `bootstrap.sh` | Prepares a fresh Ubuntu host; safe to re-run |
 | `deploy.sh` | `deploy.sh <api\|web> <sha>`: releases one image, rolls back if unhealthy |
 | `backup.sh` | The nightly `pg_dump` to the backups bucket |
@@ -65,7 +65,7 @@ credential_process = aws configure export-credentials --profile auvan --format p
 
 ## 2. Apply the live host
 
-Put your SSH public key in `terraform.tfvars`.
+Put your SSH public key and the address for alarms in `terraform.tfvars`.
 
 ```sh
 cp deploy/terraform/live/terraform.tfvars.example deploy/terraform/live/terraform.tfvars
@@ -76,6 +76,20 @@ terraform -chdir=deploy/terraform/live output
 
 The outputs are the values the next steps ask for. The instance has
 termination protection, because the database lives on its disk.
+
+AWS emails `alert_email` a subscription confirmation for the `vetmimi-alerts`
+topic; click it, or no alarm reaches you.
+
+An account holds one GitHub OIDC provider for
+`token.actions.githubusercontent.com`. If the apply fails because it already
+exists (AU-Van added one), import it instead and apply again:
+
+```sh
+terraform -chdir=deploy/terraform/live import aws_iam_openid_connect_provider.github arn:aws:iam::<account id>:oidc-provider/token.actions.githubusercontent.com
+terraform -chdir=deploy/terraform/live apply
+```
+
+An imported provider is shared: see Teardown before destroying.
 
 If the apply stops at the media bucket policy with `AccessDenied`, the
 account blocks public bucket policies: allow them for this bucket under S3,
@@ -90,20 +104,14 @@ curl -fsSLO https://raw.githubusercontent.com/VetMiMi/vetmimi-api/main/deploy/bo
 sudo bash bootstrap.sh
 ```
 
-It installs Docker and the compose plugin, the AWS CLI, a 2 GB swapfile and
-unattended upgrades, creates the `deploy` user in the `docker` group, clones
-this repository to `/srv/vetmimi`, and installs the nightly backup in
+It installs Docker and the compose plugin, the AWS CLI, the CloudWatch agent
+(memory and root disk every five minutes), a 2 GB swapfile and unattended
+upgrades, creates the `deploy` user in the `docker` group, clones this
+repository to `/srv/vetmimi`, and installs the nightly backup in
 `/etc/cron.d/vetmimi-backup`.
 
-The images on GHCR are private until made public. Either make both packages
-public (GitHub, the VetMiMi organisation, Packages, `vetmimi-api` and
-`vetmimi-next`, Package settings, Change visibility; they hold no secret), or
-log the host in once with a classic token that has only `read:packages`:
-
-```sh
-sudo -iu deploy
-docker login ghcr.io -u <your GitHub user>
-```
+The host needs no registry password: `deploy.sh` logs in to ECR with the
+instance role before each pull.
 
 ## 4. Fill the two env files
 
@@ -118,9 +126,9 @@ cp /srv/vetmimi/.env.example api.env
 nano .env api.env
 ```
 
-In `.env`: `SITE_DOMAIN` and `API_DOMAIN` from the outputs `site_domain` and
-`api_domain`; `TURN_EXTERNAL_IP` from `public_ip`; `BACKUP_BUCKET` from
-`backups_bucket`; and `openssl rand -hex 32` for `POSTGRES_PASSWORD`,
+In `.env`: `ECR_REGISTRY` from the output `ecr_registry`; `SITE_DOMAIN` and
+`API_DOMAIN` from `site_domain` and `api_domain`; `TURN_EXTERNAL_IP` from
+`public_ip`; `BACKUP_BUCKET` from `backups_bucket`; and `openssl rand -hex 32` for `POSTGRES_PASSWORD`,
 `SERVICE_KEY`, `SITE_REVALIDATE_SECRET` and `TURN_SECRET`.
 
 In `api.env`: `SIGNING_SECRET` (`openssl rand -hex 32`), `TOTP_ENCRYPTION_KEY`
@@ -156,14 +164,21 @@ Each repository gets its own key, so either can be revoked alone. For each of
    to `main`, with three secrets: `DEPLOY_HOST` (the public IP),
    `DEPLOY_SSH_KEY` (the private key file) and `DEPLOY_KNOWN_HOSTS` (the line
    from step 3). Then delete the private key from your laptop.
+5. Under Secrets and variables, Actions, Variables, add the repository
+   variable `AWS_RELEASE_ROLE_ARN` with the output `release_role_arn`. It is
+   not a secret, and it is a repository variable, not an environment one,
+   because the image job runs outside `production`.
 
-Until `DEPLOY_HOST` is set, `release.yml` still pushes the image and skips the
-deploy with a notice.
+The role trusts only workflows on `main` of the two repositories and may
+only push to their two image repositories; no AWS key is stored in GitHub.
+Until `AWS_RELEASE_ROLE_ARN` is set, `release.yml` skips the push and the
+deploy with a notice; until `DEPLOY_HOST` is set, it pushes the image and
+skips the deploy.
 
 ## 6. First release
 
 Release the API first (Caddy waits for it), then the website. The image for
-the sha must already be on GHCR: re-run `Release` from the Actions tab after
+the sha must already be in ECR: re-run `Release` from the Actions tab after
 step 5, or release by hand with the newest sha of `main`:
 
 ```sh
@@ -192,8 +207,8 @@ Then check `https://<site_domain>` and `https://<api_domain>/readyz`.
 ## Releases and rollback
 
 Each merge to `main` releases itself: CI, then `release.yml` builds
-`ghcr.io/vetmimi/vetmimi-api:<sha>` for arm64 and runs `deploy.sh api <sha>`.
-`deploy.sh` checks the sha out (so the compose files match the image), pulls,
+`<ecr_registry>/vetmimi-api:<sha>` for arm64 and runs `deploy.sh api <sha>`.
+`deploy.sh` logs in to ECR, checks the sha out (so the compose files match the image), pulls,
 starts `api` and `worker` and waits for them to report healthy, reloads Caddy
 (a reload, so open video sessions survive), and polls
 `https://$API_DOMAIN/healthz` every two seconds for about a minute. If it never
@@ -277,6 +292,23 @@ Launch (M5) needs one recorded rehearsal. Each time:
 |---|---|---|---|
 | | | | |
 
+## Alarms
+
+CloudWatch emails the `vetmimi-alerts` topic when an alarm fires and again
+when it clears (`terraform/live/alarms.tf`):
+
+| Alarm | Fires when | What happens, what to do |
+|---|---|---|
+| `vetmimi-live-system-status` | AWS's host fails its check for 2 minutes | EC2 recovers the instance onto new hardware, same IP and disk. Check the site once it clears |
+| `vetmimi-live-instance-status` | The OS fails its check for 10 minutes | EC2 reboots it. If it repeats, look for out-of-memory kills: `journalctl -k \| grep -i oom` |
+| `vetmimi-live-cpu` | CPU above 80% for 15 minutes | `docker stats`; sustained load spends the t4g's CPU credits |
+| `vetmimi-live-memory` | Memory above 90% for 10 minutes | `docker stats`; revisit the compose memory limits |
+| `vetmimi-live-disk` | Root disk above 85% | `docker system df`, `docker image prune -a`, or raise `root_volume_gb` |
+
+Memory and disk come from the CloudWatch agent (`bootstrap.sh`, namespace
+`VetMiMi`). They show insufficient data until bootstrap has run, and again if
+the agent stops: `systemctl status amazon-cloudwatch-agent`.
+
 ## A video session will not connect
 
 - `docker compose --env-file .env --env-file .env.tags logs coturn | grep 401`:
@@ -301,7 +333,11 @@ URLs follow. `DEPLOY_HOST` and its pin name the IP, so they do not change.
 
 Only when the practice leaves this host. Take a final backup and copy it off
 first. Then turn off termination protection, empty both buckets (they refuse
-to be destroyed while they hold objects, on purpose), and destroy:
+to be destroyed while they hold objects, on purpose), and destroy. The image
+repositories are deleted with their images, which can be rebuilt. If the
+GitHub OIDC provider was imported in step 2, first run
+`terraform -chdir=deploy/terraform/live state rm aws_iam_openid_connect_provider.github`
+so the destroy leaves AU-Van's provider alone.
 
 ```sh
 terraform -chdir=deploy/terraform/live apply -var termination_protection=false

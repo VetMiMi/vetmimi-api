@@ -56,3 +56,8 @@ variable "backup_retention_days" {
   type        = number
   default     = 30
 }
+
+variable "alert_email" {
+  description = "Where the CloudWatch alarms are emailed. It stays in the gitignored terraform.tfvars."
+  type        = string
+}

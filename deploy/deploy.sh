@@ -2,7 +2,7 @@
 set -euo pipefail
 
 # Releases one service on the live host: deploy.sh <api|web> <sha>.
-# The image ghcr.io/vetmimi/vetmimi-<api|next>:<sha> must already be pushed.
+# The image $ECR_REGISTRY/vetmimi-<api|next>:<sha> must already be pushed.
 # A release that does not answer its public health URL within a minute is
 # rolled back to the previous tag, and the script exits 1.
 
@@ -53,6 +53,20 @@ main() {
 
   if [[ ! -f deploy/compose/.env || ! -f deploy/compose/api.env ]]; then
     echo "deploy: fill deploy/compose/.env and deploy/compose/api.env first (deploy/README.md)" >&2
+    exit 1
+  fi
+
+  # Before the checkout, so a failed login changes nothing. The instance role
+  # signs it, and the token lasts 12 hours, which covers a rollback.
+  local registry
+  registry=$(sed -n 's/^ECR_REGISTRY=//p' deploy/compose/.env)
+  if [[ -z $registry ]]; then
+    echo "deploy: set ECR_REGISTRY in deploy/compose/.env (deploy/README.md)" >&2
+    exit 1
+  fi
+  if ! aws ecr get-login-password --region ap-southeast-2 |
+    docker login --username AWS --password-stdin "$registry" > /dev/null; then
+    echo "deploy: could not log in to $registry" >&2
     exit 1
   fi
 
