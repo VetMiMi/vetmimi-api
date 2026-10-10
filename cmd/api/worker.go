@@ -18,6 +18,7 @@ import (
 	"github.com/VetMiMi/vetmimi-api/internal/linkedin"
 	"github.com/VetMiMi/vetmimi-api/internal/meta"
 	"github.com/VetMiMi/vetmimi-api/internal/queue"
+	"github.com/VetMiMi/vetmimi-api/internal/secretbox"
 	"github.com/VetMiMi/vetmimi-api/internal/settings"
 	"github.com/VetMiMi/vetmimi-api/internal/video"
 )
@@ -50,7 +51,7 @@ func runWorker(ctx context.Context, log *slog.Logger, cfg config.Config, pool *p
 	}).Register(w)
 	(&booking.Tasks{Pool: pool, Queue: tasks, Log: log, Now: time.Now, Timezone: cur.Timezone}).Register(w)
 	(&video.Tasks{Pool: pool, Log: log, Now: time.Now}).Register(w)
-	tokens, err := auth.NewTOTP(cfg.TOTPEncryptionKey, time.Now)
+	tokens, err := secretbox.New(cfg.TOTPEncryptionKey)
 	if err != nil {
 		return err
 	}

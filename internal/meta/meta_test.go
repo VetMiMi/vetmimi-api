@@ -18,11 +18,11 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"github.com/VetMiMi/vetmimi-api/internal/apperr"
-	"github.com/VetMiMi/vetmimi-api/internal/auth"
 	"github.com/VetMiMi/vetmimi-api/internal/content"
 	"github.com/VetMiMi/vetmimi-api/internal/db"
 	"github.com/VetMiMi/vetmimi-api/internal/meta"
 	"github.com/VetMiMi/vetmimi-api/internal/pgtest"
+	"github.com/VetMiMi/vetmimi-api/internal/secretbox"
 )
 
 func TestMain(m *testing.M) { os.Exit(pgtest.Run(m)) }
@@ -43,8 +43,8 @@ type call struct {
 	Params       url.Values
 }
 
-// graph is a fake Graph API: answers maps "METHOD path" (without the
-// version) to a status and a JSON body; anything else is a 404.
+// graph is a fake Graph API: answers maps "METHOD path" (no version) to
+// replies; anything else is a 404.
 type graph struct {
 	mu      sync.Mutex
 	answers map[string][]answer
@@ -104,7 +104,7 @@ func newConnector(t *testing.T) (*meta.Connector, *graph) {
 	g := &graph{answers: map[string][]answer{}}
 	srv := httptest.NewServer(g)
 	t.Cleanup(srv.Close)
-	tokens, err := auth.NewTOTP([]byte("0123456789abcdef0123456789abcdef"), func() time.Time { return now })
+	tokens, err := secretbox.New([]byte("0123456789abcdef0123456789abcdef"))
 	require.NoError(t, err)
 	return &meta.Connector{
 		Pool: pgtest.Pool(t), Tokens: tokens, AppID: "app-1", AppSecret: "app-secret", Version: "v24.0",
@@ -150,8 +150,7 @@ func login(g *graph) {
 const onePage = `{"data": [{"id": "page-1", "name": "VetMiMi", "access_token": "` + pageToken + `",
 	"instagram_business_account": {"id": "ig-1", "username": "vetmimi"}}]}`
 
-// Daw Mi signs in to Facebook from the Connections page; with one Page, it
-// is connected at once with its Instagram account, its token sealed.
+// With one Page, it is connected at once with its Instagram account, its token sealed.
 func TestConnectWithOnePage(t *testing.T) {
 	c, g := newConnector(t)
 	user := newUser(t)
@@ -208,7 +207,6 @@ func TestConnectWithOnePage(t *testing.T) {
 	require.ErrorIs(t, err, content.ErrNotConnected)
 }
 
-// With several Pages, Daw Mi chooses one from the list.
 func TestChoosePageAmongSeveral(t *testing.T) {
 	c, g := newConnector(t)
 	user := newUser(t)
@@ -236,7 +234,7 @@ func TestChoosePageAmongSeveral(t *testing.T) {
 	require.ErrorIs(t, err, content.ErrNotConnected)
 }
 
-// Facebook refusing the code is shown to Daw Mi in its own words.
+// The refusal is shown in Facebook's own words.
 func TestFacebookRefusesTheCode(t *testing.T) {
 	c, g := newConnector(t)
 	user := newUser(t)
@@ -268,8 +266,7 @@ func newMedia(t *testing.T) pgtype.UUID {
 
 func text(s string) pgtype.Text { return pgtype.Text{String: s, Valid: true} }
 
-// Facebook: a text with its link as a link post; with images, each
-// uploaded unpublished and attached to one post with the link in the text.
+// A text with its link is a link post; with images, the link goes in the text.
 func TestPublishToFacebook(t *testing.T) {
 	c, g := connected(t)
 	g.on("POST page-1/feed", http.StatusOK, `{"id": "page-1_100"}`, `{"id": "page-1_101"}`)
@@ -301,8 +298,7 @@ func TestPublishToFacebook(t *testing.T) {
 	require.JSONEq(t, `{"media_fbid": "photo-2"}`, feed.Get("attached_media[1]"))
 }
 
-// Instagram: a carousel of containers, polled until Instagram has
-// processed it, then published.
+// A carousel is polled until Instagram has processed it, then published.
 func TestPublishToInstagram(t *testing.T) {
 	c, g := connected(t)
 	g.on("POST ig-1/media", http.StatusOK, `{"id": "child-1"}`, `{"id": "child-2"}`, `{"id": "carousel-1"}`)
@@ -330,9 +326,8 @@ func reason(t *testing.T, err error) *content.ChannelError {
 	return ce
 }
 
-// A failure before the post is sent is tried again; a lost answer to the
-// call that posts may hide a post that went out, so it is never sent again
-// by itself; a dead token asks Daw Mi to reconnect.
+// A failure before posting is retried; a lost answer to the posting call is
+// unknown_outcome; a dead token needs a reconnect.
 func TestPublishFailures(t *testing.T) {
 	c, g := connected(t)
 	image := []pgtype.UUID{newMedia(t)}
@@ -360,8 +355,6 @@ func TestPublishFailures(t *testing.T) {
 
 func errOf(_ content.Posted, err error) error { return err }
 
-// The scheduler's channel task posts through the connector: Facebook
-// published with its id and address once connected.
 func TestSchedulerPublishesThroughTheConnector(t *testing.T) {
 	c, g := connected(t)
 	g.on("POST page-1/feed", http.StatusOK, `{"id": "page-1_7"}`)

@@ -1,7 +1,6 @@
-// Package assistant is the publishing portal's AI helper: it suggests the
-// social channel versions of a post, and translates its website version,
-// from the post's own text, through the Anthropic Messages API. Nothing it
-// suggests is saved; the editor edits and accepts it in the portal.
+// Package assistant is the publishing portal's AI helper. Suggest drafts a
+// post's social versions, or translates its website version, through the
+// Anthropic Messages API. Nothing is saved; the editor accepts it in the portal.
 package assistant
 
 import (
@@ -28,24 +27,18 @@ var (
 	errFailed = apperr.New(apperr.AIFailed, "The AI assistant gave no usable answer; try again.")
 )
 
-// Client asks Claude for suggestions.
 type Client struct {
-	// APIKey is empty when the assistant is off.
-	APIKey string
+	APIKey string // empty: the assistant is off
 	Model  string
-	// URL is https://api.anthropic.com, or a fake in tests.
-	URL string
-	// HTTP calls the API; nil means a client with a 30-second timeout.
-	HTTP *http.Client
-	Log  *slog.Logger
+	URL    string
+	HTTP   *http.Client // nil: a client with a 30-second timeout
+	Log    *slog.Logger
 }
 
-// New returns the client cmd/api wires from cfg.
 func New(cfg config.Config, log *slog.Logger) *Client {
 	return &Client{APIKey: cfg.AnthropicAPIKey, Model: cfg.AnthropicModel, URL: "https://api.anthropic.com", Log: log}
 }
 
-// Enabled reports whether the assistant can be asked.
 func (c *Client) Enabled() bool { return c != nil && c.APIKey != "" }
 
 type message struct {
@@ -53,25 +46,29 @@ type message struct {
 	Content string `json:"content"`
 }
 
-// ask sends one Messages API request and returns the text of the answer.
-// Every failure is errFailed to the editor; the log keeps the status and
-// error type only, never the prompt or the answer.
+// messagesAnswer is the part of a Messages API answer the assistant reads.
+type messagesAnswer struct {
+	Content []struct {
+		Type string `json:"type"`
+		Text string `json:"text"`
+	} `json:"content"`
+	StopReason string `json:"stop_reason"`
+	Usage      struct {
+		InputTokens  int `json:"input_tokens"`
+		OutputTokens int `json:"output_tokens"`
+	} `json:"usage"`
+	Error struct {
+		Type string `json:"type"`
+	} `json:"error"`
+}
+
+// ask sends one Messages API request and returns the answer's text. Every
+// failure is errFailed; the log never holds the prompt or the answer.
 func (c *Client) ask(ctx context.Context, system, prompt string, maxTokens int) (string, error) {
-	body, err := json.Marshal(map[string]any{
-		"model": c.Model, "max_tokens": maxTokens, "system": system,
-		"messages": []message{{Role: "user", Content: prompt}},
-	})
+	req, err := c.messagesRequest(ctx, system, prompt, maxTokens)
 	if err != nil {
 		return "", err
 	}
-	req, err := http.NewRequestWithContext(ctx, http.MethodPost, strings.TrimSuffix(c.URL, "/")+"/v1/messages",
-		bytes.NewReader(body))
-	if err != nil {
-		return "", err
-	}
-	req.Header.Set("x-api-key", c.APIKey)
-	req.Header.Set("anthropic-version", anthropicVersion)
-	req.Header.Set("content-type", "application/json")
 	client := c.HTTP
 	if client == nil {
 		client = &http.Client{Timeout: 30 * time.Second}
@@ -91,20 +88,7 @@ func (c *Client) ask(ctx context.Context, system, prompt string, maxTokens int) 
 		c.Log.WarnContext(ctx, "assistant_unreachable", "err", err)
 		return "", errFailed
 	}
-	var answer struct {
-		Content []struct {
-			Type string `json:"type"`
-			Text string `json:"text"`
-		} `json:"content"`
-		StopReason string `json:"stop_reason"`
-		Usage      struct {
-			InputTokens  int `json:"input_tokens"`
-			OutputTokens int `json:"output_tokens"`
-		} `json:"usage"`
-		Error struct {
-			Type string `json:"type"`
-		} `json:"error"`
-	}
+	var answer messagesAnswer
 	_ = json.Unmarshal(raw, &answer)
 	if res.StatusCode != http.StatusOK {
 		c.Log.WarnContext(ctx, "assistant_refused", "status", res.StatusCode, "type", answer.Error.Type)
@@ -122,4 +106,25 @@ func (c *Client) ask(ctx context.Context, system, prompt string, maxTokens int) 
 		}
 	}
 	return text.String(), nil
+}
+
+func (c *Client) messagesRequest(ctx context.Context, system, prompt string, maxTokens int) (*http.Request, error) {
+	body, err := json.Marshal(map[string]any{
+		"model":      c.Model,
+		"max_tokens": maxTokens,
+		"system":     system,
+		"messages":   []message{{Role: "user", Content: prompt}},
+	})
+	if err != nil {
+		return nil, err
+	}
+	req, err := http.NewRequestWithContext(ctx, http.MethodPost, strings.TrimSuffix(c.URL, "/")+"/v1/messages",
+		bytes.NewReader(body))
+	if err != nil {
+		return nil, err
+	}
+	req.Header.Set("x-api-key", c.APIKey)
+	req.Header.Set("anthropic-version", anthropicVersion)
+	req.Header.Set("content-type", "application/json")
+	return req, nil
 }

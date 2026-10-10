@@ -19,15 +19,12 @@ import (
 )
 
 const (
-	platformName = "linkedin"
-	// stateLifetime is how long Daw Mi has to sign in to LinkedIn.
+	platformName  = "linkedin"
 	stateLifetime = 10 * time.Minute
-	// warnBefore is how early the Connections page warns that the token is
-	// about to expire; LinkedIn's last about 60 days and cannot be renewed
-	// without her signing in again.
+	// warnBefore is how early the Connections page warns of expiry. A token
+	// lasts about 60 days and renews only by signing in again.
 	warnBefore = 7 * 24 * time.Hour
-	// scopes are the products "Sign In with LinkedIn using OpenID Connect"
-	// (openid, profile: her member id and name) and "Share on LinkedIn".
+	// openid and profile give the member id and name; w_member_social allows posting.
 	scopes     = "openid profile w_member_social"
 	shareScope = "w_member_social"
 )
@@ -41,9 +38,9 @@ var (
 		"LinkedIn did not allow posting on your behalf; connect again and allow sharing.")
 )
 
-// Connection is the LinkedIn connection as the Connections page shows it.
-// Status is not_connected, connected, expiring_soon (within warnBefore of
-// ExpiresAt) or reconnect_required (expired, or refused by LinkedIn).
+// Connection is what the Connections page shows. Status is not_connected,
+// connected, expiring_soon (within warnBefore of ExpiresAt) or
+// reconnect_required (expired, or refused by LinkedIn).
 type Connection struct {
 	Status      string
 	MemberName  string
@@ -51,23 +48,24 @@ type Connection struct {
 	ConnectedAt time.Time
 }
 
-// AuthorizeURL is LinkedIn's sign-in dialog for user, which sends Daw Mi
-// back to RedirectURL with a code and a signed state that only user can
-// use, for stateLifetime.
+// AuthorizeURL is LinkedIn's sign-in dialog. Its signed state is valid only
+// for user, for stateLifetime.
 func (c *Connector) AuthorizeURL(user pgtype.UUID, now time.Time) (string, error) {
 	if c.ClientID == "" {
 		return "", errNotSetUp
 	}
 	q := url.Values{
-		"response_type": {"code"}, "client_id": {c.ClientID}, "redirect_uri": {c.RedirectURL}, "scope": {scopes},
-		"state": {tokens.SignOAuthState(c.SigningSecret, platformName, user.String(), now.Add(stateLifetime))},
+		"response_type": {"code"},
+		"client_id":     {c.ClientID},
+		"redirect_uri":  {c.RedirectURL},
+		"scope":         {scopes},
+		"state":         {tokens.SignOAuthState(c.SigningSecret, platformName, user.String(), now.Add(stateLifetime))},
 	}
 	return strings.TrimSuffix(c.AuthURL, "/") + "/oauth/v2/authorization?" + q.Encode(), nil
 }
 
-// Finish completes the sign-in for user: it trades code for an access
-// token, reads her member id and name, and keeps the token, sealed, with
-// its expiry.
+// Finish trades code for an access token, reads the member's id and name,
+// and stores the token with its expiry.
 func (c *Connector) Finish(ctx context.Context, user pgtype.UUID, code, state string, now time.Time) (Connection, error) {
 	if c.ClientID == "" {
 		return Connection{}, errNotSetUp
@@ -75,46 +73,25 @@ func (c *Connector) Finish(ctx context.Context, user pgtype.UUID, code, state st
 	if !tokens.CheckOAuthState(c.SigningSecret, platformName, state, user.String(), now) {
 		return Connection{}, errState
 	}
-	form := url.Values{
-		"grant_type": {"authorization_code"}, "code": {code}, "redirect_uri": {c.RedirectURL},
-		"client_id": {c.ClientID}, "client_secret": {c.ClientSecret},
-	}
-	req, err := http.NewRequestWithContext(ctx, http.MethodPost,
-		strings.TrimSuffix(c.AuthURL, "/")+"/oauth/v2/accessToken", strings.NewReader(form.Encode()))
+	token, err := c.exchangeCode(ctx, code)
 	if err != nil {
 		return Connection{}, err
 	}
-	req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
-	var token struct {
-		AccessToken string `json:"access_token"`
-		ExpiresIn   int64  `json:"expires_in"`
-		Scope       string `json:"scope"`
-	}
-	if _, err := c.do(req, &token); err != nil {
-		return Connection{}, c.refusal(ctx, err)
-	}
-	if !slices.Contains(strings.FieldsFunc(token.Scope, func(r rune) bool { return r == ',' || r == ' ' }), shareScope) {
+	if !hasScope(token.Scope, shareScope) {
 		return Connection{}, errNoShare
 	}
-	var member struct {
-		Sub  string `json:"sub"`
-		Name string `json:"name"`
-	}
-	if req, err = c.rest(ctx, http.MethodGet, "/v2/userinfo", token.AccessToken, nil); err != nil {
+	memberID, memberName, err := c.userInfo(ctx, token.AccessToken)
+	if err != nil {
 		return Connection{}, err
-	}
-	if _, err := c.do(req, &member); err != nil {
-		return Connection{}, c.refusal(ctx, err)
-	}
-	if member.Sub == "" {
-		return Connection{}, errNoShare
 	}
 	sealed, err := c.Tokens.Seal([]byte(token.AccessToken))
 	if err != nil {
 		return Connection{}, err
 	}
-	params := db.SaveConnectionParams{Platform: platformName, Status: "connected", Token: sealed,
-		AccountID: text(member.Sub), AccountName: text(member.Name), ConnectedBy: user, Now: now}
+	params := db.SaveConnectionParams{
+		Platform: platformName, Status: "connected", Token: sealed,
+		AccountID: text(memberID), AccountName: text(memberName), ConnectedBy: user, Now: now,
+	}
 	if token.ExpiresIn > 0 {
 		params.ExpiresAt = sql.NullTime{Time: now.Add(time.Duration(token.ExpiresIn) * time.Second), Valid: true}
 	}
@@ -124,7 +101,57 @@ func (c *Connector) Finish(ctx context.Context, user pgtype.UUID, code, state st
 	return c.Status(ctx, now)
 }
 
-// Status reads the connection as it stands at now.
+type accessToken struct {
+	AccessToken string `json:"access_token"`
+	ExpiresIn   int64  `json:"expires_in"`
+	Scope       string `json:"scope"`
+}
+
+func (c *Connector) exchangeCode(ctx context.Context, code string) (accessToken, error) {
+	form := url.Values{
+		"grant_type":    {"authorization_code"},
+		"code":          {code},
+		"redirect_uri":  {c.RedirectURL},
+		"client_id":     {c.ClientID},
+		"client_secret": {c.ClientSecret},
+	}
+	req, err := http.NewRequestWithContext(ctx, http.MethodPost,
+		strings.TrimSuffix(c.AuthURL, "/")+"/oauth/v2/accessToken", strings.NewReader(form.Encode()))
+	if err != nil {
+		return accessToken{}, err
+	}
+	req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
+	var token accessToken
+	if _, err := c.do(req, &token); err != nil {
+		return accessToken{}, c.refusal(ctx, err)
+	}
+	return token, nil
+}
+
+// userInfo reads the signed-in member's id and name. Without an id she cannot post.
+func (c *Connector) userInfo(ctx context.Context, token string) (id, name string, err error) {
+	req, err := c.rest(ctx, http.MethodGet, "/v2/userinfo", token, nil)
+	if err != nil {
+		return "", "", err
+	}
+	var info struct {
+		Sub  string `json:"sub"`
+		Name string `json:"name"`
+	}
+	if _, err := c.do(req, &info); err != nil {
+		return "", "", c.refusal(ctx, err)
+	}
+	if info.Sub == "" {
+		return "", "", errNoShare
+	}
+	return info.Sub, info.Name, nil
+}
+
+// hasScope reports whether granted, a comma- or space-separated list, holds scope.
+func hasScope(granted, scope string) bool {
+	return slices.Contains(strings.FieldsFunc(granted, func(r rune) bool { return r == ',' || r == ' ' }), scope)
+}
+
 func (c *Connector) Status(ctx context.Context, now time.Time) (Connection, error) {
 	row, err := db.New(c.Pool).GetConnection(ctx, platformName)
 	if errors.Is(err, pgx.ErrNoRows) {
@@ -133,8 +160,12 @@ func (c *Connector) Status(ctx context.Context, now time.Time) (Connection, erro
 	if err != nil {
 		return Connection{}, err
 	}
-	out := Connection{Status: "connected", MemberName: row.AccountName.String, ExpiresAt: row.ExpiresAt,
-		ConnectedAt: row.ConnectedAt}
+	out := Connection{
+		Status:      "connected",
+		MemberName:  row.AccountName.String,
+		ExpiresAt:   row.ExpiresAt,
+		ConnectedAt: row.ConnectedAt,
+	}
 	switch {
 	case row.LastError.String == "reconnect_required" || expired(row.ExpiresAt, now):
 		out.Status = "reconnect_required"
@@ -150,8 +181,7 @@ func (c *Connector) Disconnect(ctx context.Context) error {
 	return db.New(c.Pool).DeleteConnection(ctx, platformName)
 }
 
-// refusal turns a LinkedIn failure during the connection into what Daw Mi
-// can act on.
+// refusal turns a LinkedIn failure while connecting into an error Daw Mi can act on.
 func (c *Connector) refusal(ctx context.Context, err error) error {
 	var ae *apiError
 	if errors.As(err, &ae) && ae.Status/100 == 4 {
@@ -161,7 +191,3 @@ func (c *Connector) refusal(ctx context.Context, err error) error {
 	c.Log.WarnContext(ctx, "linkedin_unreachable", "err", err)
 	return apperr.New(apperr.Unavailable, "LinkedIn could not be reached; try again in a minute.")
 }
-
-func expired(at sql.NullTime, now time.Time) bool { return at.Valid && !now.Before(at.Time) }
-
-func text(s string) pgtype.Text { return pgtype.Text{String: s, Valid: s != ""} }

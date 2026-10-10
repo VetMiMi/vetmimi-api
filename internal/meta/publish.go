@@ -19,24 +19,25 @@ import (
 	"github.com/VetMiMi/vetmimi-api/internal/media"
 )
 
-// pollTries bounds the wait for an Instagram container: with PollEvery's
-// default, a minute, well inside the scheduler's stuckAfter.
+// pollTries keeps the wait to about a minute, inside the content scheduler's stuck limit.
 const pollTries = 20
 
-// Graph API error codes: an access token that is no longer valid, missing
-// permissions (10, and 200 to 299), and the rate limits, which refuse a call
-// before doing it.
+// Graph API error codes. Codes 200 to 299 are missing permissions too.
 const (
-	codeToken      = 190
-	codePermission = 10
+	codeInvalidToken = 190
+	codePermission   = 10
 )
 
-var codeRateLimit = []int{4, 17, 32, 613, 80001, 80002}
+var codesRateLimit = []int{4, 17, 32, 613, 80001, 80002}
 
-// PublishFacebook posts v to the connected Page: its text with its link, or
-// with its images attached, uploaded unpublished first.
+type connectedPage struct {
+	ID, Token, InstagramID string
+}
+
+// PublishFacebook posts v to the Page: its text with its link, or with its
+// images, which are uploaded unpublished first.
 func (c *Connector) PublishFacebook(ctx context.Context, v db.PostVersion) (content.Posted, error) {
-	pageID, token, _, err := c.page(ctx)
+	page, err := c.page(ctx)
 	if err != nil {
 		return content.Posted{}, err
 	}
@@ -48,92 +49,111 @@ func (c *Connector) PublishFacebook(ctx context.Context, v db.PostVersion) (cont
 	if len(images) == 0 && v.LinkUrl.Valid {
 		post.Set("link", v.LinkUrl.String)
 	} else if v.LinkUrl.Valid {
-		// A post with photos takes no link preview, so the link goes in the text.
+		// A post with photos has no link preview, so the link goes in the text.
 		post.Set("message", v.Text.String+"\n\n"+v.LinkUrl.String)
 	}
 	for i, image := range images {
-		var photo struct {
-			ID string `json:"id"`
-		}
-		err := c.call(ctx, http.MethodPost, pageID+"/photos", token,
-			url.Values{"url": {image}, "published": {"false"}}, &photo)
+		photoID, err := c.uploadPhoto(ctx, page, image)
 		if err != nil {
-			return content.Posted{}, c.failed(ctx, err, false)
+			return content.Posted{}, err
 		}
-		attached, _ := json.Marshal(map[string]string{"media_fbid": photo.ID}) // a string map always marshals
+		attached, _ := json.Marshal(map[string]string{"media_fbid": photoID}) // a string map always marshals
 		post.Set(fmt.Sprintf("attached_media[%d]", i), string(attached))
 	}
 	var created struct {
 		ID string `json:"id"`
 	}
-	if err := c.call(ctx, http.MethodPost, pageID+"/feed", token, post, &created); err != nil {
+	if err := c.call(ctx, http.MethodPost, page.ID+"/feed", page.Token, post, &created); err != nil {
 		return content.Posted{}, c.failed(ctx, err, true)
 	}
-	return content.Posted{ExternalID: created.ID, Permalink: c.permalink(ctx, created.ID, token, "permalink_url")}, nil
+	return content.Posted{
+		ExternalID: created.ID,
+		Permalink:  c.permalink(ctx, created.ID, page.Token, "permalink_url"),
+	}, nil
 }
 
-// PublishInstagram posts v to the Instagram account linked to the Page: a
-// container for its one image, or a carousel of up to ten, which Instagram
-// must finish processing before it can be published.
+func (c *Connector) uploadPhoto(ctx context.Context, page connectedPage, imageURL string) (string, error) {
+	var photo struct {
+		ID string `json:"id"`
+	}
+	err := c.call(ctx, http.MethodPost, page.ID+"/photos", page.Token,
+		url.Values{"url": {imageURL}, "published": {"false"}}, &photo)
+	if err != nil {
+		return "", c.failed(ctx, err, false)
+	}
+	return photo.ID, nil
+}
+
+// PublishInstagram posts v to the Instagram account linked to the Page: one
+// image, or a carousel of up to ten. Instagram must finish processing the
+// container before it can be published.
 func (c *Connector) PublishInstagram(ctx context.Context, v db.PostVersion) (content.Posted, error) {
-	_, token, igID, err := c.page(ctx)
+	page, err := c.page(ctx)
 	if err != nil {
 		return content.Posted{}, err
 	}
-	if igID == "" {
+	if page.InstagramID == "" {
 		return content.Posted{}, content.ErrNotConnected
 	}
 	images, err := c.imageURLs(ctx, v.ImageIds)
 	if err != nil {
 		return content.Posted{}, err
 	}
-	caption := v.Text.String
-	var container string
-	if len(images) == 1 {
-		container, err = c.container(ctx, igID, token, url.Values{"image_url": {images[0]}, "caption": {caption}})
-	} else {
-		children := make([]string, len(images))
-		for i, image := range images {
-			if children[i], err = c.container(ctx, igID, token,
-				url.Values{"image_url": {image}, "is_carousel_item": {"true"}}); err != nil {
-				break
-			}
-		}
-		if err == nil {
-			container, err = c.container(ctx, igID, token, url.Values{
-				"media_type": {"CAROUSEL"}, "children": {strings.Join(children, ",")}, "caption": {caption},
-			})
-		}
-	}
-	if err == nil {
-		err = c.waitFinished(ctx, container, token)
-	}
+	container, err := c.instagramContainer(ctx, page, images, v.Text.String)
 	if err != nil {
+		return content.Posted{}, err
+	}
+	if err := c.waitFinished(ctx, container, page.Token); err != nil {
 		return content.Posted{}, err
 	}
 	var published struct {
 		ID string `json:"id"`
 	}
-	if err := c.call(ctx, http.MethodPost, igID+"/media_publish", token,
-		url.Values{"creation_id": {container}}, &published); err != nil {
+	err = c.call(ctx, http.MethodPost, page.InstagramID+"/media_publish", page.Token,
+		url.Values{"creation_id": {container}}, &published)
+	if err != nil {
 		return content.Posted{}, c.failed(ctx, err, true)
 	}
-	return content.Posted{ExternalID: published.ID, Permalink: c.permalink(ctx, published.ID, token, "permalink")}, nil
+	return content.Posted{
+		ExternalID: published.ID,
+		Permalink:  c.permalink(ctx, published.ID, page.Token, "permalink"),
+	}, nil
 }
 
-func (c *Connector) container(ctx context.Context, igID, token string, params url.Values) (string, error) {
+// instagramContainer creates the media container for one image, or a
+// carousel container over one child container per image.
+func (c *Connector) instagramContainer(ctx context.Context, page connectedPage, images []string, caption string) (string, error) {
+	if len(images) == 1 {
+		return c.container(ctx, page, url.Values{"image_url": {images[0]}, "caption": {caption}})
+	}
+	children := make([]string, len(images))
+	for i, image := range images {
+		child, err := c.container(ctx, page, url.Values{"image_url": {image}, "is_carousel_item": {"true"}})
+		if err != nil {
+			return "", err
+		}
+		children[i] = child
+	}
+	return c.container(ctx, page, url.Values{
+		"media_type": {"CAROUSEL"},
+		"children":   {strings.Join(children, ",")},
+		"caption":    {caption},
+	})
+}
+
+func (c *Connector) container(ctx context.Context, page connectedPage, params url.Values) (string, error) {
 	var created struct {
 		ID string `json:"id"`
 	}
-	if err := c.call(ctx, http.MethodPost, igID+"/media", token, params, &created); err != nil {
+	if err := c.call(ctx, http.MethodPost, page.InstagramID+"/media", page.Token, params, &created); err != nil {
 		return "", c.failed(ctx, err, false)
 	}
 	return created.ID, nil
 }
 
-// waitFinished polls container until Instagram has fetched and processed
-// its images. One it could not process is refused for good; one still in
-// progress after pollTries is tried again later, as new containers.
+// waitFinished polls container until Instagram has processed its images.
+// One it could not process is rejected for good; one still in progress
+// after pollTries is tried again later, with new containers.
 func (c *Connector) waitFinished(ctx context.Context, container, token string) error {
 	every := c.PollEvery
 	if every == 0 {
@@ -143,8 +163,8 @@ func (c *Connector) waitFinished(ctx context.Context, container, token string) e
 		var status struct {
 			StatusCode string `json:"status_code"`
 		}
-		if err := c.call(ctx, http.MethodGet, container, token,
-			url.Values{"fields": {"status_code"}}, &status); err != nil {
+		err := c.call(ctx, http.MethodGet, container, token, url.Values{"fields": {"status_code"}}, &status)
+		if err != nil {
 			return c.failed(ctx, err, false)
 		}
 		switch status.StatusCode {
@@ -163,8 +183,8 @@ func (c *Connector) waitFinished(ctx context.Context, container, token string) e
 	return &content.ChannelError{Reason: "connection_failed", Transient: true}
 }
 
-// permalink reads where a post that went out can be seen. The post is out
-// either way, so a failure here only leaves the address empty.
+// permalink reads where a published post can be seen. The post is out
+// either way, so a failure only leaves the address empty.
 func (c *Connector) permalink(ctx context.Context, id, token, field string) string {
 	var out map[string]any
 	if err := c.call(ctx, http.MethodGet, id, token, url.Values{"fields": {field}}, &out); err != nil {
@@ -175,28 +195,25 @@ func (c *Connector) permalink(ctx context.Context, id, token, field string) stri
 	return link
 }
 
-// page reads the connected Page's id, its token and the linked Instagram
-// account's id. Without a connection the channel is not connected.
-func (c *Connector) page(ctx context.Context) (pageID, token, igID string, err error) {
+func (c *Connector) page(ctx context.Context) (connectedPage, error) {
 	row, err := db.New(c.Pool).GetConnection(ctx, platformName)
 	if errors.Is(err, pgx.ErrNoRows) {
-		return "", "", "", content.ErrNotConnected
+		return connectedPage{}, content.ErrNotConnected
 	}
 	if err != nil {
-		return "", "", "", err
+		return connectedPage{}, err
 	}
 	if row.Status != "connected" {
-		return "", "", "", content.ErrNotConnected
+		return connectedPage{}, content.ErrNotConnected
 	}
-	sealed, err := c.Tokens.Open(row.Token)
+	token, err := c.Tokens.Open(row.Token)
 	if err != nil {
-		return "", "", "", err
+		return connectedPage{}, err
 	}
-	return row.AccountID.String, string(sealed), row.InstagramID.String, nil
+	return connectedPage{ID: row.AccountID.String, Token: string(token), InstagramID: row.InstagramID.String}, nil
 }
 
-// imageURLs are the public addresses of the largest web size of each image,
-// which the Graph API fetches.
+// imageURLs are the public addresses of each image's largest web size.
 func (c *Connector) imageURLs(ctx context.Context, ids []pgtype.UUID) ([]string, error) {
 	out := make([]string, len(ids))
 	for i, id := range ids {
@@ -212,10 +229,9 @@ func (c *Connector) imageURLs(ctx context.Context, ids []pgtype.UUID) ([]string,
 	return out, nil
 }
 
-// failed says why a Graph API call did not post. A refusal is certain
-// nothing went out; a lost answer to the call that posts (final) may hide a
-// post that did, so it is never sent again on its own: Daw Mi checks the
-// platform first (unknown_outcome).
+// failed says why a Graph API call did not post. A refusal means nothing
+// went out; a lost answer to the final, posting call may hide a post that
+// did, so it is unknown_outcome and never retried on its own.
 func (c *Connector) failed(ctx context.Context, err error, final bool) error {
 	var ge *graphError
 	if !errors.As(err, &ge) || ge.Status/100 != 4 {
@@ -227,17 +243,16 @@ func (c *Connector) failed(ctx context.Context, err error, final bool) error {
 	}
 	c.Log.WarnContext(ctx, "meta_refused", "code", ge.Code, "status", ge.Status, "message", ge.Message)
 	switch {
-	case ge.Code == codeToken || ge.Code == codePermission || ge.Code >= 200 && ge.Code < 300:
+	case ge.Code == codeInvalidToken || ge.Code == codePermission || ge.Code >= 200 && ge.Code < 300:
 		c.markError(ctx, "reconnect_required")
 		return &content.ChannelError{Reason: "reconnect_required"}
-	case slices.Contains(codeRateLimit, ge.Code):
+	case slices.Contains(codesRateLimit, ge.Code):
 		return &content.ChannelError{Reason: "connection_failed", Transient: true}
 	}
 	return &content.ChannelError{Reason: "rejected"}
 }
 
-// markError shows on the Connections page that the connection needs Daw Mi;
-// failing to record it changes nothing about the channel's own failure.
+// markError flags the connection on the Connections page; a failure to record it is only logged.
 func (c *Connector) markError(ctx context.Context, reason string) {
 	err := db.New(c.Pool).SetConnectionError(ctx, db.SetConnectionErrorParams{
 		Platform: platformName, LastError: text(reason), Now: c.Now(),

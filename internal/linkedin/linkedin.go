@@ -1,11 +1,12 @@
 // Package linkedin connects Daw Mi's LinkedIn personal profile and posts the
-// portal's linkedin channel version there through the Posts API
-// (docs/linkedin-setup.md).
+// portal's linkedin version there through the Posts API.
+// Flow: AuthorizeURL → Finish → Status → Publish.
 package linkedin
 
 import (
 	"bytes"
 	"context"
+	"database/sql"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -16,46 +17,46 @@ import (
 	"strings"
 	"time"
 
+	"github.com/jackc/pgx/v5/pgtype"
 	"github.com/jackc/pgx/v5/pgxpool"
 
-	"github.com/VetMiMi/vetmimi-api/internal/auth"
 	"github.com/VetMiMi/vetmimi-api/internal/clock"
 	"github.com/VetMiMi/vetmimi-api/internal/config"
+	"github.com/VetMiMi/vetmimi-api/internal/secretbox"
 )
 
-// Connector holds what the LinkedIn connection and publishing need.
 type Connector struct {
-	Pool *pgxpool.Pool
-	// Tokens seals the stored token with the AES-GCM key TOTP secrets use.
-	Tokens *auth.TOTP
-	// ClientID and ClientSecret are the LinkedIn app's; empty, LinkedIn is
-	// not set up.
+	Pool   *pgxpool.Pool
+	Tokens *secretbox.Box
+	// ClientID and ClientSecret are empty when LinkedIn is not set up.
 	ClientID, ClientSecret string
 	// Version is the LinkedIn-Version header the REST API requires (YYYYMM).
 	Version string
-	// AuthURL is https://www.linkedin.com and APIURL https://api.linkedin.com,
-	// or a fake in tests.
-	AuthURL, APIURL string
-	// RedirectURL is the admin page LinkedIn sends Daw Mi back to; it must be
-	// listed in the app's Authorized redirect URLs.
-	RedirectURL string
-	// SigningSecret signs the OAuth state.
-	SigningSecret []byte
-	// MediaPublicURL serves the web sizes uploaded to LinkedIn.
+	AuthURL string
+	APIURL  string
+	// RedirectURL must be listed in the LinkedIn app's Authorized redirect URLs.
+	RedirectURL    string
+	SigningSecret  []byte
 	MediaPublicURL string
-	// HTTP calls LinkedIn; nil means a client with a 30-second timeout.
-	HTTP *http.Client
-	Log  *slog.Logger
-	Now  clock.Now
+	HTTP           *http.Client // nil: a client with a 30-second timeout
+	Log            *slog.Logger
+	Now            clock.Now
 }
 
-// New returns the connector cmd/api wires from cfg.
-func New(cfg config.Config, pool *pgxpool.Pool, tokens *auth.TOTP, log *slog.Logger) *Connector {
+func New(cfg config.Config, pool *pgxpool.Pool, tokens *secretbox.Box, log *slog.Logger) *Connector {
 	return &Connector{
-		Pool: pool, Tokens: tokens, ClientID: cfg.LinkedInClientID, ClientSecret: cfg.LinkedInClientSecret,
-		Version: cfg.LinkedInAPIVersion, AuthURL: "https://www.linkedin.com", APIURL: "https://api.linkedin.com",
-		RedirectURL:   strings.TrimSuffix(cfg.SiteURL, "/") + "/admin/settings/connections/linkedin",
-		SigningSecret: cfg.SigningSecret, MediaPublicURL: cfg.MediaPublicURL, Log: log, Now: time.Now,
+		Pool:           pool,
+		Tokens:         tokens,
+		ClientID:       cfg.LinkedInClientID,
+		ClientSecret:   cfg.LinkedInClientSecret,
+		Version:        cfg.LinkedInAPIVersion,
+		AuthURL:        "https://www.linkedin.com",
+		APIURL:         "https://api.linkedin.com",
+		RedirectURL:    strings.TrimSuffix(cfg.SiteURL, "/") + "/admin/settings/connections/linkedin",
+		SigningSecret:  cfg.SigningSecret,
+		MediaPublicURL: cfg.MediaPublicURL,
+		Log:            log,
+		Now:            time.Now,
 	}
 }
 
@@ -71,8 +72,7 @@ func (e *apiError) Error() string {
 	return fmt.Sprintf("linkedin: answered %d, code %d %s", e.Status, e.Code, e.OAuth)
 }
 
-// rest is a request to the versioned REST API under APIURL, as token, with
-// body as JSON when it is not nil.
+// rest builds a request to the versioned REST API, with body as JSON when it is not nil.
 func (c *Connector) rest(ctx context.Context, method, path, token string, body any) (*http.Request, error) {
 	var r io.Reader
 	if body != nil {
@@ -95,8 +95,8 @@ func (c *Connector) rest(ctx context.Context, method, path, token string, body a
 	return req, nil
 }
 
-// do sends req. out, if not nil, receives the JSON answer; the headers are
-// returned, since a created post's id comes in x-restli-id.
+// do sends req. out, if not nil, receives the JSON answer. The headers are
+// returned because a created post's id comes in X-Restli-Id.
 func (c *Connector) do(req *http.Request, out any) (http.Header, error) {
 	client := c.HTTP
 	if client == nil {
@@ -105,7 +105,7 @@ func (c *Connector) do(req *http.Request, out any) (http.Header, error) {
 	what := req.Method + " " + req.URL.Path
 	res, err := client.Do(req)
 	if err != nil {
-		// An upload URL carries a signed ticket: keep it out of a logged error.
+		// An upload URL carries a signed ticket: keep it out of the logged error.
 		var ue *url.Error
 		if errors.As(err, &ue) {
 			err = ue.Err
@@ -132,3 +132,7 @@ func (c *Connector) do(req *http.Request, out any) (http.Header, error) {
 	}
 	return res.Header, nil
 }
+
+func expired(at sql.NullTime, now time.Time) bool { return at.Valid && !now.Before(at.Time) }
+
+func text(s string) pgtype.Text { return pgtype.Text{String: s, Valid: s != ""} }
