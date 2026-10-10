@@ -5,7 +5,6 @@ import (
 	"encoding/json"
 	"maps"
 	"slices"
-	"strconv"
 
 	openapi_types "github.com/oapi-codegen/runtime/types"
 
@@ -13,12 +12,10 @@ import (
 	"github.com/VetMiMi/vetmimi-api/internal/comms"
 	"github.com/VetMiMi/vetmimi-api/internal/db"
 	"github.com/VetMiMi/vetmimi-api/internal/httpapi/gen"
-	"github.com/VetMiMi/vetmimi-api/internal/queue"
 	"github.com/VetMiMi/vetmimi-api/internal/settings"
 )
 
-// GetSettings answers with the settings the caller's roles may read: a
-// content editor gets the site keys only.
+// GetSettings gives a content editor the site keys only.
 func (s *server) GetSettings(ctx context.Context, _ gen.GetSettingsRequestObject) (gen.GetSettingsResponseObject, error) {
 	session, _ := auth.FromContext(ctx)
 	current, err := settings.Load(ctx, db.New(s.Pool))
@@ -28,8 +25,7 @@ func (s *server) GetSettings(ctx context.Context, _ gen.GetSettingsRequestObject
 	return gen.GetSettings200JSONResponse(settingsView(current, session.User.Roles)), nil
 }
 
-// UpdateSettings applies a patch, all of it or none, and answers with the
-// caller's view of the result.
+// UpdateSettings applies all of the patch or none of it.
 func (s *server) UpdateSettings(ctx context.Context, req gen.UpdateSettingsRequestObject) (gen.UpdateSettingsResponseObject, error) {
 	session, _ := auth.FromContext(ctx)
 	patch, err := settingsPatch(*req.Body)
@@ -41,22 +37,14 @@ func (s *server) UpdateSettings(ctx context.Context, req gen.UpdateSettingsReque
 	if err != nil {
 		return nil, err
 	}
-	if _, ok := patch["reminder_hours"]; ok && s.Queue != nil {
-		// Queued reminders move to the new offset (docs/architecture.md,
-		// "Background jobs"). The task recomputes from the stored setting, so
-		// running it twice is harmless.
-		s.Queue.Enqueue(ctx, queue.Task{
-			Type: comms.TaskRescheduleReminders,
-			ID:   "reminders:" + strconv.FormatInt(now.UnixNano(), 10),
-		})
-	}
+	s.enqueue(ctx, comms.ReminderRescheduleTasks(patch, now)...)
 	s.Log.InfoContext(ctx, "settings_changed", "request_id", RequestID(ctx),
 		"user_id", session.User.ID.String(), "keys", slices.Sorted(maps.Keys(patch)))
 	return gen.UpdateSettings200JSONResponse(settingsView(updated, session.User.Roles)), nil
 }
 
-// settingsPatch keys each field the body sets by its settings table key. The
-// validator has already refused fields the contract does not name.
+// settingsPatch keys each field the body sets by its table key. The validator
+// has already refused unknown fields.
 func settingsPatch(body gen.SettingsPatch) (settings.Patch, error) {
 	raw, err := json.Marshal(body)
 	if err != nil {

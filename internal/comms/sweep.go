@@ -2,6 +2,7 @@ package comms
 
 import (
 	"context"
+	"strconv"
 	"time"
 
 	"github.com/VetMiMi/vetmimi-api/internal/db"
@@ -66,4 +67,13 @@ func (t *Tasks) RescheduleReminders(ctx context.Context, _ []byte) error {
 	t.Queue.Replace(ctx, tasks...)
 	t.Log.InfoContext(ctx, "reminders rescheduled", "count", len(tasks))
 	return nil
+}
+
+// ReminderRescheduleTasks moves queued reminders when patch changes
+// reminder_hours. The task reads the stored setting, so a repeat is harmless.
+func ReminderRescheduleTasks(patch settings.Patch, now time.Time) []queue.Task {
+	if _, ok := patch["reminder_hours"]; !ok {
+		return nil
+	}
+	return []queue.Task{{Type: TaskRescheduleReminders, ID: "reminders:" + strconv.FormatInt(now.UnixNano(), 10)}}
 }

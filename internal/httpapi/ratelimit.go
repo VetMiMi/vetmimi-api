@@ -17,7 +17,7 @@ import (
 	"github.com/VetMiMi/vetmimi-api/internal/ratelimit"
 )
 
-// keyBy names what a limit counts requests by.
+// keyBy is what a limit counts requests by.
 type keyBy int
 
 const (
@@ -29,8 +29,8 @@ const (
 	byUser
 )
 
-// rateLimit is how many requests one subject may make in each window of a
-// group. A group that fails closed answers 503 while Redis is unreachable.
+// rateLimit allows limit requests per subject per window. A group that fails
+// closed answers 503 while Redis is unreachable.
 type rateLimit struct {
 	group      string
 	key        keyBy
@@ -39,14 +39,11 @@ type rateLimit struct {
 	failClosed bool
 }
 
-// The limits in docs/architecture.md, "Security → Rate limits". They are
-// constants rather than settings rows: they protect the API, and are not
-// business rules Daw Mi changes. The per-email sign-in limit is the auth
-// domain's, because the email is in the body.
+// The rate limits. They protect the API, so they are constants, not settings.
+// The per-email sign-in limit is in the auth package.
 var (
-	// Sign-in fails closed, because sign-in is where a missing limit helps
-	// an attacker most; everything else stays open, because losing Redis
-	// must not stop bookings (ADR-006).
+	// Sign-in fails closed, where a missing limit helps an attacker most; the
+	// rest stay open, so losing Redis never stops bookings.
 	signIn       = rateLimit{"sign-in", byVisitorIP, 5, time.Minute, true}
 	manageLink   = rateLimit{"manage", byPathToken, 20, time.Hour, false}
 	videoSession = rateLimit{"video-session", byPathToken, 30, time.Minute, false}
@@ -61,17 +58,15 @@ var (
 		"requestManagedReschedule": manageLink,
 		"getPublicSession":         videoSession,
 		"createRoomTicket":         videoSession,
-		// Each suggestion is a paid model call.
-		"suggestPostVersions": {"ai-suggestions", byUser, 20, time.Hour, false},
+		"suggestPostVersions":      {"ai-suggestions", byUser, 20, time.Hour, false},
 	}
 	otherPublicCalls = rateLimit{"service-key", byServiceKey, 1200, time.Minute, false}
 	signedInCalls    = rateLimit{"session", bySessionToken, 300, time.Minute, false}
 	roomUpgrade      = rateLimit{"room", byRoomID, 20, time.Minute, false}
 )
 
-// limitFor is the limit op is counted against. Operations declaring
-// security: [] have none: the probes must answer while Redis is down, and the
-// WebSocket checks its own (AllowRoomUpgrade).
+// limitFor is op's limit. Operations with security: [] have none, so the
+// probes answer while Redis is down; the WebSocket counts its own.
 func limitFor(op operation) (rateLimit, bool) {
 	if l, ok := limitsByOperation[op.ID]; ok {
 		return l, true
@@ -85,32 +80,25 @@ func limitFor(op operation) (rateLimit, bool) {
 	return rateLimit{}, false
 }
 
-// errNoLimiter stands for Redis when the router was built without a Limiter,
-// so an unwired router behaves as if Redis were down rather than unlimited.
+// errNoLimiter makes a router built without a Limiter act as if Redis were
+// down, not as if there were no limits.
 var errNoLimiter = errors.New("no rate limiter")
 
-// RateLimits applies the limits above with one ratelimit.Limiter.
 type RateLimits struct {
 	limiter *ratelimit.Limiter
 	log     *slog.Logger
 	now     clock.Now
 
-	mu sync.Mutex
-	// quietUntil is when rate_limit_unavailable may next be logged: a Redis
-	// outage leaves a line a minute, not a line a request.
-	quietUntil time.Time
+	mu         sync.Mutex
+	quietUntil time.Time // a Redis outage is logged once a minute, not once a request
 }
 
-// NewRateLimits returns the limits counted by limiter. A nil limiter counts
-// nothing and is treated as an unreachable Redis.
+// NewRateLimits counts with limiter; nil acts as an unreachable Redis.
 func NewRateLimits(limiter *ratelimit.Limiter, log *slog.Logger, now clock.Now) *RateLimits {
 	return &RateLimits{limiter: limiter, log: log, now: now}
 }
 
-// operations returns the middleware that counts each request against its
-// operation's limit. It runs after authentication, so a caller without a
-// valid key or live session is refused without being counted, and before
-// validation, so a flood of malformed requests is limited too.
+// operations counts each request against its operation's limit.
 func (rl *RateLimits) operations(ops operations) gen.MiddlewareFunc {
 	return func(next http.Handler) http.Handler {
 		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
@@ -123,16 +111,14 @@ func (rl *RateLimits) operations(ops operations) gen.MiddlewareFunc {
 	}
 }
 
-// AllowRoomUpgrade counts a WebSocket upgrade to roomID, 20 a minute per
-// room. The video handler calls it itself, because its route is mounted
-// outside the chain that applies the other limits. When it returns false it
-// has answered the request, and the handler must not upgrade.
+// AllowRoomUpgrade counts a WebSocket upgrade to roomID. When it returns
+// false it has answered the request.
 func (rl *RateLimits) AllowRoomUpgrade(w http.ResponseWriter, r *http.Request, roomID string) bool {
 	return rl.admit(w, r, roomUpgrade, roomID)
 }
 
-// subject is what r is counted by. The visitor IP is trustworthy here
-// because the service key was checked first.
+// subject is what r is counted by. The visitor IP can be trusted because the
+// service key was checked first.
 func subject(r *http.Request, key keyBy) string {
 	switch key {
 	case byVisitorIP:
@@ -150,8 +136,7 @@ func subject(r *http.Request, key keyBy) string {
 	return ""
 }
 
-// admit counts r and reports whether it may go on; when it may not, it has
-// answered 429, or 503 for a group that fails closed while Redis is down.
+// admit counts r and reports whether it may go on; if not, it has answered.
 func (rl *RateLimits) admit(w http.ResponseWriter, r *http.Request, l rateLimit, subject string) bool {
 	allowed, retryAfter, err := rl.allow(r.Context(), l, subject)
 	switch {
@@ -176,7 +161,6 @@ func (rl *RateLimits) allow(ctx context.Context, l rateLimit, subject string) (b
 	return rl.limiter.Allow(ctx, l.group, subject, l.limit, l.window)
 }
 
-// unavailable logs rate_limit_unavailable at most once a minute.
 func (rl *RateLimits) unavailable(r *http.Request, l rateLimit, err error) {
 	rl.mu.Lock()
 	now := rl.now()

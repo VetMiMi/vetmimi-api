@@ -9,13 +9,12 @@ import (
 	"github.com/VetMiMi/vetmimi-api/internal/httpapi/gen"
 )
 
-// GetAIStatus says whether the AI assistant is on, so the portal can hide it.
+// GetAIStatus lets the portal hide the assistant while it is off.
 func (s *server) GetAIStatus(_ context.Context, _ gen.GetAIStatusRequestObject) (gen.GetAIStatusResponseObject, error) {
 	return gen.GetAIStatus200JSONResponse{Enabled: s.Assistant.Enabled()}, nil
 }
 
-// SuggestPostVersions asks the AI assistant for channel versions of a post.
-// Nothing is saved.
+// SuggestPostVersions saves nothing.
 func (s *server) SuggestPostVersions(ctx context.Context, req gen.SuggestPostVersionsRequestObject) (gen.SuggestPostVersionsResponseObject, error) {
 	p, err := content.GetPost(ctx, db.New(s.Pool), uuid(req.PostId))
 	if err != nil {

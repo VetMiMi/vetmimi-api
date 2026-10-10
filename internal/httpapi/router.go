@@ -1,6 +1,10 @@
+// Package httpapi serves the API in openapi.yaml. router.go builds the chain:
+// shared middleware, then per operation the service key, session, role, rate
+// limit and validation checks; each handler parses, calls a domain function and maps the result.
 package httpapi
 
 import (
+	"context"
 	"fmt"
 	"log/slog"
 	"net/http"
@@ -8,55 +12,92 @@ import (
 
 	"github.com/getkin/kin-openapi/openapi3"
 	"github.com/go-chi/chi/v5"
+	"github.com/jackc/pgx/v5/pgxpool"
 
+	"github.com/VetMiMi/vetmimi-api/internal/assistant"
+	"github.com/VetMiMi/vetmimi-api/internal/auth"
+	"github.com/VetMiMi/vetmimi-api/internal/clock"
 	"github.com/VetMiMi/vetmimi-api/internal/httpapi/gen"
+	"github.com/VetMiMi/vetmimi-api/internal/linkedin"
+	"github.com/VetMiMi/vetmimi-api/internal/media"
+	"github.com/VetMiMi/vetmimi-api/internal/meta"
+	"github.com/VetMiMi/vetmimi-api/internal/queue"
 	"github.com/VetMiMi/vetmimi-api/internal/video"
 )
 
-// NewRouter returns the whole HTTP API: every route in openapi.yaml behind
-// the middleware chain in docs/architecture.md, "Request lifecycle". Every
-// error it answers, unknown routes included, is an application/problem+json
-// body.
+// Deps are what the handlers need. cmd/api fills them; tests leave most nil.
+type Deps struct {
+	PingPostgres   func(context.Context) error // nil: readiness reports it failing
+	PingRedis      func(context.Context) error // nil: readiness reports it failing
+	Log            *slog.Logger                // nil: slog.Default()
+	ServiceKey     string                      // empty: every public call is refused
+	RateLimits     *RateLimits                 // nil: counts as Redis being down
+	Sessions       *auth.Sessions              // nil: every signed-in call is refused
+	Pool           *pgxpool.Pool
+	Queue          *queue.Queue // nil: tasks are dropped and the sweepers rebuild them
+	SigningSecret  []byte       // signs management links, join links and room tickets
+	PublicAPIURL   string
+	TURNHost       string // empty: room tickets offer STUN only
+	TURNSecret     string
+	SiteURL        string     // the only origin the video WebSocket accepts
+	Hub            *video.Hub // nil: a new one
+	Media          *media.Store
+	MediaPublicURL string              // where the bucket's public/ prefix is served
+	Meta           *meta.Connector     // nil: its routes answer unavailable
+	LinkedIn       *linkedin.Connector // nil: its routes answer unavailable
+	Assistant      *assistant.Client   // nil or without a key: off
+	Now            clock.Now           // nil: time.Now
+}
+
+// server implements gen.StrictServerInterface; its methods are in the area files.
+type server struct {
+	Deps
+}
+
+// enqueue queues tasks once the change that led to them has committed. A
+// failure is logged by the queue and left to the sweepers.
+func (s *server) enqueue(ctx context.Context, tasks ...queue.Task) {
+	if s.Queue != nil {
+		s.Queue.Enqueue(ctx, tasks...)
+	}
+}
+
+// NewRouter returns the whole HTTP API. Every error, unknown routes included,
+// is an application/problem+json body.
 func NewRouter(deps Deps) http.Handler {
-	log := deps.Log
-	if log == nil {
-		log = slog.Default()
+	if deps.Log == nil {
+		deps.Log = slog.Default()
 	}
-	spec, err := gen.GetSpec()
-	if err != nil {
-		// The spec is embedded at build time and generate-check keeps it in
-		// step with the code, so failing to decode it is a broken build.
-		panic(fmt.Sprintf("httpapi: decode the embedded OpenAPI spec: %v", err))
-	}
-	deps.Log = log
 	if deps.Now == nil {
 		deps.Now = time.Now
 	}
 	if deps.RateLimits == nil {
-		deps.RateLimits = NewRateLimits(nil, log, time.Now)
+		deps.RateLimits = NewRateLimits(nil, deps.Log, time.Now)
 	}
 	if deps.Hub == nil {
-		deps.Hub = video.NewHub(deps.Pool, log, deps.Now)
+		deps.Hub = video.NewHub(deps.Pool, deps.Log, deps.Now)
+	}
+	spec, err := gen.GetSpec()
+	if err != nil {
+		// The spec is embedded at build time, so this is a broken build.
+		panic(fmt.Sprintf("httpapi: decode the embedded OpenAPI spec: %v", err))
 	}
 	s := &server{deps}
-	return router(log, s.connectVideoRoom, mountAPI(s, spec, deps))
+	return router(deps.Log, s.connectVideoRoom, mountAPI(s, spec, deps))
 }
 
-// router builds the chain around the routes mount registers and the video
-// WebSocket handler ws, if any. Tests use it to put stub routes behind the
-// real middleware.
+// router wraps the shared middleware around the video WebSocket ws and the
+// routes mount registers. Tests use it to put stub routes behind the real chain.
 func router(log *slog.Logger, ws http.HandlerFunc, mount func(chi.Router)) http.Handler {
 	r := chi.NewRouter()
 	r.Use(requestID, realIP, logRequests(log), recoverPanics(log), setSecurityHeaders)
 	r.NotFound(notFound)
 	r.MethodNotAllowed(notFound)
 
-	// Routes that must outlive the request timeout and body cap mount here,
-	// outside the group below: the video WebSocket (ADR-007).
+	// The WebSocket stays open for a whole session, so it skips the timeout and body cap.
 	if ws != nil {
 		r.Get(roomSocketPattern, ws)
 	}
-
 	r.Group(func(r chi.Router) {
 		r.Use(WithTimeout(defaultTimeout), WithBodyCap(defaultBodyCap))
 		mount(r)
@@ -64,32 +105,27 @@ func router(log *slog.Logger, ws http.HandlerFunc, mount func(chi.Router)) http.
 	return r
 }
 
-// mountAPI registers the generated routes, each behind the authentication its
-// operation in spec declares (deps.ServiceKey or deps.Sessions) and, when
-// signed in, the roles rolesByOperation allows it, counted
-// against its deps.RateLimits limit and validated against spec, and answers
-// their decode, parameter and handler errors as Problems, logging to
-// deps.Log.
+// mountAPI registers the generated routes behind the per-operation checks.
 func mountAPI(si gen.StrictServerInterface, spec *openapi3.T, deps Deps) func(chi.Router) {
 	log := deps.Log
 	ops, err := indexOperations(spec)
 	if err != nil {
-		// TestEveryOperationDeclaresSecurity holds openapi.yaml to the rule
-		// the index enforces, so this too is a broken build.
+		// TestEveryOperationDeclaresSecurity keeps openapi.yaml valid, so this is a broken build.
 		panic(fmt.Sprintf("httpapi: index the OpenAPI operations: %v", err))
 	}
 	upload, mountUpload := si.(*server)
 	if mountUpload {
-		// Generation leaves uploadMedia out of the embedded spec; its entry
-		// here is the one openapi.yaml declares (TestUploadMediaIsIndexedAsDeclared).
+		// Generation leaves uploadMedia out of the embedded spec.
 		ops[operationKey(http.MethodPost, uploadMediaPattern)] = uploadMediaOperation
 	}
-	validate := validateRequests(spec)
+
 	checkServiceKey := requireServiceKey(deps.ServiceKey, ops, log)
 	checkSession := requireSession(deps.Sessions, ops, log)
 	checkRoles := requireRoles(ops)
 	rateLimit := deps.RateLimits.operations(ops)
 	bodyCaps := operationLimits(ops)
+	validate := validateRequests(spec)
+
 	return func(r chi.Router) {
 		strict := gen.NewStrictHandlerWithOptions(si, nil, gen.StrictHTTPServerOptions{
 			RequestErrorHandlerFunc:  requestError(log),
@@ -97,20 +133,14 @@ func mountAPI(si gen.StrictServerInterface, spec *openapi3.T, deps Deps) func(ch
 		})
 		gen.HandlerWithOptions(strict, gen.ChiServerOptions{
 			BaseRouter: r,
-			// The generated wrapper wraps each entry around the ones before
-			// it, so the last entry runs first: the key check, then the
-			// session check, then the role check, then the rate limit, then
-			// the operation's body cap and validation, just before the
-			// handler. A caller without a key, a live session or a role the
-			// operation allows learns nothing about the contract and is
-			// never counted, while a malformed request still is.
-			Middlewares: []gen.MiddlewareFunc{validate, bodyCaps, rateLimit, checkRoles, checkSession,
-				checkServiceKey},
+			// The generated code runs the last entry first: key, session, role,
+			// rate limit, body cap, validation. A caller without a key, session or
+			// role is never counted; a malformed request still is.
+			Middlewares:      []gen.MiddlewareFunc{validate, bodyCaps, rateLimit, checkRoles, checkSession, checkServiceKey},
 			ErrorHandlerFunc: paramError(log),
 		})
-		// Media upload reads its own multipart body, so it skips OpenAPI
-		// validation but keeps every other check, in the same order, under
-		// a larger body cap and a longer deadline.
+		// Upload reads its own multipart body, so it skips validation but keeps
+		// the other checks in the same order, with a larger cap and deadline.
 		if mountUpload {
 			r.With(WithTimeout(uploadTimeout), WithBodyCap(uploadBodyCap),
 				checkServiceKey, checkSession, checkRoles, rateLimit).

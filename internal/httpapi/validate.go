@@ -20,29 +20,23 @@ import (
 	"github.com/VetMiMi/vetmimi-api/internal/apperr"
 )
 
-// validateRequests checks the path, query, headers and body of each request
-// against spec, which it takes over, and answers every problem it finds
-// together as one 400 invalid_request.
+// validateRequests checks each request against spec, which it takes over,
+// and answers every problem together as one 400.
 func validateRequests(spec *openapi3.T) func(http.Handler) http.Handler {
 	registerFormats.Do(defineFormats)
 
-	// kin-openapi validates a 3.1 document with a JSON Schema 2020-12 engine
-	// that reduces each failure to a sentence quoting the value, losing the
-	// rule and the JSON pointer this package answers with. openapi.yaml only
-	// uses keywords both engines read alike, so the validator gets the
-	// document as 3.0 and returns structured SchemaErrors.
+	// kin-openapi's 3.1 engine reduces each failure to a sentence quoting the
+	// value. openapi.yaml only uses keywords 3.0 reads alike, and 3.0 returns
+	// structured SchemaErrors.
 	spec.OpenAPI = "3.0.3"
 
 	return nethttpmiddleware.OapiRequestValidatorWithOptions(spec, &nethttpmiddleware.Options{
 		Options: openapi3filter.Options{
-			MultiError: true,
-			// Authentication runs before validation and owns the security schemes.
-			AuthenticationFunc: openapi3filter.NoopAuthenticationFunc,
-			// The handler receives the request as sent; defaults are its business.
+			MultiError:          true,
+			AuthenticationFunc:  openapi3filter.NoopAuthenticationFunc, // checked earlier in the chain
 			SkipSettingDefaults: true,
 		},
-		// openapi.yaml names localhost as its server, so matching hosts would
-		// reject the live hostname.
+		// openapi.yaml names localhost as its server.
 		DoNotValidateServers: true,
 		ErrorHandlerWithOpts: answerInvalid,
 	})
@@ -50,10 +44,9 @@ func validateRequests(spec *openapi3.T) func(http.Handler) http.Handler {
 
 var registerFormats sync.Once
 
-// defineFormats makes the validator check the string formats openapi.yaml
-// uses. kin-openapi keeps format checkers in a process-wide registry, which
-// is why this runs once, and only knows loose patterns for dates by default,
-// so dates are checked by parsing them.
+// defineFormats registers the string formats openapi.yaml uses. The registry
+// is process-wide, hence the sync.Once; dates are checked by parsing, which is
+// stricter than kin-openapi's patterns.
 func defineFormats() {
 	openapi3.DefineStringFormatValidator("uuid",
 		openapi3.NewRegexpFormatValidator(openapi3.FormatOfStringForUUIDOfRFC9562))
@@ -74,23 +67,18 @@ func parsesAs(layout string) openapi3.StringFormatValidator {
 	})
 }
 
-// answerInvalid answers what the validator rejected. Every message is built
-// from the rule that failed, never from the error text, because kin-openapi
-// quotes the submitted value and visitor text must not come back in a
-// response.
+// answerInvalid builds every message from the rule that failed, never from
+// the error text, which quotes the submitted value.
 func answerInvalid(_ context.Context, err error, w http.ResponseWriter, _ *http.Request, _ nethttpmiddleware.ErrorHandlerOpts) {
-	var tooBig *http.MaxBytesError
-	if errors.As(err, &tooBig) {
-		writeProblem(w, apperr.New(apperr.PayloadTooLarge,
-			fmt.Sprintf("The body is over its %d-byte limit.", tooBig.Limit)))
+	if e := bodyTooLarge(err); e != nil {
+		writeProblem(w, e)
 		return
 	}
 	writeProblem(w, apperr.Invalid("The request does not match the API contract.", fieldErrors(err)...))
 }
 
-// fieldErrors lists each problem in err once, sorted so the answer is stable.
-// It walks the validator's error tree with type assertions, not errors.As,
-// which would look through a RequestError into the schema errors it wraps.
+// fieldErrors lists each problem in err once, sorted. It uses type
+// assertions, because errors.As would look through a RequestError.
 func fieldErrors(err error) []apperr.FieldError {
 	var all []apperr.FieldError
 	for _, leaf := range leaves(err) {
@@ -132,8 +120,7 @@ func bodyProblems(req *openapi3filter.RequestError) []apperr.FieldError {
 	case errors.Is(req.Err, openapi3filter.ErrInvalidRequired):
 		return []apperr.FieldError{{Message: "is required"}}
 	case req.Err == nil:
-		// The only body error without a cause is a Content-Type the
-		// operation does not accept.
+		// Only an unaccepted Content-Type has no cause.
 		types := slices.Sorted(maps.Keys(req.RequestBody.Content))
 		return []apperr.FieldError{{Field: "Content-Type", Message: "must be " + strings.Join(types, " or ")}}
 	case errors.As(req.Err, &parse):
@@ -146,7 +133,6 @@ func bodyProblems(req *openapi3filter.RequestError) []apperr.FieldError {
 	return out
 }
 
-// leaves flattens the MultiErrors in err into the errors they hold.
 func leaves(err error) []error {
 	multi, ok := err.(openapi3.MultiError)
 	if !ok {
@@ -160,8 +146,7 @@ func leaves(err error) []error {
 }
 
 // schemaProblems names the body field err is about. An unknown property is
-// reported at its own pointer, because the error points at the object
-// holding it.
+// reported at its own pointer, not at the object holding it.
 func schemaProblems(err error) []apperr.FieldError {
 	s, ok := err.(*openapi3.SchemaError)
 	if !ok {
@@ -182,7 +167,7 @@ func schemaProblems(err error) []apperr.FieldError {
 
 var pointerEscape = strings.NewReplacer("~", "~0", "/", "~1")
 
-// pointer joins path segments into an RFC 6901 JSON pointer.
+// pointer builds an RFC 6901 JSON pointer.
 func pointer(path []string) string {
 	var b strings.Builder
 	for _, seg := range path {
@@ -192,7 +177,6 @@ func pointer(path []string) string {
 	return b.String()
 }
 
-// ruleMessage states the rule err broke, from the schema alone.
 func ruleMessage(err error) string {
 	s, ok := err.(*openapi3.SchemaError)
 	if !ok {

@@ -6,6 +6,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"maps"
 	"mime/multipart"
 	"net/http"
 	"time"
@@ -20,19 +21,15 @@ import (
 	"github.com/VetMiMi/vetmimi-api/internal/media"
 )
 
-// Media upload is mounted by hand (see mountAPI) so it can read its
-// multipart body as a stream, under limits of its own.
 const (
 	uploadMediaPattern = "/admin/media"
 	uploadTimeout      = 120 * time.Second
 	uploadBodyCap      = 21 << 20
-	// maxDescription is the longest alt text or credit, as in openapi.yaml.
-	maxDescription = 300
+	maxDescription     = 300 // the longest alt text or credit, as in openapi.yaml
 )
 
 var uploadMediaOperation = operation{ID: "uploadMedia", Security: schemeSessionToken}
 
-// ListMedia lists the media library newest first.
 func (s *server) ListMedia(ctx context.Context, req gen.ListMediaRequestObject) (gen.ListMediaResponseObject, error) {
 	p := req.Params
 	page, err := media.List(ctx, db.New(s.Pool), media.Filter{
@@ -48,7 +45,6 @@ func (s *server) ListMedia(ctx context.Context, req gen.ListMediaRequestObject) 
 	return out, nil
 }
 
-// GetMedia reads one item.
 func (s *server) GetMedia(ctx context.Context, req gen.GetMediaRequestObject) (gen.GetMediaResponseObject, error) {
 	m, err := media.Get(ctx, db.New(s.Pool), uuid(req.MediaId))
 	if err != nil {
@@ -57,7 +53,6 @@ func (s *server) GetMedia(ctx context.Context, req gen.GetMediaRequestObject) (g
 	return gen.GetMedia200JSONResponse(s.mediaView(m)), nil
 }
 
-// UpdateMedia replaces an item's alt text and credit.
 func (s *server) UpdateMedia(ctx context.Context, req gen.UpdateMediaRequestObject) (gen.UpdateMediaResponseObject, error) {
 	b := req.Body
 	var alt json.RawMessage
@@ -73,7 +68,6 @@ func (s *server) UpdateMedia(ctx context.Context, req gen.UpdateMediaRequestObje
 	return gen.UpdateMedia200JSONResponse(s.mediaView(m)), nil
 }
 
-// DeleteMedia deletes an item no post uses.
 func (s *server) DeleteMedia(ctx context.Context, req gen.DeleteMediaRequestObject) (gen.DeleteMediaResponseObject, error) {
 	if err := media.Delete(ctx, s.Pool, s.Media, uuid(req.MediaId)); err != nil {
 		return nil, err
@@ -82,15 +76,15 @@ func (s *server) DeleteMedia(ctx context.Context, req gen.DeleteMediaRequestObje
 	return gen.DeleteMedia204Response{}, nil
 }
 
-// uploadMedia stores an uploaded image (uploadMedia in openapi.yaml). It
-// answers like the generated handlers: problems as Problems, unexpected
-// errors logged and hidden.
+// uploadMedia is mounted by hand so it can stream its multipart body. It
+// answers like the generated handlers.
 func (s *server) uploadMedia(w http.ResponseWriter, r *http.Request) {
 	data, d, err := readUpload(r)
-	var m db.Media
-	if err == nil {
-		m, err = media.Upload(r.Context(), s.Pool, s.Media, data, d, actor(r.Context()), s.Now())
+	if err != nil {
+		responseError(s.Log)(w, r, err)
+		return
 	}
+	m, err := media.Upload(r.Context(), s.Pool, s.Media, data, d, actor(r.Context()), s.Now())
 	if err != nil {
 		responseError(s.Log)(w, r, err)
 		return
@@ -112,44 +106,54 @@ func readUpload(r *http.Request) ([]byte, media.Description, error) {
 	if err != nil {
 		return nil, media.Description{}, errNotMultipart
 	}
-	var data []byte
-	alt := map[string]string{}
-	var credit string
+	u := upload{alt: map[string]string{}}
 	for {
 		part, err := parts.NextPart()
 		if errors.Is(err, io.EOF) {
 			break
 		}
-		if err != nil {
-			return nil, media.Description{}, uploadReadError(err)
-		}
-		switch part.FormName() {
-		case "file":
-			data, err = io.ReadAll(part)
-		case "altEn":
-			alt["en"], err = formValue(part)
-		case "altMy":
-			alt["my"], err = formValue(part)
-		case "credit":
-			credit, err = formValue(part)
-		default:
-			err = apperr.Invalid("The upload has an unknown part.",
-				apperr.FieldError{Field: part.FormName(), Message: "is not an allowed property"})
+		if err == nil {
+			err = u.read(part)
 		}
 		if err != nil {
 			return nil, media.Description{}, uploadReadError(err)
 		}
 	}
-	d := media.Description{Credit: credit}
-	for k, v := range alt {
-		if v == "" {
-			delete(alt, k)
-		}
+	return u.file, u.description(), nil
+}
+
+type upload struct {
+	file   []byte
+	alt    map[string]string
+	credit string
+}
+
+func (u *upload) read(part *multipart.Part) error {
+	var err error
+	switch part.FormName() {
+	case "file":
+		u.file, err = io.ReadAll(part)
+	case "altEn":
+		u.alt["en"], err = formValue(part)
+	case "altMy":
+		u.alt["my"], err = formValue(part)
+	case "credit":
+		u.credit, err = formValue(part)
+	default:
+		err = apperr.Invalid("The upload has an unknown part.",
+			apperr.FieldError{Field: part.FormName(), Message: "is not an allowed property"})
 	}
-	if len(alt) > 0 {
-		d.Alt, _ = json.Marshal(alt)
+	return err
+}
+
+// description leaves out empty alt texts.
+func (u *upload) description() media.Description {
+	d := media.Description{Credit: u.credit}
+	maps.DeleteFunc(u.alt, func(_, v string) bool { return v == "" })
+	if len(u.alt) > 0 {
+		d.Alt, _ = json.Marshal(u.alt)
 	}
-	return data, d, nil
+	return d
 }
 
 func formValue(part *multipart.Part) (string, error) {
@@ -167,12 +171,11 @@ func formValue(part *multipart.Part) (string, error) {
 // uploadReadError answers a body over the cap 413, as the strict server
 // does, and a malformed one 400.
 func uploadReadError(err error) error {
-	var tooBig *http.MaxBytesError
+	if e := bodyTooLarge(err); e != nil {
+		return e
+	}
 	var problem *apperr.Error
-	switch {
-	case errors.As(err, &tooBig):
-		return apperr.New(apperr.PayloadTooLarge, fmt.Sprintf("The body is over its %d-byte limit.", tooBig.Limit))
-	case errors.As(err, &problem):
+	if errors.As(err, &problem) {
 		return problem
 	}
 	return apperr.Invalid("The upload is not well-formed multipart/form-data.")

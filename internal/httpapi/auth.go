@@ -3,10 +3,8 @@ package httpapi
 import (
 	"context"
 	"errors"
-	"log/slog"
-	"net/http"
-	"strings"
 
+	"github.com/jackc/pgx/v5/pgtype"
 	openapi_types "github.com/oapi-codegen/runtime/types"
 
 	"github.com/VetMiMi/vetmimi-api/internal/apperr"
@@ -14,59 +12,14 @@ import (
 	"github.com/VetMiMi/vetmimi-api/internal/httpapi/gen"
 )
 
-// requireSession answers 401 unauthenticated to a request for a sessionToken
-// operation that does not carry a live session as a bearer token (ADR-002),
-// and puts the session in the context of one that does, where auth.FromContext
-// finds it; their handlers can rely on it. Other operations are
-// left to their own check. The token is never logged.
-func requireSession(sessions *auth.Sessions, ops operations, log *slog.Logger) gen.MiddlewareFunc {
-	fail := responseError(log)
-	return func(next http.Handler) http.Handler {
-		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-			if op, _ := ops.lookup(r); op.Security != schemeSessionToken {
-				next.ServeHTTP(w, r)
-				return
-			}
-			if sessions == nil {
-				// A router built without sessions accepts none, rather than
-				// failing on the first signed-in call.
-				writeProblem(w, apperr.New(apperr.Unauthenticated, "A valid session is required."))
-				return
-			}
-			session, err := sessions.Authenticate(r.Context(), bearerToken(r))
-			if err != nil {
-				fail(w, r, err)
-				return
-			}
-			next.ServeHTTP(w, r.WithContext(auth.WithSession(r.Context(), session)))
-		})
-	}
-}
-
-// bearerToken is the token in an "Authorization: Bearer <token>" header, or
-// "" without one. The scheme is case-insensitive (RFC 9110, section 11.1).
-func bearerToken(r *http.Request) string {
-	scheme, token, ok := strings.Cut(r.Header.Get("Authorization"), " ")
-	if !ok || !strings.EqualFold(scheme, "Bearer") {
-		return ""
-	}
-	return token
-}
-
-// CreateSession signs an administrator in. Every refusal of the credentials
-// is the same 401 invalid_credentials; an email over its attempt limit or
-// locked out is 429 rate_limited, logged with a hash prefix of the email
-// only.
+// CreateSession signs an administrator in. A locked-out email is logged by a
+// hash prefix only.
 func (s *server) CreateSession(ctx context.Context, req gen.CreateSessionRequestObject) (gen.CreateSessionResponseObject, error) {
 	email := string(req.Body.Email)
-	var code string
-	if req.Body.TotpCode != nil {
-		code = *req.Body.TotpCode
-	}
 	signedIn, err := s.Sessions.SignIn(ctx, auth.Credentials{
 		Email:    email,
 		Password: req.Body.Password,
-		Code:     code,
+		Code:     deref(req.Body.TotpCode),
 	})
 	var refused *apperr.Error
 	if errors.As(err, &refused) && refused.Code == apperr.RateLimited {
@@ -83,7 +36,6 @@ func (s *server) CreateSession(ctx context.Context, req gen.CreateSessionRequest
 	}, nil
 }
 
-// DeleteCurrentSession signs out: the session's token stops working at once.
 func (s *server) DeleteCurrentSession(ctx context.Context, _ gen.DeleteCurrentSessionRequestObject) (gen.DeleteCurrentSessionResponseObject, error) {
 	session, _ := auth.FromContext(ctx)
 	if err := s.Sessions.SignOut(ctx, session.ID); err != nil {
@@ -93,11 +45,15 @@ func (s *server) DeleteCurrentSession(ctx context.Context, _ gen.DeleteCurrentSe
 	return gen.DeleteCurrentSession204Response{}, nil
 }
 
-// GetCurrentUser answers with the user the session belongs to, as the
-// session middleware loaded them.
 func (s *server) GetCurrentUser(ctx context.Context, _ gen.GetCurrentUserRequestObject) (gen.GetCurrentUserResponseObject, error) {
 	session, _ := auth.FromContext(ctx)
 	return gen.GetCurrentUser200JSONResponse(currentUser(session.User)), nil
+}
+
+// actor is the signed-in administrator; requireSession has already run.
+func actor(ctx context.Context) pgtype.UUID {
+	session, _ := auth.FromContext(ctx)
+	return session.User.ID
 }
 
 func currentUser(u auth.User) gen.CurrentUser {

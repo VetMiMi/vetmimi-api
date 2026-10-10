@@ -25,7 +25,7 @@ var standardMembers = map[string]bool{
 }
 
 // writeProblem answers with e as an RFC 9457 problem. Extensions become
-// top-level members, but never replace the standard ones.
+// top-level members but never replace the standard ones.
 func writeProblem(w http.ResponseWriter, e *apperr.Error) {
 	body := make(map[string]any, len(e.Extensions)+len(standardMembers))
 	for k, v := range e.Extensions {
@@ -64,24 +64,19 @@ func retryAfterSeconds(e *apperr.Error) int {
 }
 
 // requestError answers a body the strict server could not decode. The
-// decoder's message can quote the body, so the answer is fixed and only the
-// error's types are logged.
+// decoder's message can quote the body, so only the error types are logged.
 func requestError(log *slog.Logger) func(http.ResponseWriter, *http.Request, error) {
 	return func(w http.ResponseWriter, r *http.Request, err error) {
-		var tooBig *http.MaxBytesError
-		if errors.As(err, &tooBig) {
-			writeProblem(w, apperr.New(apperr.PayloadTooLarge,
-				fmt.Sprintf("The body is over its %d-byte limit.", tooBig.Limit)))
+		if e := bodyTooLarge(err); e != nil {
+			writeProblem(w, e)
 			return
 		}
 		rejected(log, w, r, "body", err)
 	}
 }
 
-// paramError answers a path, query or header parameter that failed to bind,
-// naming the parameter so the caller can find it. The binder's message
-// quotes the value, so the answer is fixed and only the error's types are
-// logged.
+// paramError answers a parameter that failed to bind, naming it. The binder's
+// message quotes the value, so only the error types are logged.
 func paramError(log *slog.Logger) func(http.ResponseWriter, *http.Request, error) {
 	return func(w http.ResponseWriter, r *http.Request, err error) {
 		rejected(log, w, r, paramName(err), err)
@@ -95,8 +90,8 @@ func rejected(log *slog.Logger, w http.ResponseWriter, r *http.Request, field st
 		apperr.FieldError{Field: field, Message: "is missing or malformed"}))
 }
 
-// errorTypes names the type of each error in err's chain, which says what
-// went wrong without the message, where the submitted value would be.
+// errorTypes names each error type in err's chain: what went wrong, without
+// the message that may quote the submitted value.
 func errorTypes(err error) string {
 	var types []string
 	for ; err != nil; err = errors.Unwrap(err) {
@@ -131,9 +126,9 @@ func paramName(err error) string {
 	return ""
 }
 
-// responseError answers an error returned by a handler. Typed errors go out
-// as they are; anything else is logged with the request id and answered with
-// a fixed detail, because its message may hold SQL, hostnames or personal data.
+// responseError answers an error returned by a handler. Any untyped error is
+// logged and answered with a fixed detail: its message may hold SQL,
+// hostnames or personal data.
 func responseError(log *slog.Logger) func(http.ResponseWriter, *http.Request, error) {
 	return func(w http.ResponseWriter, r *http.Request, err error) {
 		var e *apperr.Error
@@ -152,11 +147,19 @@ func responseError(log *slog.Logger) func(http.ResponseWriter, *http.Request, er
 	}
 }
 
-// dependencyDown reports whether err means PostgreSQL (or the time budget for
-// reaching it) ran out, rather than a bug.
+// dependencyDown reports whether PostgreSQL, or the time to reach it, ran out.
 func dependencyDown(err error) bool {
 	var connect *pgconn.ConnectError
 	return errors.Is(err, context.DeadlineExceeded) || errors.As(err, &connect)
+}
+
+// bodyTooLarge is the 413 for a body over its cap, or nil for any other error.
+func bodyTooLarge(err error) *apperr.Error {
+	var tooBig *http.MaxBytesError
+	if !errors.As(err, &tooBig) {
+		return nil
+	}
+	return apperr.New(apperr.PayloadTooLarge, fmt.Sprintf("The body is over its %d-byte limit.", tooBig.Limit))
 }
 
 func notFound(w http.ResponseWriter, _ *http.Request) {
