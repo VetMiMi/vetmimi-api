@@ -23,9 +23,7 @@ import (
 	"github.com/VetMiMi/vetmimi-api/internal/config"
 )
 
-// The password bounds are SessionCreate's in openapi.yaml, so every password
-// create-user accepts can be used to sign in. The email and name caps are
-// the API's own input caps.
+// The same bounds as openapi.yaml, so every account created can sign in.
 const (
 	minPasswordChars = 12
 	maxPasswordChars = 200
@@ -34,9 +32,8 @@ const (
 	codeTries        = 3
 )
 
-// userFlags are create-user's options. The password is deliberately not one
-// of them: a flag or an environment variable would leave it in shell history
-// and process listings.
+// userFlags are create-user's options. The password is not one: a flag would
+// leave it in shell history and process listings.
 type userFlags struct {
 	email        string
 	name         string
@@ -54,25 +51,22 @@ func (f *userFlags) register(fs *flag.FlagSet) {
 }
 
 // terminal is where create-user talks to the administrator. readPassword
-// reads one line without echo: term.ReadPassword in production, a plain
-// reader in tests.
+// reads a line without echo; tests replace it.
 type terminal struct {
 	in           io.Reader
 	out          io.Writer
 	readPassword func() ([]byte, error)
 }
 
-// runCreateUser wires create-user to the process's terminal. Standard input
-// must be a terminal, so the password is never piped or echoed; on the live
-// host that is `docker compose run --rm api --mode create-user …`.
+// runCreateUser needs a terminal on standard input, so the password is never
+// piped or echoed. On the live host: `docker compose run --rm api --mode create-user …`.
 func runCreateUser(ctx context.Context, log *slog.Logger, cfg config.Config, pool *pgxpool.Pool, f userFlags) error {
 	fd := int(os.Stdin.Fd())
 	state, err := term.GetState(fd)
 	if err != nil {
 		return errors.New("create-user: standard input must be a terminal")
 	}
-	// Ctrl-C would otherwise only cancel ctx while a read blocks, and killing
-	// the process mid-password would leave the terminal without echo.
+	// Ctrl-C mid-password must not leave the terminal without echo.
 	defer context.AfterFunc(ctx, func() {
 		_ = term.Restore(fd, state)
 		fmt.Fprintln(os.Stderr, "\ncreate-user: interrupted")
@@ -90,11 +84,9 @@ func runCreateUser(ctx context.Context, log *slog.Logger, cfg config.Config, poo
 	})
 }
 
-// createUser creates an administrator, or re-enrols an existing one and signs
-// them out everywhere. It saves nothing until the administrator proves the
-// authenticator app holds the new secret by typing a code from it. With
-// --no-totp there is no authenticator step: the account signs in with the
-// password alone until two-step setup moves into the admin website (#142).
+// createUser creates an administrator, or re-enrols one and signs them out
+// everywhere. Nothing is saved until a code from the authenticator app
+// matches; with --no-totp the account signs in with the password alone.
 func createUser(ctx context.Context, log *slog.Logger, pool *pgxpool.Pool, codes *auth.TOTP, f userFlags, t terminal) error {
 	account, err := f.account()
 	if err != nil {
@@ -125,8 +117,8 @@ func createUser(ctx context.Context, log *slog.Logger, pool *pgxpool.Pool, codes
 	return nil
 }
 
-// enrol shows a new TOTP secret, waits for a valid code from the app and
-// puts the sealed secret and the code's step in account.
+// enrol shows a new TOTP secret and, once a code from the app matches, puts
+// the sealed secret in account.
 func enrol(codes *auth.TOTP, account *auth.Account, t terminal) error {
 	enrolment, err := auth.NewEnrolment(account.Email)
 	if err != nil {
@@ -193,7 +185,7 @@ func askPassword(t terminal) (string, error) {
 func promptPassword(t terminal, prompt string) ([]byte, error) {
 	fmt.Fprint(t.out, prompt)
 	password, err := t.readPassword()
-	// The administrator's Enter was not echoed either.
+	// The Enter key was not echoed either.
 	fmt.Fprintln(t.out)
 	if err != nil {
 		return nil, fmt.Errorf("create-user: read password: %w", err)

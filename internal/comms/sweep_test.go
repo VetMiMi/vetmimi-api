@@ -10,8 +10,8 @@ import (
 	"github.com/VetMiMi/vetmimi-api/internal/comms"
 	"github.com/VetMiMi/vetmimi-api/internal/db"
 	"github.com/VetMiMi/vetmimi-api/internal/pgtest"
-	"github.com/VetMiMi/vetmimi-api/internal/settings"
 	taskqueue "github.com/VetMiMi/vetmimi-api/internal/queue"
+	"github.com/VetMiMi/vetmimi-api/internal/settings"
 )
 
 func dueIDs(t *testing.T, now time.Time) map[string]taskqueue.Task {
