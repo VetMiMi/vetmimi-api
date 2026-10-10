@@ -177,8 +177,7 @@ func practitionerID(t *testing.T) pgtype.UUID {
 	return id
 }
 
-// A visitor's email links to /manage/<token>, the token derived from the
-// stored seed; Daw Mi's never carries it.
+// Daw Mi's email never carries the visitor's management link.
 func TestDeliver_VisitorEmailCarriesManagementLink(t *testing.T) {
 	appt := newAppointment(t, freeStart())
 	_, visitor := queue(t, comms.Message{AppointmentID: appt.ID, Kind: comms.BookingConfirmed, Recipient: visitorEmail, Locale: "my"})

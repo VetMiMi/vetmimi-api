@@ -223,7 +223,7 @@ Kinds: `request_received`, `booking_confirmed`, `request_declined`, `rescheduled
 `practitioner_client_cancelled`, `practitioner_reschedule_requested`, `practitioner_new_enquiry` (practitioner).
 Constraints: `CHECK (num_nonnulls(appointment_id, contact_enquiry_id) = 1)`, `CHECK (status <> 'sent' OR sent_at
 IS NOT NULL)`, `CHECK (channel = 'manual' OR recipient IS NOT NULL)`, `recipient` lower-case, `note` on `manual`
-rows only. Transitions (`internal/comms/status.go`): `queued → sent | failed | cancelled`, all final; Resend and
+rows only. Transitions (`internal/comms/comms.go`): `queued → sent | failed | cancelled`, all final; Resend and
 Mark as communicated insert new rows. Indexes: `(appointment_id, created_at)`, `scheduled_for WHERE status =
 'queued'`, `created_at WHERE status = 'failed'`.
 

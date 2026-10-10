@@ -10,17 +10,12 @@ import (
 	texttemplate "text/template"
 )
 
-// Each templates/<kind>.<locale>.tmpl defines subject, text and html, and
-// may use the blocks templates/_shared.<locale>.tmpl defines.
-//
 //go:embed templates/*.tmpl
 var templateFiles embed.FS
 
-// Email is a rendered message.
 type Email struct {
 	Subject, Text, HTML string
-	// ReplyTo is settings.contact_email, Daw Mi's approved address.
-	ReplyTo string
+	ReplyTo             string
 }
 
 type parsed struct {
@@ -28,8 +23,7 @@ type parsed struct {
 	html *htmltemplate.Template
 }
 
-// templates are parsed once, when the process starts, so a missing or broken
-// template stops start-up instead of failing a send.
+// Parsed at start-up, so a broken template stops the process instead of a send.
 var templates = mustParse(templateFiles)
 
 func mustParse(files fs.FS) map[string]parsed {
@@ -40,38 +34,42 @@ func mustParse(files fs.FS) map[string]parsed {
 	return t
 }
 
-// parseTemplates parses every kind in every locale and fails on the first
-// one missing.
 func parseTemplates(files fs.FS) (map[string]parsed, error) {
 	out := make(map[string]parsed, len(Kinds)*len(Locales))
 	for _, locale := range Locales {
-		shared := "templates/_shared." + locale + ".tmpl"
 		for _, kind := range Kinds {
-			name := "templates/" + string(kind) + "." + locale + ".tmpl"
-			text, err := texttemplate.ParseFS(files, shared, name)
+			p, err := parseTemplate(files, kind, locale)
 			if err != nil {
-				return nil, fmt.Errorf("comms: template %s.%s: %w", kind, locale, err)
+				return nil, err
 			}
-			html, err := htmltemplate.ParseFS(files, shared, name)
-			if err != nil {
-				return nil, fmt.Errorf("comms: template %s.%s: %w", kind, locale, err)
-			}
-			for _, block := range []string{"subject", "text"} {
-				if text.Lookup(block) == nil {
-					return nil, fmt.Errorf("comms: template %s.%s defines no %s", kind, locale, block)
-				}
-			}
-			if html.Lookup("html") == nil {
-				return nil, fmt.Errorf("comms: template %s.%s defines no html", kind, locale)
-			}
-			out[string(kind)+"."+locale] = parsed{text, html}
+			out[string(kind)+"."+locale] = p
 		}
 	}
 	return out, nil
 }
 
-// Render renders kind in locale with data. The subject and plain text come
-// from text/template, the HTML from html/template, which escapes every value.
+func parseTemplate(files fs.FS, kind Kind, locale string) (parsed, error) {
+	shared := "templates/_shared." + locale + ".tmpl"
+	name := "templates/" + string(kind) + "." + locale + ".tmpl"
+	text, err := texttemplate.ParseFS(files, shared, name)
+	if err != nil {
+		return parsed{}, fmt.Errorf("comms: template %s.%s: %w", kind, locale, err)
+	}
+	html, err := htmltemplate.ParseFS(files, shared, name)
+	if err != nil {
+		return parsed{}, fmt.Errorf("comms: template %s.%s: %w", kind, locale, err)
+	}
+	for _, block := range []string{"subject", "text"} {
+		if text.Lookup(block) == nil {
+			return parsed{}, fmt.Errorf("comms: template %s.%s defines no %s", kind, locale, block)
+		}
+	}
+	if html.Lookup("html") == nil {
+		return parsed{}, fmt.Errorf("comms: template %s.%s defines no html", kind, locale)
+	}
+	return parsed{text, html}, nil
+}
+
 func Render(kind Kind, locale string, data RenderData) (Email, error) {
 	t, ok := templates[string(kind)+"."+locale]
 	if !ok {
@@ -94,8 +92,7 @@ func Render(kind Kind, locale string, data RenderData) (Email, error) {
 	}, nil
 }
 
-// tidy trims each line and keeps at most one blank line in a row, so
-// templates can be indented and use {{if}} freely.
+// tidy trims each line and collapses blank runs, so templates can be indented.
 func tidy(s string) string {
 	var b strings.Builder
 	blank := true

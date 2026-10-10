@@ -84,8 +84,15 @@ func TestCancel_QueuedOnly(t *testing.T) {
 	sent, _ := queue(t, comms.Message{AppointmentID: appt.ID, Kind: comms.BookingConfirmed, Recipient: visitorEmail, Locale: "en"})
 	exec(t, "UPDATE communications SET status = 'sent', sent_at = now() WHERE id = $1", sent.ID)
 
-	require.NoError(t, comms.Cancel(ctx, q, queued.ID, comms.SkipSuperseded))
-	require.NoError(t, comms.Cancel(ctx, q, sent.ID, comms.SkipSuperseded))
+	cancelled, err := comms.Cancel(ctx, q, queued.ID, comms.SkipSuperseded)
+	require.NoError(t, err)
+	require.True(t, cancelled)
+	cancelled, err = comms.Cancel(ctx, q, sent.ID, comms.SkipSuperseded)
+	require.NoError(t, err)
+	require.False(t, cancelled, "a sent message cannot be cancelled")
+	cancelled, err = comms.Cancel(ctx, q, appt.ID, comms.SkipSuperseded)
+	require.NoError(t, err)
+	require.False(t, cancelled, "no communication has this id")
 
 	require.Equal(t, "cancelled", row(t, queued.ID).Status)
 	require.Equal(t, comms.SkipSuperseded, row(t, queued.ID).Error.String)

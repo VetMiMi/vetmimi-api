@@ -1,7 +1,6 @@
-// Package comms keeps the communications history and delivers it (ADR-006).
-// A message is first a row, written in the transaction that caused it; the
-// caller enqueues the task Queue returns after commit, and the worker renders
-// and sends it through Resend.
+// Package comms stores and sends the practice's emails. Queue writes a
+// communication row in the caller's transaction and returns a task; the
+// worker's Deliver renders the row's template and sends it through Resend.
 package comms
 
 import (
@@ -19,36 +18,88 @@ import (
 	"github.com/VetMiMi/vetmimi-api/internal/platform"
 )
 
-// Task types this package handles (docs/architecture.md, "Background jobs").
 const (
 	TaskDeliver             = "comms:deliver"
 	TaskSweep               = "comms:sweep"
 	TaskRescheduleReminders = "comms:reschedule-reminders"
 )
 
-// Message is one email to queue about an appointment or, with
-// ContactEnquiryID instead, a contact enquiry.
+type Kind string
+
+const (
+	RequestReceived                 Kind = "request_received"
+	BookingConfirmed                Kind = "booking_confirmed"
+	RequestDeclined                 Kind = "request_declined"
+	Rescheduled                     Kind = "rescheduled"
+	Cancelled                       Kind = "cancelled"
+	Reminder                        Kind = "reminder"
+	RequestExpired                  Kind = "request_expired"
+	PractitionerNewRequest          Kind = "practitioner_new_request"
+	PractitionerNewBooking          Kind = "practitioner_new_booking"
+	PractitionerClientCancelled     Kind = "practitioner_client_cancelled"
+	PractitionerRescheduleRequested Kind = "practitioner_reschedule_requested"
+	PractitionerNewEnquiry          Kind = "practitioner_new_enquiry"
+)
+
+var Kinds = []Kind{
+	RequestReceived, BookingConfirmed, RequestDeclined, Rescheduled, Cancelled, Reminder,
+	RequestExpired, PractitionerNewRequest, PractitionerNewBooking, PractitionerClientCancelled,
+	PractitionerRescheduleRequested, PractitionerNewEnquiry,
+}
+
+var Locales = []string{"en", "my"}
+
+type Audience string
+
+const (
+	Visitor      Audience = "visitor"
+	Practitioner Audience = "practitioner"
+)
+
+func (k Kind) Audience() Audience {
+	if strings.HasPrefix(string(k), "practitioner_") {
+		return Practitioner
+	}
+	return Visitor
+}
+
+type Status string
+
+const (
+	StatusQueued    Status = "queued"
+	StatusSent      Status = "sent"
+	StatusFailed    Status = "failed"
+	StatusCancelled Status = "cancelled"
+)
+
+var Statuses = []Status{StatusQueued, StatusSent, StatusFailed, StatusCancelled}
+
+func CanTransition(from, to Status) bool {
+	if from != StatusQueued {
+		return false
+	}
+	switch to {
+	case StatusSent, StatusFailed, StatusCancelled:
+		return true
+	}
+	return false
+}
+
+// Message is about an appointment or, with ContactEnquiryID set, an enquiry.
 type Message struct {
 	AppointmentID    pgtype.UUID
 	ContactEnquiryID pgtype.UUID
 	Kind             Kind
 	Recipient        string
-	// Locale is the visitor's; practitioner kinds are always rendered in en,
-	// because Daw Mi's locale is not a setting yet.
-	Locale string
-	// ScheduledFor is when to send; zero means now.
-	ScheduledFor time.Time
-	// Text is someone's own words, sent as written: Daw Mi's to the visitor
-	// on a decline or cancellation, or the visitor's to her on a
-	// cancellation or reschedule request through their link. Empty for none.
-	Text string
+	Locale           string
+	ScheduledFor     time.Time // zero means now
+	Text             string    // someone's own words, sent as written
 }
 
-// Queue inserts m as a queued row through q, which is the caller's
-// transaction, and returns the task to enqueue once it commits.
+// Queue returns the task to enqueue after the caller's transaction commits.
 func Queue(ctx context.Context, q db.Querier, m Message) (platform.Task, error) {
 	locale := m.Locale
-	if m.Kind.Audience() == Practitioner {
+	if m.Kind.Audience() == Practitioner { // Daw Mi's emails are always in English
 		locale = "en"
 	}
 	row, err := q.InsertCommunication(ctx, db.InsertCommunicationParams{
@@ -67,28 +118,24 @@ func Queue(ctx context.Context, q db.Querier, m Message) (platform.Task, error) 
 	return deliverTask(row.ID, Kind(row.Kind), row.ScheduledFor), nil
 }
 
-// Cancel moves a queued communication to cancelled, recording reason, a
-// short code, in error. A row already sent, failed or cancelled is left as
-// it is.
-func Cancel(ctx context.Context, q db.Querier, id pgtype.UUID, reason string) error {
+// Cancel reports false when the row is missing or no longer queued.
+func Cancel(ctx context.Context, q db.Querier, id pgtype.UUID, reason string) (bool, error) {
 	row, err := q.GetCommunication(ctx, id)
 	if errors.Is(err, pgx.ErrNoRows) {
-		return nil
+		return false, nil
 	}
 	if err != nil {
-		return err
+		return false, err
 	}
-	_, err = setStatus(ctx, q, row, StatusCancelled, reason)
-	return err
+	return setStatus(ctx, q, row, StatusCancelled, reason)
 }
 
-// setStatus moves row to status through the transition table, recording
-// code in error. It reports false when the table refuses the change.
+// setStatus reports false when the row is no longer queued.
 func setStatus(ctx context.Context, q db.Querier, row db.Communication, to Status, code string) (bool, error) {
 	if !CanTransition(Status(row.Status), to) {
 		return false, nil
 	}
-	_, err := q.SetCommunicationStatus(ctx, db.SetCommunicationStatusParams{
+	n, err := q.SetCommunicationStatus(ctx, db.SetCommunicationStatusParams{
 		ID:                row.ID,
 		Status:            string(to),
 		Error:             pgtype.Text{String: code, Valid: code != ""},
@@ -96,11 +143,24 @@ func setStatus(ctx context.Context, q db.Querier, row db.Communication, to Statu
 		SentAt:            row.SentAt,
 		ProviderMessageID: row.ProviderMessageID,
 	})
-	return err == nil, err
+	return n > 0, err
 }
 
-// deliverTask carries only the row id; the worker loads the rest. Visitor
-// mail goes first when the worker is busy.
+// keepQueued records a failed attempt on a row that will be sent again.
+func keepQueued(ctx context.Context, q db.Querier, row db.Communication, code string) error {
+	_, err := q.SetCommunicationStatus(ctx, db.SetCommunicationStatusParams{
+		ID:       row.ID,
+		Status:   string(StatusQueued),
+		Error:    pgtype.Text{String: code, Valid: true},
+		Attempts: row.Attempts,
+	})
+	return err
+}
+
+type deliverPayload struct {
+	CommunicationID string `json:"communication_id"`
+}
+
 func deliverTask(id pgtype.UUID, kind Kind, at time.Time) platform.Task {
 	queue := platform.QueueCritical
 	if kind.Audience() == Practitioner {
@@ -113,8 +173,4 @@ func deliverTask(id pgtype.UUID, kind Kind, at time.Time) platform.Task {
 		ProcessAt: at,
 		Queue:     queue,
 	}
-}
-
-type deliverPayload struct {
-	CommunicationID string `json:"communication_id"`
 }

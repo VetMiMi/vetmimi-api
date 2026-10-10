@@ -29,8 +29,7 @@ import (
 
 func TestMain(m *testing.M) { os.Exit(pgtest.Run(m)) }
 
-// visitorEmail is what every fixture books with; tests check it never
-// reaches a log.
+// visitorEmail must never appear in a log.
 const visitorEmail = "visitor@example.com"
 
 // days hands each appointment its own day, so fixtures never overlap.
@@ -40,7 +39,6 @@ func freeStart() time.Time {
 	return time.Date(2032, 1, 1, 9, 0, 0, 0, time.UTC).AddDate(0, 0, int(days.Add(1)))
 }
 
-// newAppointment books a confirmed appointment at startsAt.
 func newAppointment(t *testing.T, startsAt time.Time) db.Appointment {
 	t.Helper()
 	ctx := context.Background()
@@ -68,7 +66,6 @@ func newAppointment(t *testing.T, startsAt time.Time) db.Appointment {
 	return appt
 }
 
-// queue writes m and returns its row and task.
 func queue(t *testing.T, m comms.Message) (db.Communication, platform.Task) {
 	t.Helper()
 	task, err := comms.Queue(context.Background(), db.New(pgtest.Pool(t)), m)
@@ -91,8 +88,7 @@ func exec(t *testing.T, sql string, args ...any) {
 	require.NoError(t, err)
 }
 
-// fakeResend stands in for api.resend.com: it answers every send with
-// status and records what it was sent.
+// fakeResend answers every send with status and records the request.
 type fakeResend struct {
 	*httptest.Server
 	status int
@@ -135,8 +131,7 @@ func (f *fakeResend) sent() []sentEmail {
 	return append([]sentEmail(nil), f.requests...)
 }
 
-// newTasks returns handlers that send to f, or log only when f is nil, with
-// the clock at now.
+// newTasks only logs sends when f is nil.
 func newTasks(t *testing.T, f *fakeResend, now time.Time) (*comms.Tasks, *bytes.Buffer) {
 	t.Helper()
 	logs := &bytes.Buffer{}

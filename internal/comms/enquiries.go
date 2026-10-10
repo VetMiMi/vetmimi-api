@@ -19,12 +19,9 @@ import (
 	"github.com/VetMiMi/vetmimi-api/internal/platform/settings"
 )
 
-// Enquiry is a message from the contact form or an enquiry-only service.
 type Enquiry struct {
-	// IdempotencyKey is optional; without one every submission is new.
-	IdempotencyKey string
-	// Body is the request as the handler received it; the key's hash covers it.
-	Body                []byte
+	IdempotencyKey      string
+	Body                []byte // the raw request, hashed with the key
 	Name, Email         string
 	Organisation        string
 	Subject             string
@@ -35,15 +32,13 @@ type Enquiry struct {
 	PrivacyAcknowledged bool
 }
 
-// EnquiryReceipt is what the visitor is told. Its JSON is the stored
-// idempotent response, so it matches ContactEnquiryReceipt.
+// EnquiryReceipt's JSON is replayed as stored, so it must match openapi.yaml.
 type EnquiryReceipt struct {
 	Reference string    `json:"reference"`
 	CreatedAt time.Time `json:"createdAt"`
 }
 
-// EnquiryCreated is the outcome of CreateEnquiry. Tasks are to be enqueued
-// after it returns; a replay has none.
+// EnquiryCreated holds Tasks to enqueue after commit; a replay has none.
 type EnquiryCreated struct {
 	ID       pgtype.UUID
 	Receipt  EnquiryReceipt
@@ -59,12 +54,8 @@ var (
 	errNoSuchEnquiry = apperr.New(apperr.NotFound, "No enquiry has this id.")
 )
 
-// referenceAttempts bounds the retries on a reference collision.
 const referenceAttempts = 5
 
-// CreateEnquiry stores an enquiry and queues Daw Mi's notification in one
-// transaction. There is no reply to the visitor at launch: the requirements
-// name only her notification, and the site shows the success state.
 func CreateEnquiry(ctx context.Context, pool *pgxpool.Pool, e Enquiry, now time.Time) (EnquiryCreated, error) {
 	if !e.PrivacyAcknowledged {
 		return EnquiryCreated{}, errAckRequired
@@ -72,22 +63,22 @@ func CreateEnquiry(ctx context.Context, pool *pgxpool.Pool, e Enquiry, now time.
 	var out EnquiryCreated
 	err := pgx.BeginFunc(ctx, pool, func(tx pgx.Tx) error {
 		q := db.New(tx)
-		if e.IdempotencyKey != "" {
-			stored, err := idempotency.Begin(ctx, q, idempotency.ContactEnquiry, e.IdempotencyKey, e.Body, now)
-			if err != nil {
-				return err
-			}
-			if stored != nil {
-				out = EnquiryCreated{ID: stored.ResourceID, Replayed: true}
-				return json.Unmarshal(stored.Body, &out.Receipt)
-			}
-		}
-		var err error
-		if out, err = createEnquiry(ctx, q, e, now); err != nil {
+		if e.IdempotencyKey == "" {
+			var err error
+			out, err = createEnquiry(ctx, q, e, now)
 			return err
 		}
-		if e.IdempotencyKey == "" {
-			return nil
+
+		stored, err := idempotency.Begin(ctx, q, idempotency.ContactEnquiry, e.IdempotencyKey, e.Body, now)
+		if err != nil {
+			return err
+		}
+		if stored != nil {
+			out = EnquiryCreated{ID: stored.ResourceID, Replayed: true}
+			return json.Unmarshal(stored.Body, &out.Receipt)
+		}
+		if out, err = createEnquiry(ctx, q, e, now); err != nil {
+			return err
 		}
 		return idempotency.Finish(ctx, q, idempotency.ContactEnquiry, e.IdempotencyKey, out.ID, 201, out.Receipt)
 	})
@@ -119,11 +110,11 @@ func createEnquiry(ctx context.Context, q *db.Queries, e Enquiry, now time.Time)
 	if err != nil {
 		return EnquiryCreated{}, err
 	}
-	cur, err := settings.Load(ctx, q)
+	s, err := settings.Load(ctx, q)
 	if err != nil {
 		return EnquiryCreated{}, err
 	}
-	task, err := Queue(ctx, q, Message{ContactEnquiryID: row.ID, Kind: PractitionerNewEnquiry, Recipient: cur.ContactEmail})
+	task, err := Queue(ctx, q, Message{ContactEnquiryID: row.ID, Kind: PractitionerNewEnquiry, Recipient: s.ContactEmail})
 	if err != nil {
 		return EnquiryCreated{}, err
 	}
@@ -141,6 +132,7 @@ func insertEnquiry(ctx context.Context, q *db.Queries, p db.InsertContactEnquiry
 			return db.ContactEnquiry{}, err
 		}
 		row, err := q.InsertContactEnquiry(ctx, p)
+		// ON CONFLICT DO NOTHING returns no row when the reference is taken.
 		if !errors.Is(err, pgx.ErrNoRows) {
 			return row, err
 		}
@@ -148,7 +140,6 @@ func insertEnquiry(ctx context.Context, q *db.Queries, p db.InsertContactEnquiry
 	return db.ContactEnquiry{}, fmt.Errorf("comms: no free enquiry reference after %d attempts", referenceAttempts)
 }
 
-// EnquiryFilter narrows the admin list; zero fields filter nothing.
 type EnquiryFilter struct {
 	Status string
 	Search string
@@ -156,14 +147,11 @@ type EnquiryFilter struct {
 	Limit  int
 }
 
-// EnquiryPage is one page of the list, newest first. NextCursor is empty on
-// the last page.
 type EnquiryPage struct {
 	Items      []db.ListContactEnquiriesRow
 	NextCursor string
 }
 
-// ListEnquiries lists enquiries for the admin, a page at a time.
 func ListEnquiries(ctx context.Context, q db.Querier, f EnquiryFilter) (EnquiryPage, error) {
 	limit := f.Limit
 	if limit <= 0 {
@@ -193,7 +181,6 @@ func ListEnquiries(ctx context.Context, q db.Querier, f EnquiryFilter) (EnquiryP
 	return page, nil
 }
 
-// GetEnquiry reads one enquiry.
 func GetEnquiry(ctx context.Context, q db.Querier, id pgtype.UUID) (db.GetContactEnquiryRow, error) {
 	row, err := q.GetContactEnquiry(ctx, id)
 	if errors.Is(err, pgx.ErrNoRows) {
@@ -202,8 +189,7 @@ func GetEnquiry(ctx context.Context, q db.Querier, id pgtype.UUID) (db.GetContac
 	return row, err
 }
 
-// MarkHandled records that Daw Mi has dealt with an enquiry. An enquiry
-// already handled keeps its first handled time and handler.
+// MarkHandled keeps the first handled time and handler if called again.
 func MarkHandled(ctx context.Context, q db.Querier, id, by pgtype.UUID, now time.Time) (db.GetContactEnquiryRow, error) {
 	if _, err := q.MarkContactEnquiryHandled(ctx, db.MarkContactEnquiryHandledParams{ID: id, HandledBy: by, Now: now}); err != nil {
 		return db.GetContactEnquiryRow{}, err
@@ -211,8 +197,7 @@ func MarkHandled(ctx context.Context, q db.Querier, id, by pgtype.UUID, now time
 	return GetEnquiry(ctx, q, id)
 }
 
-// enquiryTypes are the admin's labels for enquiry_type (vetmimi-next#77).
-var enquiryTypes = map[string]string{
+var enquiryTypeLabels = map[string]string{
 	"collaboration":   "Collaboration / Project",
 	"workshop":        "Workshop / Program",
 	"speaking":        "Speaking / Event",
@@ -222,7 +207,6 @@ var enquiryTypes = map[string]string{
 	"general":         "General",
 }
 
-// enquiryData is what Daw Mi's notification shows about an enquiry.
 func (t *Tasks) enquiryData(ctx context.Context, q db.Querier, id pgtype.UUID) (RenderData, error) {
 	e, err := q.GetContactEnquiry(ctx, id)
 	if err != nil {
@@ -231,7 +215,7 @@ func (t *Tasks) enquiryData(ctx context.Context, q db.Querier, id pgtype.UUID) (
 	d := RenderData{
 		VisitorName:         e.Name,
 		VisitorEmail:        e.Email,
-		EnquiryType:         enquiryTypes[e.EnquiryType],
+		EnquiryType:         enquiryTypeLabels[e.EnquiryType],
 		EnquirySubject:      e.Subject.String,
 		EnquiryMessage:      e.Message,
 		EnquiryOrganisation: e.Organisation.String,

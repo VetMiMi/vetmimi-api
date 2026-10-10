@@ -11,12 +11,9 @@ import (
 	"github.com/VetMiMi/vetmimi-api/internal/db"
 )
 
-// sendTimeout bounds one call to Resend, which runs while the row is locked.
 const sendTimeout = 30 * time.Second
 
-// NewResend returns a Resend client for apiKey, or nil when apiKey is empty,
-// as it is in development. baseURL, when set, replaces Resend's address;
-// tests point it at a fake server.
+// NewResend returns nil without an apiKey, as in development.
 func NewResend(apiKey, baseURL string) (*resend.Client, error) {
 	if apiKey == "" {
 		return nil, nil
@@ -32,8 +29,7 @@ func NewResend(apiKey, baseURL string) (*resend.Client, error) {
 	return c, nil
 }
 
-// send hands email to Resend and returns its message id. Without a client it
-// only logs what it would send: the kind and row id, never the recipient.
+// The row id is the idempotency key, so a retry never sends twice.
 func (t *Tasks) send(ctx context.Context, row db.Communication, email Email) (string, error) {
 	if t.Resend == nil {
 		t.Log.InfoContext(ctx, "would send", "kind", row.Kind, "communication_id", row.ID.String())
@@ -55,8 +51,7 @@ func (t *Tasks) send(ctx context.Context, row db.Communication, email Email) (st
 	return res.Id, nil
 }
 
-// errorCode is what a failed send records and logs. Resend's own message may
-// quote the recipient, so it is never kept.
+// errorCode replaces Resend's error text, which may quote the recipient.
 func errorCode(err error) string {
 	switch {
 	case errors.Is(err, resend.ErrRateLimit):
