@@ -41,6 +41,7 @@ type Querier interface {
 	// enrolment as already accepted, so that code can never also sign in. A
 	// password-only user has a NULL secret and step.
 	CreateUser(ctx context.Context, arg CreateUserParams) (pgtype.UUID, error)
+	DashboardCounts(ctx context.Context, arg DashboardCountsParams) (DashboardCountsRow, error)
 	DeleteArticle(ctx context.Context, postID pgtype.UUID) error
 	DeleteAvailabilityBlock(ctx context.Context, id pgtype.UUID) (int64, error)
 	DeleteAvailabilityOverride(ctx context.Context, id pgtype.UUID) (int64, error)
@@ -127,6 +128,9 @@ type Querier interface {
 	// continues after (@after_at, @after_id) in the list's direction. @past
 	// keeps rows that started before it or are final.
 	ListAppointments(ctx context.Context, arg ListAppointmentsParams) ([]ListAppointmentsRow, error)
+	// ListAttention returns every attention item in dashboard order; rank orders the kinds and the Go side
+	// writes each item's detail. A failed message counts until a later message of its kind is sent.
+	ListAttention(ctx context.Context, arg ListAttentionParams) ([]ListAttentionRow, error)
 	ListAvailabilityBlocks(ctx context.Context, within pgtype.Range[pgtype.Timestamptz]) ([]AvailabilityBlock, error)
 	ListAvailabilityOverrides(ctx context.Context, arg ListAvailabilityOverridesParams) ([]AvailabilityOverride, error)
 	ListAvailabilityRules(ctx context.Context) ([]AvailabilityRule, error)

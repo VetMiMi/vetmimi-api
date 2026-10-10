@@ -65,6 +65,33 @@ func (s *server) appointmentDetail(ctx context.Context, id pgtype.UUID) (gen.App
 	return out, nil
 }
 
+func appointmentSummaries(rows []db.ListAppointmentsRow) []gen.AppointmentSummary {
+	out := make([]gen.AppointmentSummary, len(rows))
+	for i, r := range rows {
+		out[i] = appointmentSummary(r)
+	}
+	return out
+}
+
+func appointmentSummary(r db.ListAppointmentsRow) gen.AppointmentSummary {
+	return gen.AppointmentSummary{
+		Id:              openapi_types.UUID(r.ID.Bytes),
+		Reference:       r.Reference,
+		Status:          gen.AppointmentStatus(r.Status),
+		Service:         serviceRef(r.ServiceID, r.ServiceSlug, r.ServiceName),
+		StartsAt:        r.StartsAt.UTC(),
+		EndsAt:          r.EndsAt.UTC(),
+		DurationMinutes: int(r.DurationMinutes),
+		Timezone:        r.Timezone,
+		Format:          gen.Format(r.Format),
+		Source:          gen.AppointmentSummarySource(r.Source),
+		VisitorName:     r.VisitorName,
+		HoldExpiresAt:   optionalTime(r.HoldExpiresAt.Time, r.HoldExpiresAt.Valid),
+		CreatedAt:       r.CreatedAt.UTC(),
+		UpdatedAt:       r.UpdatedAt.UTC(),
+	}
+}
+
 func videoRoomView(r db.VideoRoom) *gen.VideoRoomSummary {
 	return &gen.VideoRoomSummary{
 		Id:        openapi_types.UUID(r.ID.Bytes),

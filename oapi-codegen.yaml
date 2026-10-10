@@ -30,8 +30,7 @@ output-options:
     - connectVideoRoom
     # Media upload reads its multipart body itself, under its own limits.
     - uploadMedia
-    # The dashboard and the manual meeting link arrive with their own issues.
-    - getBookingDashboard
+    # The manual meeting link arrives with its own issue.
     - setAppointmentMeetingLink
 compatibility:
   # Keep each operationId as openapi.yaml spells it in the embedded spec, which

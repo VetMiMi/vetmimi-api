@@ -134,3 +134,17 @@ func TestAdminAppointmentRefusals(t *testing.T) {
 	requireForbidden(t, a.sendJSON(http.MethodPost, appointmentsURL+"/8f14e45f-ceea-4e8a-9b1c-3c1d2a6b7e10/confirm",
 		editor, `{"version": 1}`))
 }
+
+func TestBookingDashboard(t *testing.T) {
+	a := newAuthAPI(t)
+	admin := insertSession(t, a.clock.at, "booking_admin")
+	d := decoded(t, http.StatusOK, a.send(http.MethodGet, "/admin/dashboard", admin))
+	require.Equal(t, "Australia/Sydney", d["timezone"])
+	require.ElementsMatch(t, []string{"pending", "confirmed", "today", "thisWeek"}, keysOf(d["counts"].(map[string]any)))
+	for _, list := range []string{"attentionRequired", "pending", "today", "upcoming"} {
+		require.IsType(t, []any{}, d[list], list)
+	}
+
+	editor := insertSession(t, a.clock.at, "content_editor")
+	requireForbidden(t, a.send(http.MethodGet, "/admin/dashboard", editor))
+}
