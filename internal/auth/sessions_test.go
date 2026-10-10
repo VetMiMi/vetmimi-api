@@ -70,6 +70,21 @@ func (f *fixture) newAdmin(t *testing.T) admin {
 	return a
 }
 
+// newPasswordOnlyAdmin is an admin without a TOTP secret (issue #143).
+func (f *fixture) newPasswordOnlyAdmin(t *testing.T) admin {
+	t.Helper()
+	a := admin{email: uniqueEmail(t)}
+	var err error
+	a.id, err = db.New(pgtest.Pool(t)).CreateUser(context.Background(), db.CreateUserParams{
+		Email:        a.email,
+		DisplayName:  "Daw Mi",
+		PasswordHash: hash,
+		Roles:        []string{"site_admin"},
+	})
+	require.NoError(t, err)
+	return a
+}
+
 // startSession inserts a session for the user as if they had signed in now,
 // without hashing a password.
 func (f *fixture) startSession(t *testing.T, userID pgtype.UUID) (string, pgtype.UUID) {
@@ -130,6 +145,7 @@ func TestAuthenticateReturnsTheSessionAndItsUser(t *testing.T) {
 		Email:       a.email,
 		DisplayName: "Daw Mi",
 		Roles:       []string{"booking_admin", "site_admin"},
+		TwoStep:     true,
 	}}, got)
 }
 

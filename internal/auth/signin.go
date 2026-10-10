@@ -37,7 +37,9 @@ type SignedIn struct {
 	Session   Session
 }
 
-// SignIn checks the credentials and starts a session.
+// SignIn checks the credentials and starts a session. A user without a TOTP
+// secret signs in with the password alone and any code sent is ignored; a
+// user with one needs a valid code as well (issue #143).
 //
 // First the lockout counts the attempt against the email's hourly limit and
 // refuses an email that is over it or locked out with rate_limited, whether
@@ -72,25 +74,33 @@ func (s *Sessions) checkAndStart(ctx context.Context, email string, c Credential
 	if !known {
 		u.PasswordHash, u.TotpSecretEnc = dummyPasswordHash, s.dummySecret
 	}
+	twoStep := u.TotpSecretEnc != nil
+	sealed := u.TotpSecretEnc
+	if !twoStep {
+		// The same code check as everyone else, so the work done does not
+		// tell which accounts have TOTP; its answer is not used.
+		sealed = s.dummySecret
+	}
 	passwordOK, err := verifyPassword(c.Password, u.PasswordHash)
 	if err != nil {
 		return SignedIn{}, err
 	}
-	step, codeOK, err := s.codes.MatchSealed(u.TotpSecretEnc, c.Code)
+	step, codeOK, err := s.codes.MatchSealed(sealed, c.Code)
 	if err != nil {
 		return SignedIn{}, err
 	}
-	if !known || !passwordOK || !codeOK {
+	if !known || !passwordOK || (twoStep && !codeOK) {
 		return SignedIn{}, invalidCredentials()
 	}
-	return s.start(ctx, u, step)
+	return s.start(ctx, u, twoStep, step)
 }
 
-// start claims the code's step, records the sign-in and inserts the session
-// in one transaction, so a failed insert leaves the code unused. The step
+// start claims the code's step (for a twoStep user), records the sign-in and
+// inserts the session in one transaction, so a failed insert leaves the code
+// unused. The step
 // claim and RecordSignIn lock the user's row: of two sign-ins with one code,
 // the second waits, then finds the step taken.
-func (s *Sessions) start(ctx context.Context, u db.GetUserForSignInRow, step int64) (SignedIn, error) {
+func (s *Sessions) start(ctx context.Context, u db.GetUserForSignInRow, twoStep bool, step int64) (SignedIn, error) {
 	token, err := platform.NewSessionToken()
 	if err != nil {
 		return SignedIn{}, err
@@ -105,12 +115,15 @@ func (s *Sessions) start(ctx context.Context, u db.GetUserForSignInRow, step int
 			DisplayName:  u.DisplayName,
 			Roles:        u.Roles,
 			Practitioner: u.IsPractitioner,
+			TwoStep:      twoStep,
 		}},
 	}
 	err = pgx.BeginFunc(ctx, s.pool, func(tx pgx.Tx) error {
 		q := db.New(tx)
-		if err := ClaimTOTPStep(ctx, q, u.ID, step); err != nil {
-			return err
+		if twoStep {
+			if err := ClaimTOTPStep(ctx, q, u.ID, step); err != nil {
+				return err
+			}
 		}
 		recorded, err := q.RecordSignIn(ctx, db.RecordSignInParams{ID: u.ID, Now: now, PasswordHash: u.PasswordHash})
 		if err != nil {

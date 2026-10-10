@@ -23,11 +23,12 @@ var ErrPractitionerTaken = errors.New("another user is already the practitioner;
 
 // Account is everything create-user saves for one administrator.
 type Account struct {
-	Email            string
-	DisplayName      string
-	PasswordHash     string
-	Roles            []string
-	Practitioner     bool
+	Email        string
+	DisplayName  string
+	PasswordHash string
+	Roles        []string
+	Practitioner bool
+	// SealedTOTPSecret is nil for a password-only account (issue #143).
 	SealedTOTPSecret []byte
 	// EnrolmentStep is the step of the code typed at enrolment. It is saved
 	// as the last accepted step, so that code cannot be replayed to sign in.
@@ -40,13 +41,15 @@ func NormalizeEmail(email string) string {
 }
 
 // SaveAccount creates the account, or, when its email already exists,
-// replaces that user's password, TOTP secret, display name and roles,
+// replaces that user's password, TOTP secret (clearing it for a
+// password-only account), display name and roles,
 // replaces the last accepted TOTP step with the enrolment step, and deletes
 // the user's sessions, all in one transaction: a new password signs the user
 // out everywhere, and a failed save changes nothing. It reports whether it
 // created the user.
 func SaveAccount(ctx context.Context, pool *pgxpool.Pool, a Account) (id pgtype.UUID, created bool, err error) {
 	email := NormalizeEmail(a.Email)
+	step := pgtype.Int8{Int64: a.EnrolmentStep, Valid: a.SealedTOTPSecret != nil}
 	err = pgx.BeginFunc(ctx, pool, func(tx pgx.Tx) error {
 		q := db.New(tx)
 		id, err = q.ReplaceUserCredentials(ctx, db.ReplaceUserCredentialsParams{
@@ -56,7 +59,7 @@ func SaveAccount(ctx context.Context, pool *pgxpool.Pool, a Account) (id pgtype.
 			Roles:          a.Roles,
 			IsPractitioner: a.Practitioner,
 			TotpSecretEnc:  a.SealedTOTPSecret,
-			TotpLastStep:   a.EnrolmentStep,
+			TotpLastStep:   step,
 		})
 		if err == nil {
 			return q.DeleteUserSessions(ctx, id)
@@ -71,7 +74,7 @@ func SaveAccount(ctx context.Context, pool *pgxpool.Pool, a Account) (id pgtype.
 			Roles:          a.Roles,
 			IsPractitioner: a.Practitioner,
 			TotpSecretEnc:  a.SealedTOTPSecret,
-			TotpLastStep:   a.EnrolmentStep,
+			TotpLastStep:   step,
 		})
 		created = err == nil
 		return practitionerTaken(err)

@@ -193,13 +193,15 @@ The website's sha comes from `vetmimi-next`'s release, or run
 Caddy obtains both certificates on first start, so the first health polls may
 fail for a few seconds.
 
-Create the first administrator; it asks for a password and prints the TOTP
-URI, so it needs a terminal:
+Create the first administrator; it asks for a password, so it needs a
+terminal. Until two-step setup moves into the admin website (#142), pass
+`--no-totp` so the account signs in with the password alone; without it,
+create-user also prints a TOTP URI and waits for a code from the app.
 
 ```sh
 cd /srv/vetmimi/deploy/compose
 docker compose --env-file .env --env-file .env.tags run --rm --no-deps api \
-  --mode create-user --email <you> --name "<Your Name>" --roles site_admin --practitioner
+  --mode create-user --email <you> --name "<Your Name>" --roles site_admin --practitioner --no-totp
 ```
 
 Then check `https://<site_domain>` and `https://<api_domain>/readyz`.

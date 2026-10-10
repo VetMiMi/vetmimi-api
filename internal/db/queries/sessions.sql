@@ -7,7 +7,8 @@ RETURNING id;
 -- so authenticating a request is one query.
 -- name: GetSession :one
 SELECT s.id, s.last_seen_at, s.expires_at,
-       u.id AS user_id, u.email, u.display_name, u.roles, u.is_practitioner, u.disabled_at
+       u.id AS user_id, u.email, u.display_name, u.roles, u.is_practitioner, u.disabled_at,
+       (u.totp_secret_enc IS NOT NULL)::boolean AS two_step_enabled
 FROM sessions s
 JOIN users u ON u.id = s.user_id
 WHERE s.token_hash = @token_hash;

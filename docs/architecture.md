@@ -32,7 +32,8 @@ from database constraints and small transactions, not from clever Go.
 The other entry point is `api --mode create-user`, which creates an
 administrator, or replaces an existing one's password and TOTP secret. It reads
 the password from standard input, never a flag, prints the `otpauth://` URI and
-saves nothing until a valid code is typed back.
+saves nothing until a valid code is typed back. With `--no-totp` it skips the
+authenticator and saves a password-only account, clearing any existing secret.
 
 ## Package layout
 
@@ -152,8 +153,12 @@ runs before the rate limiter, so callers without a live session are never
 counted, and refreshes `last_seen_at` only when it is over a minute old.
 
 **Passwords and TOTP.** argon2id (64 MiB, 3 iterations, parallelism 2, PHC
-string). TOTP (30 s, 6 digits, ±1 step) is required for every user and enrolled
-by `api --mode create-user`, so the API has no enrolment routes. Secrets are
+string). TOTP (30 s, 6 digits, ±1 step) is enrolled by `api --mode
+create-user`, so the API has no enrolment routes. Until two-step setup moves
+into the admin website (#142), a user may have no secret (`--no-totp`): they
+sign in with the password alone, any code sent is ignored, and
+`twoStepEnabled` is false on `/auth/me`; wrong passwords, lockout and rate
+limits are unchanged and give the same errors. Secrets are
 encrypted with `TOTP_ENCRYPTION_KEY` (AES-256-GCM); the last accepted step is
 stored against replay. Ten failures for one email in 15 minutes lock it until
 15 minutes after the tenth, whether or not the email has an account; a
