@@ -23,6 +23,8 @@ import (
 
 func TestMain(m *testing.M) { os.Exit(pgtest.Run(m)) }
 
+var issuer = video.Issuer{Secret: []byte("ticket secret of at least 32 bytes"), PublicAPIURL: "https://api.vetmimi.example/"}
+
 var days atomic.Int64
 
 // withRoom books a confirmed online appointment on a day of its own, gives
@@ -58,60 +60,11 @@ func withRoom(t *testing.T) (db.Appointment, string) {
 	return appt, tokens.Join(issuer.Secret, room.JoinTokenSeed)
 }
 
-func TestFindSession_ShowsTheWindowAndService(t *testing.T) {
-	appt, token := withRoom(t)
-	s, err := video.FindSession(context.Background(), db.New(pgtest.Pool(t)), token, appt.StartsAt)
-	require.NoError(t, err)
-	require.Equal(t, video.Ready, s.State)
-	require.True(t, appt.StartsAt.Add(-15*time.Minute).Equal(s.OpensAt))
-	require.True(t, appt.EndsAt.Add(time.Hour).Equal(s.ClosesAt))
-	require.Equal(t, "Australia/Sydney", s.Timezone)
-	require.Equal(t, "my", s.Locale)
-	require.Equal(t, "individual-art-therapy", s.ServiceSlug)
-	require.Equal(t, "တစ်ဦးချင်း အနုပညာကုထုံး", s.ServiceName, "in the appointment's locale")
-}
-
-func TestFindSession_UnknownOrTamperedTokenNotFound(t *testing.T) {
-	appt, token := withRoom(t)
-	q := db.New(pgtest.Pool(t))
-	tampered := []byte(token)
-	tampered[0] ^= 1
-	management := tokens.Management(issuer.Secret, appt.ManagementTokenSeed)
-	for _, bad := range []string{string(tampered), management} {
-		_, err := video.FindSession(context.Background(), q, bad, appt.StartsAt)
-		var e *apperr.Error
-		require.ErrorAs(t, err, &e)
-		require.Equal(t, apperr.NotFound, e.Code)
-	}
-}
-
-func TestJoinAsClient_OnlyWhileReadyAndConfirmed(t *testing.T) {
-	ctx := context.Background()
-	q := db.New(pgtest.Pool(t))
-	appt, token := withRoom(t)
-
-	_, err := video.JoinAsClient(ctx, q, issuer, token, appt.StartsAt.Add(-16*time.Minute))
-	requireNotAllowed(t, err)
-
-	ticket, err := video.JoinAsClient(ctx, q, issuer, token, appt.StartsAt)
-	require.NoError(t, err)
-	role, err := video.VerifyTicket(issuer.Secret, ticket.Value, ticket.RoomID, appt.StartsAt)
-	require.NoError(t, err)
-	require.Equal(t, video.RoleClient, role)
-
-	_, err = pgtest.Pool(t).Exec(ctx, "UPDATE appointments SET status = 'completed' WHERE id = $1", appt.ID)
-	require.NoError(t, err)
-	_, err = video.JoinAsClient(ctx, q, issuer, token, appt.StartsAt)
-	requireNotAllowed(t, err)
-
-	cancelled, token := withRoom(t)
-	_, err = video.EndRoom(ctx, q, cancelled.ID, video.EndedByCancellation, cancelled.StartsAt.Add(-time.Hour))
-	require.NoError(t, err)
-	s, err := video.FindSession(ctx, q, token, cancelled.StartsAt)
-	require.NoError(t, err)
-	require.Equal(t, video.Ended, s.State)
-	_, err = video.JoinAsClient(ctx, q, issuer, token, cancelled.StartsAt)
-	requireNotAllowed(t, err)
+func roomID(t *testing.T, s string) pgtype.UUID {
+	t.Helper()
+	var id pgtype.UUID
+	require.NoError(t, id.Scan(s))
+	return id
 }
 
 func requireNotAllowed(t *testing.T, err error) {

@@ -5,10 +5,7 @@ import (
 	"time"
 )
 
-// Hooks for the external tests: run the hub's periodic check and shutdown
-// now, ping on a test's time scale, and run the task handlers directly.
-
-func (h *Hub) Check(ctx context.Context) { h.check(ctx) }
+func (h *Hub) EndFinishedRooms(ctx context.Context) { h.endFinishedRooms(ctx) }
 
 func (h *Hub) CloseAll() { h.closeAll() }
 

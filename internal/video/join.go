@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"slices"
 	"time"
 
 	"github.com/jackc/pgx/v5"
@@ -15,7 +16,7 @@ import (
 	"github.com/VetMiMi/vetmimi-api/internal/tokens"
 )
 
-// What a join page may show (PublicSessionState.state).
+// What a join page may show.
 const (
 	TooEarly = "too_early"
 	Ready    = "ready"
@@ -23,8 +24,14 @@ const (
 	Ended    = "ended"
 )
 
-// Session is a room as the holder of its join link sees it: times and the
-// service, never the visitor or any note.
+var (
+	// Same wording as every other bad link, so a token never reveals whether an appointment exists.
+	errSessionNotFound     = apperr.New(apperr.NotFound, "This link is not valid or has expired.")
+	errNotReady            = apperr.New(apperr.ActionNotAllowed, "This session cannot be joined now.")
+	errAppointmentNotFound = apperr.New(apperr.NotFound, "No appointment has this id.")
+)
+
+// Session is a room as the holder of its join link sees it: no private details.
 type Session struct {
 	RoomID                              pgtype.UUID
 	State                               string
@@ -34,16 +41,7 @@ type Session struct {
 	confirmed                           bool
 }
 
-var (
-	// errSessionNotFound reads the same as every other link's 404, so a token
-	// never reveals whether an appointment exists (Booking & Admin UX §7).
-	errSessionNotFound = apperr.New(apperr.NotFound, "This link is not valid or has expired.")
-	errNotReady        = apperr.New(apperr.ActionNotAllowed, "This session cannot be joined now.")
-)
-
-// PublicState is what the join page shows for a room in roomState with the
-// window [opens, closes) at now. A passed window is expired even if the room
-// ended earlier.
+// PublicState is what the join page shows; a passed window is Expired even if the room ended.
 func PublicState(roomState string, opens, closes, now time.Time) string {
 	switch {
 	case !now.Before(closes):
@@ -56,8 +54,7 @@ func PublicState(roomState string, opens, closes, now time.Time) string {
 	return Ready
 }
 
-// FindSession reads the room a join token names. The token is looked up
-// only by its hash; an unknown one is not_found.
+// FindSession reads the room a join token names.
 func FindSession(ctx context.Context, q db.Querier, token string, now time.Time) (Session, error) {
 	row, err := q.GetVideoSessionByTokenHash(ctx, tokens.Hash(token))
 	if errors.Is(err, pgx.ErrNoRows) {
@@ -81,8 +78,7 @@ func FindSession(ctx context.Context, q db.Querier, token string, now time.Time)
 	}, nil
 }
 
-// JoinAsClient issues the visitor's ticket for the room token names, only
-// while the session is ready and the appointment confirmed.
+// JoinAsClient issues the visitor's ticket while the session is ready.
 func JoinAsClient(ctx context.Context, q db.Querier, issuer Issuer, token string, now time.Time) (Ticket, error) {
 	s, err := FindSession(ctx, q, token, now)
 	if err != nil {
@@ -92,6 +88,31 @@ func JoinAsClient(ctx context.Context, q db.Querier, issuer Issuer, token string
 		return Ticket{}, errNotReady
 	}
 	return issuer.Issue(s.RoomID, RoleClient, s.ClosesAt, now)
+}
+
+// JoinAsPractitioner issues Daw Mi's ticket when the admin would offer start_video.
+func JoinAsPractitioner(ctx context.Context, q db.Querier, issuer Issuer, appointmentID pgtype.UUID,
+	now time.Time) (Ticket, error) {
+	status, err := appointmentStatus(ctx, q, appointmentID)
+	if err != nil {
+		return Ticket{}, err
+	}
+	room, ok, err := RoomOf(ctx, q, appointmentID)
+	if err != nil {
+		return Ticket{}, err
+	}
+	if !ok || !slices.Contains(Actions(room, status == "confirmed", now), "start_video") {
+		return Ticket{}, errNotReady
+	}
+	return issuer.Issue(room.ID, RolePractitioner, room.ClosesAt, now)
+}
+
+func appointmentStatus(ctx context.Context, q db.Querier, id pgtype.UUID) (string, error) {
+	status, err := q.GetAppointmentStatus(ctx, id)
+	if errors.Is(err, pgx.ErrNoRows) {
+		return "", errAppointmentNotFound
+	}
+	return status, err
 }
 
 func inLocale(raw json.RawMessage, locale string) string {
