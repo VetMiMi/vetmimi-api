@@ -25,7 +25,6 @@ func (s *server) GetMetaConnection(ctx context.Context, _ gen.GetMetaConnectionR
 	return gen.GetMetaConnection200JSONResponse(metaConnectionView(c)), nil
 }
 
-// StartMetaConnection returns the Facebook Login address.
 func (s *server) StartMetaConnection(ctx context.Context, _ gen.StartMetaConnectionRequestObject) (gen.StartMetaConnectionResponseObject, error) {
 	if s.Meta == nil {
 		return nil, errNoMeta
@@ -107,7 +106,6 @@ func (s *server) GetLinkedInConnection(ctx context.Context, _ gen.GetLinkedInCon
 	return gen.GetLinkedInConnection200JSONResponse(linkedInConnectionView(c)), nil
 }
 
-// StartLinkedInConnection returns the LinkedIn sign-in address.
 func (s *server) StartLinkedInConnection(ctx context.Context, _ gen.StartLinkedInConnectionRequestObject) (gen.StartLinkedInConnectionResponseObject, error) {
 	if s.LinkedIn == nil {
 		return nil, errNoLinkedIn

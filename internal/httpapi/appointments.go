@@ -84,10 +84,30 @@ func (s *server) GetAppointment(ctx context.Context, req gen.GetAppointmentReque
 // CreateManualAppointment stores an appointment Daw Mi made by hand; a replay
 // answers with the same appointment.
 func (s *server) CreateManualAppointment(ctx context.Context, req gen.CreateManualAppointmentRequestObject) (gen.CreateManualAppointmentResponseObject, error) {
+	m, err := manualAppointment(ctx, req)
+	if err != nil {
+		return nil, err
+	}
+	res, err := booking.CreateManual(ctx, s.Pool, s.SigningSecret, m, s.Now())
+	if err != nil {
+		return nil, err
+	}
+	s.afterChange(ctx, "appointment_created", res.AppointmentID, booking.Changed{Tasks: res.Tasks})
+	d, err := s.appointmentDetail(ctx, res.AppointmentID)
+	if err != nil {
+		return nil, err
+	}
+	if res.Replayed {
+		return replayedAppointment{gen.CreateManualAppointment201JSONResponse(d)}, nil
+	}
+	return gen.CreateManualAppointment201JSONResponse(d), nil
+}
+
+func manualAppointment(ctx context.Context, req gen.CreateManualAppointmentRequestObject) (booking.Manual, error) {
 	b := req.Body
 	raw, err := json.Marshal(b)
 	if err != nil {
-		return nil, err
+		return booking.Manual{}, err
 	}
 	m := booking.Manual{
 		IdempotencyKey: req.Params.IdempotencyKey.String(),
@@ -108,19 +128,7 @@ func (s *server) CreateManualAppointment(ctx context.Context, req gen.CreateManu
 	if b.Status != nil {
 		m.Status = booking.Status(*b.Status)
 	}
-	res, err := booking.CreateManual(ctx, s.Pool, s.SigningSecret, m, s.Now())
-	if err != nil {
-		return nil, err
-	}
-	s.afterChange(ctx, "appointment_created", res.AppointmentID, booking.Changed{Tasks: res.Tasks})
-	d, err := s.appointmentDetail(ctx, res.AppointmentID)
-	if err != nil {
-		return nil, err
-	}
-	if res.Replayed {
-		return replayedAppointment{gen.CreateManualAppointment201JSONResponse(d)}, nil
-	}
-	return gen.CreateManualAppointment201JSONResponse(d), nil
+	return m, nil
 }
 
 type replayedAppointment struct {

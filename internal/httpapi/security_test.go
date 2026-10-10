@@ -30,7 +30,7 @@ func index(t *testing.T, spec *openapi3.T) operations {
 	return ops
 }
 
-// The whole contract, not only the generated tags: every operation must say
+// The whole contract: every operation must say
 // how it is authenticated, and only the probes and the WebSocket, which has
 // its own room ticket, may say "not at all".
 func TestEveryOperationDeclaresSecurity(t *testing.T) {

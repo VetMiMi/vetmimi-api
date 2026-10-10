@@ -309,7 +309,7 @@ func TestSignInReadTheUserAndSignOut(t *testing.T) {
 }
 
 // A password-only user signs in without a code and /auth/me says so, so the
-// website can suggest two-step sign-in later (issue #143).
+// website can suggest two-step sign-in.
 func TestPasswordOnlySignIn(t *testing.T) {
 	a := newAuthAPI(t)
 	_, email := createAdmin(t, nil)

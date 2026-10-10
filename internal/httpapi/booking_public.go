@@ -63,14 +63,34 @@ func (s *server) GetPublicAvailability(ctx context.Context, req gen.GetPublicAva
 // CreatePublicAppointment stores a visitor's request, then enqueues its emails
 // and hold expiry. The receipt never carries the id or the management token.
 func (s *server) CreatePublicAppointment(ctx context.Context, req gen.CreatePublicAppointmentRequestObject) (gen.CreatePublicAppointmentResponseObject, error) {
+	r, err := publicRequest(req)
+	if err != nil {
+		return nil, err
+	}
+	res, err := booking.RequestAppointment(ctx, s.Pool, s.SigningSecret, r, s.Now())
+	if err != nil {
+		return nil, err
+	}
+	s.enqueue(ctx, res.Tasks...)
+	s.Log.InfoContext(ctx, "appointment requested", "request_id", RequestID(ctx),
+		"appointment_id", res.AppointmentID.String(), "replayed", res.Replayed)
+
+	receipt := receiptView(res.Receipt)
+	if res.Replayed {
+		return replayedReceipt{receipt}, nil
+	}
+	return receipt, nil
+}
+
+func publicRequest(req gen.CreatePublicAppointmentRequestObject) (booking.Request, error) {
 	b := req.Body
 	// The key's hash covers the body as decoded and encoded again, so a
 	// retry that differs only in spacing or key order is the same request.
 	raw, err := json.Marshal(b)
 	if err != nil {
-		return nil, err
+		return booking.Request{}, err
 	}
-	r := booking.Request{
+	return booking.Request{
 		IdempotencyKey:      req.Params.IdempotencyKey.String(),
 		Body:                raw,
 		Service:             b.Service,
@@ -83,17 +103,11 @@ func (s *server) CreatePublicAppointment(ctx context.Context, req gen.CreatePubl
 		VisitorNote:         deref(b.Visitor.Note),
 		PrivacyAcknowledged: bool(b.PrivacyAcknowledged),
 		PolicyAcknowledged:  bool(b.PolicyAcknowledged),
-	}
-	res, err := booking.RequestAppointment(ctx, s.Pool, s.SigningSecret, r, s.Now())
-	if err != nil {
-		return nil, err
-	}
-	s.enqueue(ctx, res.Tasks...)
-	s.Log.InfoContext(ctx, "appointment requested", "request_id", RequestID(ctx),
-		"appointment_id", res.AppointmentID.String(), "replayed", res.Replayed)
+	}, nil
+}
 
-	rc := res.Receipt
-	receipt := gen.CreatePublicAppointment201JSONResponse{
+func receiptView(rc booking.Receipt) gen.CreatePublicAppointment201JSONResponse {
+	return gen.CreatePublicAppointment201JSONResponse{
 		Reference:       rc.Reference,
 		Status:          gen.AppointmentRequestReceiptStatus(rc.Status),
 		Service:         gen.PublicServiceRef{Slug: rc.Service.Slug, Name: rc.Service.Name},
@@ -103,10 +117,6 @@ func (s *server) CreatePublicAppointment(ctx context.Context, req gen.CreatePubl
 		Timezone:        rc.Timezone,
 		Format:          gen.Format(rc.Format),
 	}
-	if res.Replayed {
-		return replayedReceipt{receipt}, nil
-	}
-	return receipt, nil
 }
 
 // replayedReceipt marks a stored receipt answered again.

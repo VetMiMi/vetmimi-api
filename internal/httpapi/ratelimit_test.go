@@ -283,7 +283,7 @@ func TestRedisKeysHoldNoAddressTokenOrKey(t *testing.T) {
 	}
 }
 
-// Losing Redis must not stop bookings (ADR-006), but sign-in without its
+// Losing Redis must not stop bookings, but sign-in without its
 // limit would help an attacker, so it alone answers 503. Each request waits
 // at most the limiter's short timeout.
 func TestRedisDownLetsPublicCallsThroughAndSignInIs503(t *testing.T) {
@@ -357,11 +357,9 @@ func TestEveryOperationHasALimitGroup(t *testing.T) {
 	require.Equal(t, map[string]bool{"getHealthz": true, "getReadyz": true, "connectVideoRoom": true}, unlimited)
 }
 
-// The table in docs/architecture.md, "Security → Rate limits". Each operation
-// named in limitsByOperation must exist, or a misspelt id would leave it on
-// the default, and must require the service key, which is what vouches for
-// the visitor IP; one counted per user must require a session, which names
-// the user.
+// Each operation in limitsByOperation must exist, or a misspelt id would leave
+// it on the default. One counted per user must require a session; every
+// other one the service key, which vouches for the visitor IP.
 func TestLimitsMatchTheArchitecture(t *testing.T) {
 	type want struct {
 		key    keyBy
