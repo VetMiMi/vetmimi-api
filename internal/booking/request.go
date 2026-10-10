@@ -12,9 +12,9 @@ import (
 
 	"github.com/VetMiMi/vetmimi-api/internal/comms"
 	"github.com/VetMiMi/vetmimi-api/internal/db"
-	"github.com/VetMiMi/vetmimi-api/internal/platform"
-	"github.com/VetMiMi/vetmimi-api/internal/platform/idempotency"
-	"github.com/VetMiMi/vetmimi-api/internal/platform/settings"
+	"github.com/VetMiMi/vetmimi-api/internal/idempotency"
+	"github.com/VetMiMi/vetmimi-api/internal/queue"
+	"github.com/VetMiMi/vetmimi-api/internal/settings"
 	"github.com/VetMiMi/vetmimi-api/internal/video"
 )
 
@@ -56,7 +56,7 @@ type Requested struct {
 	AppointmentID pgtype.UUID
 	Receipt       Receipt
 	Replayed      bool
-	Tasks         []platform.Task
+	Tasks         []queue.Task
 }
 
 // created is the status the stored response replays with.
@@ -161,7 +161,7 @@ func request(ctx context.Context, q *db.Queries, secret []byte, r Request, now t
 // notifyRequested queues the emails a new appointment sends and returns the
 // tasks for them and, while it is pending, for its hold's expiry.
 func notifyRequested(ctx context.Context, q db.Querier, secret []byte, appt db.Appointment, cur settings.Settings,
-	now time.Time) ([]platform.Task, error) {
+	now time.Time) ([]queue.Task, error) {
 	if Status(appt.Status) == Confirmed {
 		tasks, err := afterConfirm(ctx, q, secret, appt, cur, now, true)
 		if err != nil {
@@ -181,7 +181,7 @@ func notifyRequested(ctx context.Context, q db.Querier, secret []byte, appt db.A
 	if err != nil {
 		return nil, err
 	}
-	return []platform.Task{visitor, practitioner, holdTask(appt.ID, appt.HoldExpiresAt.Time)}, nil
+	return []queue.Task{visitor, practitioner, holdTask(appt.ID, appt.HoldExpiresAt.Time)}, nil
 }
 
 // afterConfirm queues what confirming an appointment sends the visitor: the
@@ -189,12 +189,12 @@ func notifyRequested(ctx context.Context, q db.Querier, secret []byte, appt db.A
 // online appointment gets its video room first, so the emails can carry the
 // join link. Confirmation, instant booking and manual booking all end here.
 func afterConfirm(ctx context.Context, q db.Querier, secret []byte, appt db.Appointment, cur settings.Settings,
-	now time.Time, notify bool) ([]platform.Task, error) {
+	now time.Time, notify bool) ([]queue.Task, error) {
 	room, err := video.CreateRoom(ctx, q, secret, appt, cur.MeetingLinkMode, now)
 	if err != nil {
 		return nil, err
 	}
-	var tasks []platform.Task
+	var tasks []queue.Task
 	if notify {
 		task, err := comms.Queue(ctx, q, comms.Message{AppointmentID: appt.ID,
 			Kind: comms.BookingConfirmed, Recipient: appt.VisitorEmail, Locale: appt.Locale})

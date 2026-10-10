@@ -12,11 +12,11 @@ import (
 	"github.com/jackc/pgx/v5/pgxpool"
 	"github.com/stretchr/testify/require"
 
+	"github.com/VetMiMi/vetmimi-api/internal/apperr"
 	"github.com/VetMiMi/vetmimi-api/internal/auth"
 	"github.com/VetMiMi/vetmimi-api/internal/db"
-	"github.com/VetMiMi/vetmimi-api/internal/platform"
-	"github.com/VetMiMi/vetmimi-api/internal/platform/apperr"
-	"github.com/VetMiMi/vetmimi-api/internal/platform/pgtest"
+	"github.com/VetMiMi/vetmimi-api/internal/pgtest"
+	"github.com/VetMiMi/vetmimi-api/internal/tokens"
 )
 
 // testClock is a clock a test moves by hand.
@@ -89,11 +89,11 @@ func (f *fixture) newPasswordOnlyAdmin(t *testing.T) admin {
 // without hashing a password.
 func (f *fixture) startSession(t *testing.T, userID pgtype.UUID) (string, pgtype.UUID) {
 	t.Helper()
-	token, err := platform.NewSessionToken()
+	token, err := tokens.NewSession()
 	require.NoError(t, err)
 	id, err := db.New(pgtest.Pool(t)).CreateSession(context.Background(), db.CreateSessionParams{
 		UserID:    userID,
-		TokenHash: platform.HashToken(token),
+		TokenHash: tokens.Hash(token),
 		Now:       f.clock.at,
 		ExpiresAt: f.clock.at.Add(auth.SessionLifetime),
 	})
@@ -153,7 +153,7 @@ func TestMalformedOrUnknownTokenIsRefused(t *testing.T) {
 	f := newFixture(t)
 	a := f.newAdmin(t)
 	token, _ := f.startSession(t, a.id)
-	unknown, err := platform.NewSessionToken()
+	unknown, err := tokens.NewSession()
 	require.NoError(t, err)
 
 	for name, sent := range map[string]string{
@@ -183,7 +183,7 @@ func TestMalformedTokenNeverReachesTheDatabase(t *testing.T) {
 		_, err := sessions.Authenticate(context.Background(), sent)
 		requireUnauthenticated(t, err)
 	}
-	wellFormed, err := platform.NewSessionToken()
+	wellFormed, err := tokens.NewSession()
 	require.NoError(t, err)
 	_, err = sessions.Authenticate(context.Background(), wellFormed)
 	require.Error(t, err)
@@ -199,7 +199,7 @@ func TestSessionsTableConstraints(t *testing.T) {
 	token, id := f.startSession(t, a.id)
 
 	_, err := db.New(pool).CreateSession(ctx, db.CreateSessionParams{
-		UserID: a.id, TokenHash: platform.HashToken(token), Now: now, ExpiresAt: now.Add(time.Hour),
+		UserID: a.id, TokenHash: tokens.Hash(token), Now: now, ExpiresAt: now.Add(time.Hour),
 	})
 	requireViolates(t, err, "sessions_token_hash_key")
 

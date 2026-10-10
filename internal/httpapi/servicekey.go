@@ -10,8 +10,8 @@ import (
 
 	"github.com/go-chi/chi/v5"
 
+	"github.com/VetMiMi/vetmimi-api/internal/apperr"
 	"github.com/VetMiMi/vetmimi-api/internal/httpapi/gen"
-	"github.com/VetMiMi/vetmimi-api/internal/platform/apperr"
 )
 
 // requireServiceKey answers 401 unauthenticated to a request for a serviceKey

@@ -18,8 +18,8 @@ import (
 	"github.com/jackc/pgx/v5/pgconn"
 	"github.com/stretchr/testify/require"
 
+	"github.com/VetMiMi/vetmimi-api/internal/apperr"
 	"github.com/VetMiMi/vetmimi-api/internal/httpapi/gen"
-	"github.com/VetMiMi/vetmimi-api/internal/platform/apperr"
 )
 
 // failing answers /healthz with err, standing in for any handler whose

@@ -9,10 +9,10 @@ import (
 	"github.com/jackc/pgx/v5/pgtype"
 	"github.com/jackc/pgx/v5/pgxpool"
 
+	"github.com/VetMiMi/vetmimi-api/internal/apperr"
+	"github.com/VetMiMi/vetmimi-api/internal/clock"
 	"github.com/VetMiMi/vetmimi-api/internal/db"
-	"github.com/VetMiMi/vetmimi-api/internal/platform"
-	"github.com/VetMiMi/vetmimi-api/internal/platform/apperr"
-	"github.com/VetMiMi/vetmimi-api/internal/platform/clock"
+	"github.com/VetMiMi/vetmimi-api/internal/tokens"
 )
 
 // Session lifetimes from ADR-002 and docs/architecture.md: a session ends
@@ -73,11 +73,11 @@ func NewSessions(pool *pgxpool.Pool, codes *TOTP, lockout *Lockout, now clock.No
 // error, so a caller learns nothing about which. A live session's
 // last_seen_at moves to now when it is more than lastSeenGrain old.
 func (s *Sessions) Authenticate(ctx context.Context, token string) (Session, error) {
-	if !platform.IsSessionToken(token) {
+	if !tokens.IsSession(token) {
 		return Session{}, unauthenticated()
 	}
 	q := db.New(s.pool)
-	row, err := q.GetSession(ctx, platform.HashToken(token))
+	row, err := q.GetSession(ctx, tokens.Hash(token))
 	if errors.Is(err, pgx.ErrNoRows) {
 		return Session{}, unauthenticated()
 	}

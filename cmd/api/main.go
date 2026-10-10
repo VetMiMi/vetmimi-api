@@ -25,11 +25,14 @@ import (
 
 	"github.com/VetMiMi/vetmimi-api/internal/assistant"
 	"github.com/VetMiMi/vetmimi-api/internal/auth"
+	"github.com/VetMiMi/vetmimi-api/internal/config"
 	"github.com/VetMiMi/vetmimi-api/internal/httpapi"
 	"github.com/VetMiMi/vetmimi-api/internal/linkedin"
 	"github.com/VetMiMi/vetmimi-api/internal/media"
 	"github.com/VetMiMi/vetmimi-api/internal/meta"
-	"github.com/VetMiMi/vetmimi-api/internal/platform"
+	"github.com/VetMiMi/vetmimi-api/internal/postgres"
+	"github.com/VetMiMi/vetmimi-api/internal/queue"
+	"github.com/VetMiMi/vetmimi-api/internal/ratelimit"
 	"github.com/VetMiMi/vetmimi-api/internal/video"
 )
 
@@ -42,13 +45,13 @@ func main() {
 		os.Exit(healthcheck(os.Getenv("PORT")))
 	}
 
-	cfg, err := platform.LoadConfig(os.Getenv)
+	cfg, err := config.Load(os.Getenv)
 	if err != nil {
 		// LOG_LEVEL may be the broken variable, so report at the default level.
-		platform.NewLogger(slog.LevelInfo).Error("exit", "err", err)
+		newLogger(slog.LevelInfo).Error("exit", "err", err)
 		os.Exit(1)
 	}
-	log := platform.NewLogger(cfg.LogLevel)
+	log := newLogger(cfg.LogLevel)
 	slog.SetDefault(log)
 
 	ctx, stop := signal.NotifyContext(context.Background(), syscall.SIGINT, syscall.SIGTERM)
@@ -63,22 +66,22 @@ func main() {
 // run opens and migrates the database for every mode, so a failed migration
 // exits non-zero before the api listens and the deploy health check sees a
 // failed release.
-func run(ctx context.Context, log *slog.Logger, cfg platform.Config, mode string, user userFlags) error {
+func run(ctx context.Context, log *slog.Logger, cfg config.Config, mode string, user userFlags) error {
 	if mode != "api" && mode != "worker" && mode != "create-user" {
 		return fmt.Errorf("unknown mode %q", mode)
 	}
-	pool, err := platform.OpenPostgres(ctx, cfg.DatabaseURL)
+	pool, err := postgres.Open(ctx, cfg.DatabaseURL)
 	if err != nil {
 		return err
 	}
 	defer pool.Close()
-	if err := platform.Migrate(ctx, pool); err != nil {
+	if err := postgres.Migrate(ctx, pool); err != nil {
 		return err
 	}
 	if mode == "create-user" {
 		return runCreateUser(ctx, log, cfg, pool, user)
 	}
-	rdb, err := platform.OpenRedis(cfg.RedisURL)
+	rdb, err := openRedis(cfg.RedisURL)
 	if err != nil {
 		return err
 	}
@@ -90,7 +93,7 @@ func run(ctx context.Context, log *slog.Logger, cfg platform.Config, mode string
 	return runAPI(ctx, log, cfg, pool, rdb)
 }
 
-func runAPI(ctx context.Context, log *slog.Logger, cfg platform.Config, pool *pgxpool.Pool, rdb *redis.Client) error {
+func runAPI(ctx context.Context, log *slog.Logger, cfg config.Config, pool *pgxpool.Pool, rdb *redis.Client) error {
 	codes, err := auth.NewTOTP(cfg.TOTPEncryptionKey, time.Now)
 	if err != nil {
 		return err
@@ -105,10 +108,10 @@ func runAPI(ctx context.Context, log *slog.Logger, cfg platform.Config, pool *pg
 		PingRedis:      func(ctx context.Context) error { return rdb.Ping(ctx).Err() },
 		Log:            log,
 		ServiceKey:     cfg.ServiceKey,
-		RateLimits:     httpapi.NewRateLimits(platform.NewLimiter(rdb, "", time.Now), log, time.Now),
+		RateLimits:     httpapi.NewRateLimits(ratelimit.New(rdb, "", time.Now), log, time.Now),
 		Sessions:       sessions,
 		Pool:           pool,
-		Queue:          platform.NewQueue(rdb, log),
+		Queue:          queue.New(rdb, log),
 		SigningSecret:  cfg.SigningSecret,
 		PublicAPIURL:   cfg.PublicAPIURL,
 		TURNHost:       cfg.TURNHost,
@@ -152,6 +155,21 @@ func runAPI(ctx context.Context, log *slog.Logger, cfg platform.Config, pool *pg
 		defer cancel()
 		return srv.Shutdown(shutdown)
 	}
+}
+
+// newLogger writes JSON lines to stdout, where the container runtime collects them.
+func newLogger(level slog.Level) *slog.Logger {
+	return slog.New(slog.NewJSONHandler(os.Stdout, &slog.HandlerOptions{Level: level}))
+}
+
+// openRedis returns a client without connecting: the api starts while Redis is
+// down, and /readyz reports it. Errors never quote the URL: it may carry a password.
+func openRedis(url string) (*redis.Client, error) {
+	opts, err := redis.ParseURL(url)
+	if err != nil {
+		return nil, errors.New("open redis: the connection URL is invalid")
+	}
+	return redis.NewClient(opts), nil
 }
 
 // newServer bounds how long a client may take to send headers and hold an

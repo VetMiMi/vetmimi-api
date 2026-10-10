@@ -13,8 +13,8 @@ import (
 
 	"github.com/jackc/pgx/v5/pgconn"
 
+	"github.com/VetMiMi/vetmimi-api/internal/apperr"
 	"github.com/VetMiMi/vetmimi-api/internal/httpapi/gen"
-	"github.com/VetMiMi/vetmimi-api/internal/platform/apperr"
 )
 
 const problemTypePrefix = "urn:vetmimi:problem:"

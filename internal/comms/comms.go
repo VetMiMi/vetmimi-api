@@ -15,7 +15,7 @@ import (
 	"github.com/jackc/pgx/v5/pgtype"
 
 	"github.com/VetMiMi/vetmimi-api/internal/db"
-	"github.com/VetMiMi/vetmimi-api/internal/platform"
+	"github.com/VetMiMi/vetmimi-api/internal/queue"
 )
 
 const (
@@ -97,7 +97,7 @@ type Message struct {
 }
 
 // Queue returns the task to enqueue after the caller's transaction commits.
-func Queue(ctx context.Context, q db.Querier, m Message) (platform.Task, error) {
+func Queue(ctx context.Context, q db.Querier, m Message) (queue.Task, error) {
 	locale := m.Locale
 	if m.Kind.Audience() == Practitioner { // Daw Mi's emails are always in English
 		locale = "en"
@@ -113,7 +113,7 @@ func Queue(ctx context.Context, q db.Querier, m Message) (platform.Task, error) 
 		Message:          pgtype.Text{String: m.Text, Valid: m.Text != ""},
 	})
 	if err != nil {
-		return platform.Task{}, fmt.Errorf("comms: queue %s: %w", m.Kind, err)
+		return queue.Task{}, fmt.Errorf("comms: queue %s: %w", m.Kind, err)
 	}
 	return deliverTask(row.ID, Kind(row.Kind), row.ScheduledFor), nil
 }
@@ -161,16 +161,16 @@ type deliverPayload struct {
 	CommunicationID string `json:"communication_id"`
 }
 
-func deliverTask(id pgtype.UUID, kind Kind, at time.Time) platform.Task {
-	queue := platform.QueueCritical
+func deliverTask(id pgtype.UUID, kind Kind, at time.Time) queue.Task {
+	queueName := queue.Critical
 	if kind.Audience() == Practitioner {
-		queue = platform.QueueDefault
+		queueName = queue.Default
 	}
-	return platform.Task{
+	return queue.Task{
 		Type:      TaskDeliver,
 		Payload:   deliverPayload{CommunicationID: id.String()},
 		ID:        "comms:" + id.String(),
 		ProcessAt: at,
-		Queue:     queue,
+		Queue:     queueName,
 	}
 }

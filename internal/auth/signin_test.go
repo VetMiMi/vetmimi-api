@@ -13,8 +13,8 @@ import (
 
 	"github.com/VetMiMi/vetmimi-api/internal/auth"
 	"github.com/VetMiMi/vetmimi-api/internal/db"
-	"github.com/VetMiMi/vetmimi-api/internal/platform"
-	"github.com/VetMiMi/vetmimi-api/internal/platform/pgtest"
+	"github.com/VetMiMi/vetmimi-api/internal/pgtest"
+	"github.com/VetMiMi/vetmimi-api/internal/tokens"
 )
 
 // Every sign-in hashes a password with 64 MiB of memory, so these tests sign
@@ -43,7 +43,7 @@ func TestSignInStartsASession(t *testing.T) {
 	got, err := f.signIn(t, email, password, codeAt(t, a.secret, now))
 	require.NoError(t, err)
 
-	require.True(t, platform.IsSessionToken(got.Token))
+	require.True(t, tokens.IsSession(got.Token))
 	require.Equal(t, now.Add(7*24*time.Hour), got.ExpiresAt)
 	require.Equal(t, auth.User{
 		ID:          a.id,
@@ -61,7 +61,7 @@ func TestSignInStartsASession(t *testing.T) {
 	var stored []byte
 	err = pgtest.Pool(t).QueryRow(context.Background(), "SELECT token_hash FROM sessions WHERE id = $1", got.Session.ID).Scan(&stored)
 	require.NoError(t, err)
-	require.Equal(t, platform.HashToken(got.Token), stored, "only the token's hash is stored")
+	require.Equal(t, tokens.Hash(got.Token), stored, "only the token's hash is stored")
 
 	require.Equal(t, now, lastSignIn(t, a.id).Time.UTC())
 	require.Equal(t, now.Unix()/30, lastStep(t, a.id))

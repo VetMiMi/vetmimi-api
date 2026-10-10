@@ -13,7 +13,7 @@ import (
 	"github.com/disintegration/imaging"
 	_ "golang.org/x/image/webp" // registers WebP with image.Decode
 
-	"github.com/VetMiMi/vetmimi-api/internal/platform/apperr"
+	"github.com/VetMiMi/vetmimi-api/internal/apperr"
 )
 
 const (

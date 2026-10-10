@@ -14,9 +14,9 @@ import (
 	"github.com/jackc/pgx/v5/pgtype"
 	"github.com/jackc/pgx/v5/pgxpool"
 
+	"github.com/VetMiMi/vetmimi-api/internal/apperr"
 	"github.com/VetMiMi/vetmimi-api/internal/db"
-	"github.com/VetMiMi/vetmimi-api/internal/platform"
-	"github.com/VetMiMi/vetmimi-api/internal/platform/apperr"
+	"github.com/VetMiMi/vetmimi-api/internal/listing"
 )
 
 var (
@@ -107,10 +107,10 @@ type Page struct {
 // the credit.
 func List(ctx context.Context, q db.Querier, f Filter) (Page, error) {
 	limit := cmp.Or(f.Limit, 50)
-	p := db.ListMediaParams{Search: platform.LikePattern(f.Search), MaxRows: int32(limit) + 1}
+	p := db.ListMediaParams{Search: listing.LikePattern(f.Search), MaxRows: int32(limit) + 1}
 	if f.Cursor != "" {
 		var err error
-		if p.AfterAt, p.AfterID, err = platform.DecodeCursor(f.Cursor); err != nil {
+		if p.AfterAt, p.AfterID, err = listing.DecodeCursor(f.Cursor); err != nil {
 			return Page{}, err
 		}
 	}
@@ -122,7 +122,7 @@ func List(ctx context.Context, q db.Querier, f Filter) (Page, error) {
 	if len(rows) > limit {
 		page.Items = rows[:limit]
 		last := page.Items[limit-1]
-		page.NextCursor = platform.EncodeCursor(last.CreatedAt, last.ID)
+		page.NextCursor = listing.EncodeCursor(last.CreatedAt, last.ID)
 	}
 	return page, nil
 }

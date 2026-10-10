@@ -8,7 +8,7 @@ import (
 
 	"github.com/VetMiMi/vetmimi-api/internal/comms"
 	"github.com/VetMiMi/vetmimi-api/internal/db"
-	"github.com/VetMiMi/vetmimi-api/internal/platform"
+	"github.com/VetMiMi/vetmimi-api/internal/queue"
 )
 
 // ScheduleReminder queues the visitor's reminder for a confirmed appointment
@@ -17,7 +17,7 @@ import (
 // daylight-saving change the wall-clock time shifts. When that instant has
 // already passed, as for an appointment confirmed two hours before it starts,
 // there is no reminder and no task.
-func ScheduleReminder(ctx context.Context, q db.Querier, appt db.Appointment, reminderHours int, now time.Time) ([]platform.Task, error) {
+func ScheduleReminder(ctx context.Context, q db.Querier, appt db.Appointment, reminderHours int, now time.Time) ([]queue.Task, error) {
 	at := appt.StartsAt.Add(-time.Duration(reminderHours) * time.Hour)
 	if !at.After(now) {
 		return nil, nil
@@ -32,7 +32,7 @@ func ScheduleReminder(ctx context.Context, q db.Querier, appt db.Appointment, re
 	if err != nil {
 		return nil, err
 	}
-	return []platform.Task{task}, nil
+	return []queue.Task{task}, nil
 }
 
 // CancelReminders cancels every queued reminder of an appointment, recording

@@ -8,16 +8,16 @@ import (
 
 	"github.com/stretchr/testify/require"
 
+	"github.com/VetMiMi/vetmimi-api/internal/apperr"
 	"github.com/VetMiMi/vetmimi-api/internal/booking"
 	"github.com/VetMiMi/vetmimi-api/internal/comms"
 	"github.com/VetMiMi/vetmimi-api/internal/db"
-	"github.com/VetMiMi/vetmimi-api/internal/platform"
-	"github.com/VetMiMi/vetmimi-api/internal/platform/apperr"
-	"github.com/VetMiMi/vetmimi-api/internal/platform/pgtest"
+	"github.com/VetMiMi/vetmimi-api/internal/pgtest"
+	"github.com/VetMiMi/vetmimi-api/internal/tokens"
 )
 
 func linkOf(appt db.Appointment) string {
-	return platform.NewManagementToken(testSecret, appt.ManagementTokenSeed)
+	return tokens.Management(testSecret, appt.ManagementTokenSeed)
 }
 
 func getManaged(t *testing.T, token string, now time.Time) (booking.Managed, error) {
@@ -54,7 +54,7 @@ func TestManage_UnknownTokenNeutral404(t *testing.T) {
 	over := requireCode(t, apperr.NotFound, err)
 	require.Equal(t, unknown, over)
 
-	_, err = getManaged(t, platform.NewManagementToken([]byte("another secret"), appt.ManagementTokenSeed), now)
+	_, err = getManaged(t, tokens.Management([]byte("another secret"), appt.ManagementTokenSeed), now)
 	requireCode(t, apperr.NotFound, err)
 }
 

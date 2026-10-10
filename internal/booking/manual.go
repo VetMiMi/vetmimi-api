@@ -10,9 +10,9 @@ import (
 
 	"github.com/VetMiMi/vetmimi-api/internal/comms"
 	"github.com/VetMiMi/vetmimi-api/internal/db"
-	"github.com/VetMiMi/vetmimi-api/internal/platform"
-	"github.com/VetMiMi/vetmimi-api/internal/platform/idempotency"
-	"github.com/VetMiMi/vetmimi-api/internal/platform/settings"
+	"github.com/VetMiMi/vetmimi-api/internal/idempotency"
+	"github.com/VetMiMi/vetmimi-api/internal/queue"
+	"github.com/VetMiMi/vetmimi-api/internal/settings"
 )
 
 // Manual is an appointment Daw Mi takes by phone or email and enters herself.
@@ -37,7 +37,7 @@ type Manual struct {
 type Created struct {
 	AppointmentID pgtype.UUID
 	Replayed      bool
-	Tasks         []platform.Task
+	Tasks         []queue.Task
 }
 
 // CreateManual stores an appointment Daw Mi makes by hand, under the same
@@ -125,7 +125,7 @@ func createManual(ctx context.Context, q *db.Queries, secret []byte, m Manual, n
 		tasks, err := afterConfirm(ctx, q, secret, appt, cur, now, m.Notify)
 		return Created{AppointmentID: appt.ID, Tasks: tasks}, err
 	}
-	tasks := []platform.Task{holdTask(appt.ID, appt.HoldExpiresAt.Time)}
+	tasks := []queue.Task{holdTask(appt.ID, appt.HoldExpiresAt.Time)}
 	if m.Notify {
 		task, err := comms.Queue(ctx, q, comms.Message{AppointmentID: appt.ID, Kind: comms.RequestReceived,
 			Recipient: appt.VisitorEmail, Locale: appt.Locale})

@@ -13,7 +13,8 @@ import (
 	"github.com/jackc/pgx/v5/pgtype"
 
 	"github.com/VetMiMi/vetmimi-api/internal/db"
-	"github.com/VetMiMi/vetmimi-api/internal/platform"
+	"github.com/VetMiMi/vetmimi-api/internal/queue"
+	"github.com/VetMiMi/vetmimi-api/internal/tokens"
 )
 
 // The join window: the page opens 15 minutes before the start and the room
@@ -51,7 +52,7 @@ func Window(start, end time.Time) (opens, closes time.Time) {
 // its hash is stored. It returns the task that ends the room when its window
 // closes.
 func CreateRoom(ctx context.Context, q db.Querier, secret []byte, appt db.Appointment, mode string,
-	now time.Time) ([]platform.Task, error) {
+	now time.Time) ([]queue.Task, error) {
 	if appt.Format != "online" || mode != ModeRoom {
 		return nil, nil
 	}
@@ -63,7 +64,7 @@ func CreateRoom(ctx context.Context, q db.Querier, secret []byte, appt db.Appoin
 	room, err := q.InsertVideoRoom(ctx, db.InsertVideoRoomParams{
 		AppointmentID: appt.ID,
 		JoinTokenSeed: seed,
-		JoinTokenHash: platform.HashToken(platform.NewJoinToken(secret, seed)),
+		JoinTokenHash: tokens.Hash(tokens.Join(secret, seed)),
 		OpensAt:       opens,
 		ClosesAt:      closes,
 		Now:           now,
@@ -71,7 +72,7 @@ func CreateRoom(ctx context.Context, q db.Querier, secret []byte, appt db.Appoin
 	if err != nil {
 		return nil, err
 	}
-	return []platform.Task{closeTask(room)}, nil
+	return []queue.Task{closeTask(room)}, nil
 }
 
 // MoveRoom moves the window of a rescheduled appointment's room, if it has
@@ -79,12 +80,12 @@ func CreateRoom(ctx context.Context, q db.Querier, secret []byte, appt db.Appoin
 // so the link already emailed keeps working. The task for the new close
 // time has a new id; the old one fires, finds the window moved and does
 // nothing.
-func MoveRoom(ctx context.Context, q db.Querier, appt db.Appointment, now time.Time) ([]platform.Task, error) {
+func MoveRoom(ctx context.Context, q db.Querier, appt db.Appointment, now time.Time) ([]queue.Task, error) {
 	opens, closes := Window(appt.StartsAt, appt.EndsAt)
 	rooms, err := q.MoveVideoRoom(ctx, db.MoveVideoRoomParams{
 		AppointmentID: appt.ID, OpensAt: opens, ClosesAt: closes, Now: now,
 	})
-	var tasks []platform.Task
+	var tasks []queue.Task
 	for _, r := range rooms {
 		tasks = append(tasks, closeTask(r))
 	}

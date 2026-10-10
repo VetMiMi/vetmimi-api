@@ -15,10 +15,11 @@ import (
 	"github.com/jackc/pgx/v5/pgxpool"
 	"github.com/resend/resend-go/v2"
 
+	"github.com/VetMiMi/vetmimi-api/internal/clock"
 	"github.com/VetMiMi/vetmimi-api/internal/db"
-	"github.com/VetMiMi/vetmimi-api/internal/platform"
-	"github.com/VetMiMi/vetmimi-api/internal/platform/clock"
-	"github.com/VetMiMi/vetmimi-api/internal/platform/settings"
+	"github.com/VetMiMi/vetmimi-api/internal/queue"
+	"github.com/VetMiMi/vetmimi-api/internal/settings"
+	"github.com/VetMiMi/vetmimi-api/internal/tokens"
 	"github.com/VetMiMi/vetmimi-api/internal/video"
 )
 
@@ -34,7 +35,7 @@ var emailsFailed = expvar.NewInt("emails_failed")
 
 type Tasks struct {
 	Pool          *pgxpool.Pool
-	Queue         *platform.Queue
+	Queue         *queue.Queue
 	Resend        *resend.Client // nil in development: sends are only logged
 	From          string
 	SiteURL       string
@@ -43,7 +44,7 @@ type Tasks struct {
 	Now           clock.Now
 }
 
-func (t *Tasks) Register(w *platform.Worker) {
+func (t *Tasks) Register(w *queue.Worker) {
 	w.Handle(TaskDeliver, t.Deliver)
 	w.Handle(TaskSweep, t.Sweep)
 	w.Handle(TaskRescheduleReminders, t.RescheduleReminders)
@@ -226,7 +227,7 @@ func (t *Tasks) appointmentData(ctx context.Context, q *db.Queries, row db.Commu
 		data.ClientMessage = row.Message.String
 	} else {
 		data.MessageToVisitor = row.Message.String
-		token := platform.NewManagementToken(t.SigningSecret, appt.ManagementTokenSeed)
+		token := tokens.Management(t.SigningSecret, appt.ManagementTokenSeed)
 		data.ManageURL = sitePath(t.SiteURL, row.Locale, "/manage/"+token)
 		if data.JoinURL, err = t.joinURL(ctx, q, appt.ID, row.Locale); err != nil {
 			return RenderData{}, err
@@ -261,7 +262,7 @@ func (t *Tasks) joinURL(ctx context.Context, q *db.Queries, appointmentID pgtype
 	if !ok {
 		return "", nil
 	}
-	token := platform.NewJoinToken(t.SigningSecret, room.JoinTokenSeed)
+	token := tokens.Join(t.SigningSecret, room.JoinTokenSeed)
 	return sitePath(t.SiteURL, locale, "/session/"+token), nil
 }
 

@@ -8,8 +8,8 @@ import (
 
 	"github.com/VetMiMi/vetmimi-api/internal/comms"
 	"github.com/VetMiMi/vetmimi-api/internal/db"
-	"github.com/VetMiMi/vetmimi-api/internal/platform"
-	"github.com/VetMiMi/vetmimi-api/internal/platform/settings"
+	"github.com/VetMiMi/vetmimi-api/internal/queue"
+	"github.com/VetMiMi/vetmimi-api/internal/settings"
 	"github.com/VetMiMi/vetmimi-api/internal/video"
 )
 
@@ -28,7 +28,7 @@ func Confirm(ctx context.Context, pool *pgxpool.Pool, secret []byte, c Change, n
 			return Changed{}, err
 		}
 		tasks, err := afterConfirm(ctx, q, secret, appt, cur, now, true)
-		return Changed{Tasks: tasks, Remove: []platform.Task{holdTask(appt.ID, time.Time{})}}, err
+		return Changed{Tasks: tasks, Remove: []queue.Task{holdTask(appt.ID, time.Time{})}}, err
 	})
 }
 
@@ -43,7 +43,7 @@ func Decline(ctx context.Context, pool *pgxpool.Pool, c Change, now time.Time) (
 		}
 		task, err := comms.Queue(ctx, q, comms.Message{AppointmentID: appt.ID, Kind: comms.RequestDeclined,
 			Recipient: appt.VisitorEmail, Locale: appt.Locale, Text: c.ToVisitor})
-		return Changed{Tasks: []platform.Task{task}, Remove: []platform.Task{holdTask(appt.ID, time.Time{})}}, err
+		return Changed{Tasks: []queue.Task{task}, Remove: []queue.Task{holdTask(appt.ID, time.Time{})}}, err
 	})
 }
 
@@ -70,7 +70,7 @@ func Cancel(ctx context.Context, pool *pgxpool.Pool, c Change, now time.Time) (C
 		}
 		task, err := comms.Queue(ctx, q, comms.Message{AppointmentID: appt.ID, Kind: comms.Cancelled,
 			Recipient: appt.VisitorEmail, Locale: appt.Locale, Text: c.ToVisitor})
-		return Changed{Tasks: []platform.Task{task}, EndedRoom: room}, err
+		return Changed{Tasks: []queue.Task{task}, EndedRoom: room}, err
 	})
 }
 

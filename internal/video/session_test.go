@@ -13,11 +13,11 @@ import (
 	"github.com/jackc/pgx/v5/pgtype"
 	"github.com/stretchr/testify/require"
 
+	"github.com/VetMiMi/vetmimi-api/internal/apperr"
 	"github.com/VetMiMi/vetmimi-api/internal/booking"
 	"github.com/VetMiMi/vetmimi-api/internal/db"
-	"github.com/VetMiMi/vetmimi-api/internal/platform"
-	"github.com/VetMiMi/vetmimi-api/internal/platform/apperr"
-	"github.com/VetMiMi/vetmimi-api/internal/platform/pgtest"
+	"github.com/VetMiMi/vetmimi-api/internal/pgtest"
+	"github.com/VetMiMi/vetmimi-api/internal/tokens"
 	"github.com/VetMiMi/vetmimi-api/internal/video"
 )
 
@@ -55,7 +55,7 @@ func withRoom(t *testing.T) (db.Appointment, string) {
 	require.NoError(t, err)
 	room, _, err := video.RoomOf(ctx, q, appt.ID)
 	require.NoError(t, err)
-	return appt, platform.NewJoinToken(issuer.Secret, room.JoinTokenSeed)
+	return appt, tokens.Join(issuer.Secret, room.JoinTokenSeed)
 }
 
 func TestFindSession_ShowsTheWindowAndService(t *testing.T) {
@@ -76,7 +76,7 @@ func TestFindSession_UnknownOrTamperedTokenNotFound(t *testing.T) {
 	q := db.New(pgtest.Pool(t))
 	tampered := []byte(token)
 	tampered[0] ^= 1
-	management := platform.NewManagementToken(issuer.Secret, appt.ManagementTokenSeed)
+	management := tokens.Management(issuer.Secret, appt.ManagementTokenSeed)
 	for _, bad := range []string{string(tampered), management} {
 		_, err := video.FindSession(context.Background(), q, bad, appt.StartsAt)
 		var e *apperr.Error

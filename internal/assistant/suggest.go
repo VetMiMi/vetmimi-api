@@ -9,8 +9,8 @@ import (
 	"strings"
 	"unicode/utf8"
 
+	"github.com/VetMiMi/vetmimi-api/internal/apperr"
 	"github.com/VetMiMi/vetmimi-api/internal/content"
-	"github.com/VetMiMi/vetmimi-api/internal/platform/apperr"
 )
 
 // The platform limits a suggestion must meet, the same content checks

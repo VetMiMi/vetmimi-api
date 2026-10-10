@@ -7,8 +7,8 @@ import (
 	"net/http"
 	"time"
 
+	"github.com/VetMiMi/vetmimi-api/internal/apperr"
 	"github.com/VetMiMi/vetmimi-api/internal/httpapi/gen"
-	"github.com/VetMiMi/vetmimi-api/internal/platform/apperr"
 )
 
 // The limits every route in the API group gets unless it asks for others.

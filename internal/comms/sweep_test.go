@@ -9,15 +9,15 @@ import (
 
 	"github.com/VetMiMi/vetmimi-api/internal/comms"
 	"github.com/VetMiMi/vetmimi-api/internal/db"
-	"github.com/VetMiMi/vetmimi-api/internal/platform"
-	"github.com/VetMiMi/vetmimi-api/internal/platform/pgtest"
+	"github.com/VetMiMi/vetmimi-api/internal/pgtest"
+	taskqueue "github.com/VetMiMi/vetmimi-api/internal/queue"
 )
 
-func dueIDs(t *testing.T, now time.Time) map[string]platform.Task {
+func dueIDs(t *testing.T, now time.Time) map[string]taskqueue.Task {
 	t.Helper()
 	tasks, err := comms.DueTasks(context.Background(), db.New(pgtest.Pool(t)), now)
 	require.NoError(t, err)
-	out := map[string]platform.Task{}
+	out := map[string]taskqueue.Task{}
 	for _, task := range tasks {
 		out[task.ID] = task
 	}
@@ -66,7 +66,7 @@ func TestRescheduleReminderRows_MovesQueuedRemindersToTheNewOffset(t *testing.T)
 
 	want := appt.StartsAt.Add(-48 * time.Hour)
 	require.True(t, want.Equal(row(t, r.ID).ScheduledFor))
-	var moved *platform.Task
+	var moved *taskqueue.Task
 	for i := range tasks {
 		if tasks[i].ID == "comms:"+r.ID.String() {
 			moved = &tasks[i]
@@ -74,5 +74,5 @@ func TestRescheduleReminderRows_MovesQueuedRemindersToTheNewOffset(t *testing.T)
 	}
 	require.NotNil(t, moved)
 	require.True(t, want.Equal(moved.ProcessAt))
-	require.Equal(t, platform.QueueCritical, moved.Queue)
+	require.Equal(t, taskqueue.Critical, moved.Queue)
 }

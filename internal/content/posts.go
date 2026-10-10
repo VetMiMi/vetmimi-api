@@ -16,9 +16,9 @@ import (
 	"github.com/jackc/pgx/v5/pgtype"
 	"github.com/jackc/pgx/v5/pgxpool"
 
+	"github.com/VetMiMi/vetmimi-api/internal/apperr"
 	"github.com/VetMiMi/vetmimi-api/internal/db"
-	"github.com/VetMiMi/vetmimi-api/internal/platform"
-	"github.com/VetMiMi/vetmimi-api/internal/platform/apperr"
+	"github.com/VetMiMi/vetmimi-api/internal/listing"
 )
 
 // Post is a post with its channel versions and how each channel's
@@ -94,12 +94,12 @@ func ListPosts(ctx context.Context, q db.Querier, f PostFilter) (PostPage, error
 	limit := cmp.Or(f.Limit, 50)
 	p := db.ListPostsParams{
 		Status:  pgtype.Text{String: f.Status, Valid: f.Status != ""},
-		Search:  platform.LikePattern(f.Search),
+		Search:  listing.LikePattern(f.Search),
 		MaxRows: int32(limit) + 1,
 	}
 	if f.Cursor != "" {
 		var err error
-		if p.AfterAt, p.AfterID, err = platform.DecodeCursor(f.Cursor); err != nil {
+		if p.AfterAt, p.AfterID, err = listing.DecodeCursor(f.Cursor); err != nil {
 			return PostPage{}, err
 		}
 	}
@@ -111,7 +111,7 @@ func ListPosts(ctx context.Context, q db.Querier, f PostFilter) (PostPage, error
 	if len(rows) > limit {
 		page.Items = rows[:limit]
 		last := page.Items[limit-1]
-		page.NextCursor = platform.EncodeCursor(last.CreatedAt, last.ID)
+		page.NextCursor = listing.EncodeCursor(last.CreatedAt, last.ID)
 	}
 	return page, nil
 }

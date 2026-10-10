@@ -13,8 +13,8 @@ import (
 
 	"github.com/VetMiMi/vetmimi-api/internal/booking"
 	"github.com/VetMiMi/vetmimi-api/internal/db"
-	"github.com/VetMiMi/vetmimi-api/internal/platform"
-	"github.com/VetMiMi/vetmimi-api/internal/platform/pgtest"
+	"github.com/VetMiMi/vetmimi-api/internal/pgtest"
+	"github.com/VetMiMi/vetmimi-api/internal/tokens"
 )
 
 // sendPublic sends body as the site does, with the service key and a
@@ -44,7 +44,7 @@ func managedLink(t *testing.T, startsAt time.Time, status booking.Status) string
 		_, err := pgtest.Pool(t).Exec(context.Background(), "DELETE FROM appointments WHERE id = $1", appt.ID)
 		require.NoError(t, err)
 	})
-	return platform.NewManagementToken([]byte("test signing secret, 32 bytes ok"), appt.ManagementTokenSeed)
+	return tokens.Management([]byte("test signing secret, 32 bytes ok"), appt.ManagementTokenSeed)
 }
 
 func TestManageLink(t *testing.T) {

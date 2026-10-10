@@ -13,8 +13,8 @@ import (
 
 	"github.com/VetMiMi/vetmimi-api/internal/comms"
 	"github.com/VetMiMi/vetmimi-api/internal/db"
-	"github.com/VetMiMi/vetmimi-api/internal/platform"
-	"github.com/VetMiMi/vetmimi-api/internal/platform/pgtest"
+	"github.com/VetMiMi/vetmimi-api/internal/pgtest"
+	taskqueue "github.com/VetMiMi/vetmimi-api/internal/queue"
 )
 
 func TestQueue_RowCommitsWithTheTransactionAndReturnsItsTask(t *testing.T) {
@@ -37,7 +37,7 @@ func TestQueue_RowCommitsWithTheTransactionAndReturnsItsTask(t *testing.T) {
 	require.Equal(t, "visitor@example.com", got.Recipient.String, "stored lower-case")
 	require.Equal(t, "my", got.Locale)
 	require.Equal(t, comms.TaskDeliver, task.Type)
-	require.Equal(t, platform.QueueCritical, task.Queue)
+	require.Equal(t, taskqueue.Critical, task.Queue)
 	require.Equal(t, got.ScheduledFor, task.ProcessAt)
 	payload, err := json.Marshal(task.Payload)
 	require.NoError(t, err)
@@ -48,7 +48,7 @@ func TestQueue_RowCommitsWithTheTransactionAndReturnsItsTask(t *testing.T) {
 	})
 	require.Equal(t, "practitioner", practitioner.Audience)
 	require.Equal(t, "en", practitioner.Locale, "Daw Mi's messages are in English for now")
-	require.Equal(t, platform.QueueDefault, task.Queue)
+	require.Equal(t, taskqueue.Default, task.Queue)
 }
 
 func requireCheck(t *testing.T, constraint string, err error) {

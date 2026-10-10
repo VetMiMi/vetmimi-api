@@ -20,12 +20,12 @@ import (
 	"github.com/jackc/pgx/v5/pgtype"
 	"github.com/stretchr/testify/require"
 
+	"github.com/VetMiMi/vetmimi-api/internal/apperr"
+	"github.com/VetMiMi/vetmimi-api/internal/config"
 	"github.com/VetMiMi/vetmimi-api/internal/content"
 	"github.com/VetMiMi/vetmimi-api/internal/db"
 	"github.com/VetMiMi/vetmimi-api/internal/media"
-	"github.com/VetMiMi/vetmimi-api/internal/platform"
-	"github.com/VetMiMi/vetmimi-api/internal/platform/apperr"
-	"github.com/VetMiMi/vetmimi-api/internal/platform/pgtest"
+	"github.com/VetMiMi/vetmimi-api/internal/pgtest"
 )
 
 func TestMain(m *testing.M) { os.Exit(pgtest.Run(m)) }
@@ -75,7 +75,7 @@ func newStore(t *testing.T) (*media.Store, *bucket) {
 	b := &bucket{objects: map[string][]byte{}}
 	srv := httptest.NewServer(b)
 	t.Cleanup(srv.Close)
-	return media.NewStore(platform.Config{MediaS3Endpoint: srv.URL, MediaS3Region: "auto",
+	return media.NewStore(config.Config{MediaS3Endpoint: srv.URL, MediaS3Region: "auto",
 		MediaS3Bucket: "media-bucket", MediaS3AccessKey: "key", MediaS3SecretKey: "secret"}), b
 }
 

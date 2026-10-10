@@ -20,7 +20,7 @@ import (
 
 	"github.com/VetMiMi/vetmimi-api/internal/auth"
 	"github.com/VetMiMi/vetmimi-api/internal/db"
-	"github.com/VetMiMi/vetmimi-api/internal/platform/pgtest"
+	"github.com/VetMiMi/vetmimi-api/internal/pgtest"
 )
 
 func TestMain(m *testing.M) { os.Exit(pgtest.Run(m)) }

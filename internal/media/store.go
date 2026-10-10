@@ -11,7 +11,7 @@ import (
 	"github.com/aws/aws-sdk-go-v2/service/s3"
 	"github.com/jackc/pgx/v5/pgtype"
 
-	"github.com/VetMiMi/vetmimi-api/internal/platform"
+	"github.com/VetMiMi/vetmimi-api/internal/config"
 )
 
 // Store keeps media objects in the S3-compatible bucket: the original under
@@ -25,7 +25,7 @@ type Store struct {
 // NewStore returns the bucket cfg names, or nil when cfg has no media
 // endpoint, as in development without storage; uploads are then refused.
 // Without keys it signs with the EC2 instance role, as on the live host.
-func NewStore(cfg platform.Config) *Store {
+func NewStore(cfg config.Config) *Store {
 	if cfg.MediaS3Endpoint == "" {
 		return nil
 	}

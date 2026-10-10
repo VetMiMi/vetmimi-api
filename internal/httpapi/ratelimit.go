@@ -10,11 +10,11 @@ import (
 
 	"github.com/go-chi/chi/v5"
 
+	"github.com/VetMiMi/vetmimi-api/internal/apperr"
 	"github.com/VetMiMi/vetmimi-api/internal/auth"
+	"github.com/VetMiMi/vetmimi-api/internal/clock"
 	"github.com/VetMiMi/vetmimi-api/internal/httpapi/gen"
-	"github.com/VetMiMi/vetmimi-api/internal/platform"
-	"github.com/VetMiMi/vetmimi-api/internal/platform/apperr"
-	"github.com/VetMiMi/vetmimi-api/internal/platform/clock"
+	"github.com/VetMiMi/vetmimi-api/internal/ratelimit"
 )
 
 // keyBy names what a limit counts requests by.
@@ -89,9 +89,9 @@ func limitFor(op operation) (rateLimit, bool) {
 // so an unwired router behaves as if Redis were down rather than unlimited.
 var errNoLimiter = errors.New("no rate limiter")
 
-// RateLimits applies the limits above with one platform.Limiter.
+// RateLimits applies the limits above with one ratelimit.Limiter.
 type RateLimits struct {
-	limiter *platform.Limiter
+	limiter *ratelimit.Limiter
 	log     *slog.Logger
 	now     clock.Now
 
@@ -103,7 +103,7 @@ type RateLimits struct {
 
 // NewRateLimits returns the limits counted by limiter. A nil limiter counts
 // nothing and is treated as an unreachable Redis.
-func NewRateLimits(limiter *platform.Limiter, log *slog.Logger, now clock.Now) *RateLimits {
+func NewRateLimits(limiter *ratelimit.Limiter, log *slog.Logger, now clock.Now) *RateLimits {
 	return &RateLimits{limiter: limiter, log: log, now: now}
 }
 

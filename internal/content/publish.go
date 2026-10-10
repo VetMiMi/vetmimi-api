@@ -12,9 +12,9 @@ import (
 	"github.com/jackc/pgx/v5/pgtype"
 	"github.com/jackc/pgx/v5/pgxpool"
 
+	"github.com/VetMiMi/vetmimi-api/internal/apperr"
 	"github.com/VetMiMi/vetmimi-api/internal/db"
-	"github.com/VetMiMi/vetmimi-api/internal/platform"
-	"github.com/VetMiMi/vetmimi-api/internal/platform/apperr"
+	"github.com/VetMiMi/vetmimi-api/internal/queue"
 )
 
 // The publishing worker's tasks (docs/architecture.md, "Background jobs").
@@ -76,31 +76,31 @@ type revalidatePayload struct {
 	Slug string `json:"slug"`
 }
 
-func scheduledTask(id pgtype.UUID, at time.Time) platform.Task {
-	return platform.Task{Type: TaskPublishScheduled, ID: fmt.Sprintf("post:%s:%d", id, at.Unix()),
+func scheduledTask(id pgtype.UUID, at time.Time) queue.Task {
+	return queue.Task{Type: TaskPublishScheduled, ID: fmt.Sprintf("post:%s:%d", id, at.Unix()),
 		Payload: postPayload{PostID: id.String()}, ProcessAt: at}
 }
 
 // channelTask's id names the attempt, so a retry after a final failure is a
 // new task, while a duplicate of a waiting one is not added.
-func channelTask(pub db.PostPublication) platform.Task {
-	return platform.Task{Type: TaskPublishChannel,
+func channelTask(pub db.PostPublication) queue.Task {
+	return queue.Task{Type: TaskPublishChannel,
 		ID:      fmt.Sprintf("publish:%s:%s:%d", pub.PostID, pub.Channel, pub.Attempts),
 		Payload: channelPayload{PostID: pub.PostID.String(), Channel: pub.Channel}}
 }
 
 // ScheduledTask publishes p at its scheduled time. A task left behind by a
 // moved or cancelled schedule finds the post not due and does nothing.
-func ScheduledTask(p Post) []platform.Task {
+func ScheduledTask(p Post) []queue.Task {
 	if p.Status != "scheduled" {
 		return nil
 	}
-	return []platform.Task{scheduledTask(p.ID, p.ScheduledAt.Time)}
+	return []queue.Task{scheduledTask(p.ID, p.ScheduledAt.Time)}
 }
 
 // PublishTasks are the tasks for p's channels waiting for the worker.
-func PublishTasks(p Post) []platform.Task {
-	var out []platform.Task
+func PublishTasks(p Post) []queue.Task {
+	var out []queue.Task
 	for _, pub := range p.Publications {
 		if pub.Status == "pending" {
 			out = append(out, channelTask(pub))
@@ -112,10 +112,10 @@ func PublishTasks(p Post) []platform.Task {
 // RevalidateTasks asks the site to refresh p's article once p has been on
 // the website: after it goes live, goes live again after an edit, or is
 // archived. An edit alone changes nothing visitors read.
-func RevalidateTasks(p Post) []platform.Task {
+func RevalidateTasks(p Post) []queue.Task {
 	for _, v := range p.Versions {
 		if v.Channel == "website" && v.Slug.Valid && publication(p, "website").Status == "published" {
-			return []platform.Task{{Type: TaskRevalidate, Payload: revalidatePayload{Slug: v.Slug.String}}}
+			return []queue.Task{{Type: TaskRevalidate, Payload: revalidatePayload{Slug: v.Slug.String}}}
 		}
 	}
 	return nil
@@ -219,7 +219,7 @@ func Retry(ctx context.Context, pool *pgxpool.Pool, id pgtype.UUID, channel stri
 // their time, and social channels waiting for longer than stuckAfter. Task
 // ids match the ones first given, so a task still queued is not added
 // twice.
-func DueTasks(ctx context.Context, q db.Querier, now time.Time) ([]platform.Task, error) {
+func DueTasks(ctx context.Context, q db.Querier, now time.Time) ([]queue.Task, error) {
 	posts, err := q.ListDueScheduledPosts(ctx, db.ListDueScheduledPostsParams{
 		Before: now.Add(-scheduleGrace), MaxRows: sweepLimit,
 	})
@@ -232,7 +232,7 @@ func DueTasks(ctx context.Context, q db.Querier, now time.Time) ([]platform.Task
 	if err != nil {
 		return nil, err
 	}
-	var tasks []platform.Task
+	var tasks []queue.Task
 	for _, p := range posts {
 		tasks = append(tasks, scheduledTask(p.ID, p.ScheduledAt.Time))
 	}

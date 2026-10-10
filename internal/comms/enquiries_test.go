@@ -11,11 +11,11 @@ import (
 	"github.com/jackc/pgx/v5/pgtype"
 	"github.com/stretchr/testify/require"
 
+	"github.com/VetMiMi/vetmimi-api/internal/apperr"
 	"github.com/VetMiMi/vetmimi-api/internal/comms"
 	"github.com/VetMiMi/vetmimi-api/internal/db"
-	"github.com/VetMiMi/vetmimi-api/internal/platform"
-	"github.com/VetMiMi/vetmimi-api/internal/platform/apperr"
-	"github.com/VetMiMi/vetmimi-api/internal/platform/pgtest"
+	"github.com/VetMiMi/vetmimi-api/internal/pgtest"
+	"github.com/VetMiMi/vetmimi-api/internal/tokens"
 )
 
 var enquiryTime = time.Date(2026, 10, 6, 1, 0, 0, 0, time.UTC)
@@ -188,7 +188,7 @@ func TestDeliver_VisitorEmailCarriesManagementLink(t *testing.T) {
 
 	require.NoError(t, deliver(t, tasks, visitor))
 	require.NoError(t, deliver(t, tasks, practitioner))
-	token := platform.NewManagementToken(tasks.SigningSecret, appt.ManagementTokenSeed)
+	token := tokens.Management(tasks.SigningSecret, appt.ManagementTokenSeed)
 	sent := resend.sent()
 	require.Contains(t, sent[0].Body["text"], "https://vetmimi.example/my/manage/"+token)
 	require.NotContains(t, sent[1].Body["text"], token)

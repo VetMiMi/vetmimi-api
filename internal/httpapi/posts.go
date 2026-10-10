@@ -9,7 +9,7 @@ import (
 	"github.com/VetMiMi/vetmimi-api/internal/content"
 	"github.com/VetMiMi/vetmimi-api/internal/db"
 	"github.com/VetMiMi/vetmimi-api/internal/httpapi/gen"
-	"github.com/VetMiMi/vetmimi-api/internal/platform"
+	"github.com/VetMiMi/vetmimi-api/internal/queue"
 )
 
 // ListPosts lists posts newest first.
@@ -171,7 +171,7 @@ func (s *server) RetryPostChannel(ctx context.Context, req gen.RetryPostChannelR
 }
 
 // enqueue queues tasks once the change that led to them has committed.
-func (s *server) enqueue(ctx context.Context, tasks ...platform.Task) {
+func (s *server) enqueue(ctx context.Context, tasks ...queue.Task) {
 	if s.Queue != nil {
 		s.Queue.Enqueue(ctx, tasks...)
 	}

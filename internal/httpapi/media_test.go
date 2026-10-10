@@ -12,8 +12,8 @@ import (
 
 	"github.com/stretchr/testify/require"
 
+	"github.com/VetMiMi/vetmimi-api/internal/config"
 	"github.com/VetMiMi/vetmimi-api/internal/media"
-	"github.com/VetMiMi/vetmimi-api/internal/platform"
 )
 
 // acceptingBucket is an S3 endpoint that stores nothing and accepts every
@@ -27,7 +27,7 @@ func acceptingBucket(t *testing.T) *media.Store {
 		}
 	}))
 	t.Cleanup(srv.Close)
-	return media.NewStore(platform.Config{MediaS3Endpoint: srv.URL, MediaS3Region: "auto",
+	return media.NewStore(config.Config{MediaS3Endpoint: srv.URL, MediaS3Region: "auto",
 		MediaS3Bucket: "media", MediaS3AccessKey: "key", MediaS3SecretKey: "secret"})
 }
 

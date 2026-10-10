@@ -3,9 +3,9 @@ package httpapi
 import (
 	"net/http"
 
+	"github.com/VetMiMi/vetmimi-api/internal/apperr"
 	"github.com/VetMiMi/vetmimi-api/internal/auth"
 	"github.com/VetMiMi/vetmimi-api/internal/httpapi/gen"
-	"github.com/VetMiMi/vetmimi-api/internal/platform/apperr"
 )
 
 // The role sets the table below uses. auth.HasRole lets site_admin act as

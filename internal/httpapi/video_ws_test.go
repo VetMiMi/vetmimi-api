@@ -15,7 +15,7 @@ import (
 
 	"github.com/VetMiMi/vetmimi-api/internal/booking"
 	"github.com/VetMiMi/vetmimi-api/internal/db"
-	"github.com/VetMiMi/vetmimi-api/internal/platform/pgtest"
+	"github.com/VetMiMi/vetmimi-api/internal/pgtest"
 	"github.com/VetMiMi/vetmimi-api/internal/video"
 )
 

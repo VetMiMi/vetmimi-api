@@ -9,7 +9,7 @@ import (
 
 	"github.com/VetMiMi/vetmimi-api/internal/booking"
 	"github.com/VetMiMi/vetmimi-api/internal/db"
-	"github.com/VetMiMi/vetmimi-api/internal/platform/pgtest"
+	"github.com/VetMiMi/vetmimi-api/internal/pgtest"
 )
 
 // setBookingEnabled stores public_booking_enabled and restores it after t.

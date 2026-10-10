@@ -13,8 +13,8 @@ import (
 	"github.com/VetMiMi/vetmimi-api/internal/comms"
 	"github.com/VetMiMi/vetmimi-api/internal/db"
 	"github.com/VetMiMi/vetmimi-api/internal/httpapi/gen"
-	"github.com/VetMiMi/vetmimi-api/internal/platform"
-	"github.com/VetMiMi/vetmimi-api/internal/platform/settings"
+	"github.com/VetMiMi/vetmimi-api/internal/queue"
+	"github.com/VetMiMi/vetmimi-api/internal/settings"
 )
 
 // GetSettings answers with the settings the caller's roles may read: a
@@ -45,7 +45,7 @@ func (s *server) UpdateSettings(ctx context.Context, req gen.UpdateSettingsReque
 		// Queued reminders move to the new offset (docs/architecture.md,
 		// "Background jobs"). The task recomputes from the stored setting, so
 		// running it twice is harmless.
-		s.Queue.Enqueue(ctx, platform.Task{
+		s.Queue.Enqueue(ctx, queue.Task{
 			Type: comms.TaskRescheduleReminders,
 			ID:   "reminders:" + strconv.FormatInt(now.UnixNano(), 10),
 		})

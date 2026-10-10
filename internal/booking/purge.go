@@ -6,7 +6,7 @@ import (
 	"time"
 
 	"github.com/VetMiMi/vetmimi-api/internal/db"
-	"github.com/VetMiMi/vetmimi-api/internal/platform/settings"
+	"github.com/VetMiMi/vetmimi-api/internal/settings"
 )
 
 // TaskPurgeRetention deletes booking data past settings.retention_months

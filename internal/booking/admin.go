@@ -11,10 +11,10 @@ import (
 	"github.com/jackc/pgx/v5/pgtype"
 	"github.com/jackc/pgx/v5/pgxpool"
 
+	"github.com/VetMiMi/vetmimi-api/internal/apperr"
 	"github.com/VetMiMi/vetmimi-api/internal/db"
-	"github.com/VetMiMi/vetmimi-api/internal/platform"
-	"github.com/VetMiMi/vetmimi-api/internal/platform/apperr"
-	"github.com/VetMiMi/vetmimi-api/internal/platform/settings"
+	"github.com/VetMiMi/vetmimi-api/internal/queue"
+	"github.com/VetMiMi/vetmimi-api/internal/settings"
 )
 
 // Counters on the metrics listener (docs/architecture.md, "Observability"),
@@ -52,7 +52,7 @@ type Change struct {
 // committed: Tasks to enqueue, Replace to enqueue in place of a waiting task
 // with the same id, and Remove to take off the queue.
 type Changed struct {
-	Tasks, Replace, Remove []platform.Task
+	Tasks, Replace, Remove []queue.Task
 	// EndedRoom is the video room the change ended, whose sockets the
 	// caller closes once it has committed.
 	EndedRoom pgtype.UUID

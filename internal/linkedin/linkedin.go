@@ -19,8 +19,8 @@ import (
 	"github.com/jackc/pgx/v5/pgxpool"
 
 	"github.com/VetMiMi/vetmimi-api/internal/auth"
-	"github.com/VetMiMi/vetmimi-api/internal/platform"
-	"github.com/VetMiMi/vetmimi-api/internal/platform/clock"
+	"github.com/VetMiMi/vetmimi-api/internal/clock"
+	"github.com/VetMiMi/vetmimi-api/internal/config"
 )
 
 // Connector holds what the LinkedIn connection and publishing need.
@@ -50,7 +50,7 @@ type Connector struct {
 }
 
 // New returns the connector cmd/api wires from cfg.
-func New(cfg platform.Config, pool *pgxpool.Pool, tokens *auth.TOTP, log *slog.Logger) *Connector {
+func New(cfg config.Config, pool *pgxpool.Pool, tokens *auth.TOTP, log *slog.Logger) *Connector {
 	return &Connector{
 		Pool: pool, Tokens: tokens, ClientID: cfg.LinkedInClientID, ClientSecret: cfg.LinkedInClientSecret,
 		Version: cfg.LinkedInAPIVersion, AuthURL: "https://www.linkedin.com", APIURL: "https://api.linkedin.com",

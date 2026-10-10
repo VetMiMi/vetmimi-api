@@ -9,7 +9,7 @@ import (
 
 	"github.com/VetMiMi/vetmimi-api/internal/booking"
 	"github.com/VetMiMi/vetmimi-api/internal/comms"
-	"github.com/VetMiMi/vetmimi-api/internal/platform/pgtest"
+	"github.com/VetMiMi/vetmimi-api/internal/pgtest"
 )
 
 func TestExpireHold_ExpiresAndTellsTheVisitor(t *testing.T) {

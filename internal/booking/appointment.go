@@ -11,7 +11,7 @@ import (
 	"github.com/jackc/pgx/v5/pgtype"
 
 	"github.com/VetMiMi/vetmimi-api/internal/db"
-	"github.com/VetMiMi/vetmimi-api/internal/platform"
+	"github.com/VetMiMi/vetmimi-api/internal/tokens"
 )
 
 // Period is a half-open span of time, [Start, End), as every tstzrange in
@@ -101,12 +101,12 @@ func InsertAppointment(ctx context.Context, q db.Querier, secret []byte, a NewAp
 		PolicyAckAt:         a.PolicyAckAt,
 		HoldExpiresAt:       a.HoldExpiresAt,
 		ManagementTokenSeed: seed,
-		ManagementTokenHash: platform.HashToken(platform.NewManagementToken(secret, seed)),
+		ManagementTokenHash: tokens.Hash(tokens.Management(secret, seed)),
 		CreatedBy:           a.CreatedBy,
 		AdminNote:           a.AdminNote,
 	}
 	for range referenceAttempts {
-		if p.Reference, err = platform.NewReference("VM-"); err != nil {
+		if p.Reference, err = tokens.NewReference("VM-"); err != nil {
 			return db.Appointment{}, err
 		}
 		row, err := q.InsertAppointment(ctx, p)

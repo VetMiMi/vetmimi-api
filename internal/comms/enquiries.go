@@ -12,11 +12,13 @@ import (
 	"github.com/jackc/pgx/v5/pgtype"
 	"github.com/jackc/pgx/v5/pgxpool"
 
+	"github.com/VetMiMi/vetmimi-api/internal/apperr"
 	"github.com/VetMiMi/vetmimi-api/internal/db"
-	"github.com/VetMiMi/vetmimi-api/internal/platform"
-	"github.com/VetMiMi/vetmimi-api/internal/platform/apperr"
-	"github.com/VetMiMi/vetmimi-api/internal/platform/idempotency"
-	"github.com/VetMiMi/vetmimi-api/internal/platform/settings"
+	"github.com/VetMiMi/vetmimi-api/internal/idempotency"
+	"github.com/VetMiMi/vetmimi-api/internal/listing"
+	"github.com/VetMiMi/vetmimi-api/internal/queue"
+	"github.com/VetMiMi/vetmimi-api/internal/settings"
+	"github.com/VetMiMi/vetmimi-api/internal/tokens"
 )
 
 type Enquiry struct {
@@ -43,7 +45,7 @@ type EnquiryCreated struct {
 	ID       pgtype.UUID
 	Receipt  EnquiryReceipt
 	Replayed bool
-	Tasks    []platform.Task
+	Tasks    []queue.Task
 }
 
 var (
@@ -121,14 +123,14 @@ func createEnquiry(ctx context.Context, q *db.Queries, e Enquiry, now time.Time)
 	return EnquiryCreated{
 		ID:      row.ID,
 		Receipt: EnquiryReceipt{Reference: row.Reference, CreatedAt: row.CreatedAt.UTC()},
-		Tasks:   []platform.Task{task},
+		Tasks:   []queue.Task{task},
 	}, nil
 }
 
 func insertEnquiry(ctx context.Context, q *db.Queries, p db.InsertContactEnquiryParams) (db.ContactEnquiry, error) {
 	for range referenceAttempts {
 		var err error
-		if p.Reference, err = platform.NewReference("EN-"); err != nil {
+		if p.Reference, err = tokens.NewReference("EN-"); err != nil {
 			return db.ContactEnquiry{}, err
 		}
 		row, err := q.InsertContactEnquiry(ctx, p)
@@ -159,12 +161,12 @@ func ListEnquiries(ctx context.Context, q db.Querier, f EnquiryFilter) (EnquiryP
 	}
 	p := db.ListContactEnquiriesParams{
 		Status:  pgtype.Text{String: f.Status, Valid: f.Status != ""},
-		Search:  platform.LikePattern(f.Search),
+		Search:  listing.LikePattern(f.Search),
 		MaxRows: int32(limit) + 1,
 	}
 	if f.Cursor != "" {
 		var err error
-		if p.AfterAt, p.AfterID, err = platform.DecodeCursor(f.Cursor); err != nil {
+		if p.AfterAt, p.AfterID, err = listing.DecodeCursor(f.Cursor); err != nil {
 			return EnquiryPage{}, err
 		}
 	}
@@ -176,7 +178,7 @@ func ListEnquiries(ctx context.Context, q db.Querier, f EnquiryFilter) (EnquiryP
 	if len(rows) > limit {
 		page.Items = rows[:limit]
 		last := page.Items[limit-1]
-		page.NextCursor = platform.EncodeCursor(last.CreatedAt, last.ID)
+		page.NextCursor = listing.EncodeCursor(last.CreatedAt, last.ID)
 	}
 	return page, nil
 }

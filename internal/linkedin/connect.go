@@ -13,9 +13,9 @@ import (
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgtype"
 
+	"github.com/VetMiMi/vetmimi-api/internal/apperr"
 	"github.com/VetMiMi/vetmimi-api/internal/db"
-	"github.com/VetMiMi/vetmimi-api/internal/platform"
-	"github.com/VetMiMi/vetmimi-api/internal/platform/apperr"
+	"github.com/VetMiMi/vetmimi-api/internal/tokens"
 )
 
 const (
@@ -60,7 +60,7 @@ func (c *Connector) AuthorizeURL(user pgtype.UUID, now time.Time) (string, error
 	}
 	q := url.Values{
 		"response_type": {"code"}, "client_id": {c.ClientID}, "redirect_uri": {c.RedirectURL}, "scope": {scopes},
-		"state": {platform.SignOAuthState(c.SigningSecret, platformName, user.String(), now.Add(stateLifetime))},
+		"state": {tokens.SignOAuthState(c.SigningSecret, platformName, user.String(), now.Add(stateLifetime))},
 	}
 	return strings.TrimSuffix(c.AuthURL, "/") + "/oauth/v2/authorization?" + q.Encode(), nil
 }
@@ -72,7 +72,7 @@ func (c *Connector) Finish(ctx context.Context, user pgtype.UUID, code, state st
 	if c.ClientID == "" {
 		return Connection{}, errNotSetUp
 	}
-	if !platform.CheckOAuthState(c.SigningSecret, platformName, state, user.String(), now) {
+	if !tokens.CheckOAuthState(c.SigningSecret, platformName, state, user.String(), now) {
 		return Connection{}, errState
 	}
 	form := url.Values{

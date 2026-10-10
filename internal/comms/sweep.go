@@ -5,8 +5,8 @@ import (
 	"time"
 
 	"github.com/VetMiMi/vetmimi-api/internal/db"
-	"github.com/VetMiMi/vetmimi-api/internal/platform"
-	"github.com/VetMiMi/vetmimi-api/internal/platform/settings"
+	"github.com/VetMiMi/vetmimi-api/internal/queue"
+	"github.com/VetMiMi/vetmimi-api/internal/settings"
 )
 
 const (
@@ -16,14 +16,14 @@ const (
 
 // DueTasks re-creates tasks lost between commit and enqueue. Task ids match
 // Queue's, so a row whose task still exists is not enqueued twice.
-func DueTasks(ctx context.Context, q db.Querier, now time.Time) ([]platform.Task, error) {
+func DueTasks(ctx context.Context, q db.Querier, now time.Time) ([]queue.Task, error) {
 	rows, err := q.ListDueCommunications(ctx, db.ListDueCommunicationsParams{
 		Before: now.Add(-sweepGrace), MaxRows: sweepLimit,
 	})
 	if err != nil {
 		return nil, err
 	}
-	tasks := make([]platform.Task, len(rows))
+	tasks := make([]queue.Task, len(rows))
 	for i, r := range rows {
 		tasks[i] = deliverTask(r.ID, Kind(r.Kind), r.ScheduledFor)
 	}
@@ -41,7 +41,7 @@ func (t *Tasks) Sweep(ctx context.Context, _ []byte) error {
 }
 
 // RescheduleReminderRows moves queued reminders to the current reminder_hours.
-func RescheduleReminderRows(ctx context.Context, q db.Querier) ([]platform.Task, error) {
+func RescheduleReminderRows(ctx context.Context, q db.Querier) ([]queue.Task, error) {
 	s, err := settings.Load(ctx, q)
 	if err != nil {
 		return nil, err
@@ -50,7 +50,7 @@ func RescheduleReminderRows(ctx context.Context, q db.Querier) ([]platform.Task,
 	if err != nil {
 		return nil, err
 	}
-	tasks := make([]platform.Task, len(rows))
+	tasks := make([]queue.Task, len(rows))
 	for i, r := range rows {
 		tasks[i] = deliverTask(r.ID, Reminder, r.ScheduledFor)
 	}

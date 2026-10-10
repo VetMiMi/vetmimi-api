@@ -12,9 +12,9 @@ import (
 
 	"github.com/redis/go-redis/v9"
 
-	"github.com/VetMiMi/vetmimi-api/internal/platform"
-	"github.com/VetMiMi/vetmimi-api/internal/platform/apperr"
-	"github.com/VetMiMi/vetmimi-api/internal/platform/clock"
+	"github.com/VetMiMi/vetmimi-api/internal/apperr"
+	"github.com/VetMiMi/vetmimi-api/internal/clock"
+	"github.com/VetMiMi/vetmimi-api/internal/ratelimit"
 )
 
 // The per-email sign-in limits in docs/architecture.md: ten attempts an
@@ -27,7 +27,7 @@ const (
 	lockoutPeriod   = 15 * time.Minute
 )
 
-// lockoutTimeout bounds the Redis calls of one sign-in, as platform.Limiter
+// lockoutTimeout bounds the Redis calls of one sign-in, as ratelimit.Limiter
 // bounds its own: a stopped Redis must cost a sign-in a short wait, not
 // go-redis's whole retry schedule.
 const lockoutTimeout = 250 * time.Millisecond
@@ -42,10 +42,10 @@ var errNoLockout = errors.New("no sign-in lockout")
 // their own. Times come from its clock, not Redis's, and are stored as
 // values, so a test can move past a window without waiting for it.
 type Lockout struct {
-	limiter *platform.Limiter
+	limiter *ratelimit.Limiter
 	rdb     *redis.Client
 	// prefix starts every key: "" in production, a test's own in tests, as
-	// for platform.Limiter.
+	// for ratelimit.Limiter.
 	prefix string
 	now    clock.Now
 }
@@ -53,7 +53,7 @@ type Lockout struct {
 // NewLockout returns a Lockout keeping its counters in rdb under prefix and
 // reading the time from now.
 func NewLockout(rdb *redis.Client, prefix string, now clock.Now) *Lockout {
-	return &Lockout{limiter: platform.NewLimiter(rdb, prefix, now), rdb: rdb, prefix: prefix, now: now}
+	return &Lockout{limiter: ratelimit.New(rdb, prefix, now), rdb: rdb, prefix: prefix, now: now}
 }
 
 // EmailHashPrefix is the first 12 hex characters of the SHA-256 of the
@@ -62,7 +62,7 @@ func NewLockout(rdb *redis.Client, prefix string, now clock.Now) *Lockout {
 func EmailHashPrefix(email string) string { return emailHash(email)[:12] }
 
 // emailHash keys an email's counters: the first 32 hex characters of its
-// SHA-256, as platform.Limiter keys its subjects.
+// SHA-256, as ratelimit.Limiter keys its subjects.
 func emailHash(email string) string {
 	sum := sha256.Sum256([]byte(NormalizeEmail(email)))
 	return hex.EncodeToString(sum[:16])

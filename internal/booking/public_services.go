@@ -6,7 +6,7 @@ import (
 	"strings"
 
 	"github.com/VetMiMi/vetmimi-api/internal/db"
-	"github.com/VetMiMi/vetmimi-api/internal/platform/settings"
+	"github.com/VetMiMi/vetmimi-api/internal/settings"
 )
 
 // PublicService is what a visitor sees of a bookable service, its text in

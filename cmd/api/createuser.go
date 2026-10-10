@@ -20,7 +20,7 @@ import (
 	"golang.org/x/term"
 
 	"github.com/VetMiMi/vetmimi-api/internal/auth"
-	"github.com/VetMiMi/vetmimi-api/internal/platform"
+	"github.com/VetMiMi/vetmimi-api/internal/config"
 )
 
 // The password bounds are SessionCreate's in openapi.yaml, so every password
@@ -65,7 +65,7 @@ type terminal struct {
 // runCreateUser wires create-user to the process's terminal. Standard input
 // must be a terminal, so the password is never piped or echoed; on the live
 // host that is `docker compose run --rm api --mode create-user …`.
-func runCreateUser(ctx context.Context, log *slog.Logger, cfg platform.Config, pool *pgxpool.Pool, f userFlags) error {
+func runCreateUser(ctx context.Context, log *slog.Logger, cfg config.Config, pool *pgxpool.Pool, f userFlags) error {
 	fd := int(os.Stdin.Fd())
 	state, err := term.GetState(fd)
 	if err != nil {

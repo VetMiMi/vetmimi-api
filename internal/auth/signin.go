@@ -7,9 +7,9 @@ import (
 
 	"github.com/jackc/pgx/v5"
 
+	"github.com/VetMiMi/vetmimi-api/internal/apperr"
 	"github.com/VetMiMi/vetmimi-api/internal/db"
-	"github.com/VetMiMi/vetmimi-api/internal/platform"
-	"github.com/VetMiMi/vetmimi-api/internal/platform/apperr"
+	"github.com/VetMiMi/vetmimi-api/internal/tokens"
 )
 
 // dummyPasswordHash is a random password, long forgotten, hashed with the
@@ -101,7 +101,7 @@ func (s *Sessions) checkAndStart(ctx context.Context, email string, c Credential
 // claim and RecordSignIn lock the user's row: of two sign-ins with one code,
 // the second waits, then finds the step taken.
 func (s *Sessions) start(ctx context.Context, u db.GetUserForSignInRow, twoStep bool, step int64) (SignedIn, error) {
-	token, err := platform.NewSessionToken()
+	token, err := tokens.NewSession()
 	if err != nil {
 		return SignedIn{}, err
 	}
@@ -135,7 +135,7 @@ func (s *Sessions) start(ctx context.Context, u db.GetUserForSignInRow, twoStep 
 		}
 		signedIn.Session.ID, err = q.CreateSession(ctx, db.CreateSessionParams{
 			UserID:    u.ID,
-			TokenHash: platform.HashToken(token),
+			TokenHash: tokens.Hash(token),
 			Now:       now,
 			ExpiresAt: signedIn.ExpiresAt,
 		})

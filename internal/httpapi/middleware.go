@@ -12,7 +12,7 @@ import (
 	"strings"
 	"time"
 
-	"github.com/VetMiMi/vetmimi-api/internal/platform/apperr"
+	"github.com/VetMiMi/vetmimi-api/internal/apperr"
 )
 
 type (

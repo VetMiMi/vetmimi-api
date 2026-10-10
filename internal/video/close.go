@@ -9,9 +9,9 @@ import (
 	"github.com/jackc/pgx/v5/pgtype"
 	"github.com/jackc/pgx/v5/pgxpool"
 
+	"github.com/VetMiMi/vetmimi-api/internal/clock"
 	"github.com/VetMiMi/vetmimi-api/internal/db"
-	"github.com/VetMiMi/vetmimi-api/internal/platform"
-	"github.com/VetMiMi/vetmimi-api/internal/platform/clock"
+	"github.com/VetMiMi/vetmimi-api/internal/queue"
 )
 
 // TaskCloseRoom ends a room when its window closes, and TaskSweepRooms ends
@@ -28,8 +28,8 @@ type closePayload struct {
 
 // closeTask runs at the room's close time. The id names that time, so a
 // moved room gets a new task beside the old one instead of colliding.
-func closeTask(r db.VideoRoom) platform.Task {
-	return platform.Task{
+func closeTask(r db.VideoRoom) queue.Task {
+	return queue.Task{
 		Type:      TaskCloseRoom,
 		Payload:   closePayload{RoomID: r.ID.String()},
 		ID:        fmt.Sprintf("room:%s:%d", r.ID.String(), r.ClosesAt.Unix()),
@@ -45,7 +45,7 @@ type Tasks struct {
 }
 
 // Register adds the video handlers to w.
-func (t *Tasks) Register(w *platform.Worker) {
+func (t *Tasks) Register(w *queue.Worker) {
 	w.Handle(TaskCloseRoom, t.closeRoom)
 	w.Handle(TaskSweepRooms, t.sweepRooms)
 	w.Every("@every 5m", TaskSweepRooms)
