@@ -3,6 +3,15 @@
 # another project in the account (AU-Van) already has one, import it instead
 # of creating a second (deploy/README.md).
 
+# The immutable subject prefixes, from
+# gh api repos/<owner>/<repo>/actions/oidc/customization/sub.
+locals {
+  github_subjects = {
+    vetmimi-api  = "VetMiMi@322521937/vetmimi-api@1405159702"
+    vetmimi-next = "VetMiMi@322521937/vetmimi-next@1377213269"
+  }
+}
+
 resource "aws_iam_openid_connect_provider" "github" {
   url            = "https://token.actions.githubusercontent.com"
   client_id_list = ["sts.amazonaws.com"]
@@ -10,7 +19,9 @@ resource "aws_iam_openid_connect_provider" "github" {
 
 # Only workflows running on main may push. The release jobs that push use no
 # GitHub environment, so the subject is the branch ref, never
-# :environment:production.
+# :environment:production. GitHub now issues immutable subjects that carry the
+# owner and repository ids (repo:Owner@id/name@id:...); the repositories here
+# use them, and the name-only form stays for any that do not.
 data "aws_iam_policy_document" "assume_github_release" {
   statement {
     actions = ["sts:AssumeRoleWithWebIdentity"]
@@ -29,7 +40,10 @@ data "aws_iam_policy_document" "assume_github_release" {
     condition {
       test     = "StringEquals"
       variable = "token.actions.githubusercontent.com:sub"
-      values   = [for repo in values(local.images) : "repo:${repo}:ref:refs/heads/main"]
+      values = concat(
+        [for repo in values(local.images) : "repo:${repo}:ref:refs/heads/main"],
+        [for subject in values(local.github_subjects) : "repo:${subject}:ref:refs/heads/main"],
+      )
     }
   }
 }
