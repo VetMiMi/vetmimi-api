@@ -12,25 +12,20 @@ import (
 	"github.com/VetMiMi/vetmimi-api/internal/tokens"
 )
 
-// dummyPasswordHash is a random password, long forgotten, hashed with the
-// production parameters. An unknown email is checked against it, so it costs
-// the same argon2 work as a known one and timing does not reveal which
-// emails have accounts.
+// dummyPasswordHash has the production parameters, so an unknown email costs
+// the same argon2 work as a known one and timing does not reveal which exist.
 const dummyPasswordHash = "$argon2id$v=19$m=65536,t=3,p=2$LXcBUkL8yDkGdP/u9T4YWA$oE4u/5HRqbHdj/1Brl5k1Eo2jRsAAOWowlpOqpT6lGM"
 
-// verifyPassword is VerifyPassword; tests replace it to see which hashes
-// sign-in checks.
+// verifyPassword is a variable so tests can see which hashes sign-in checks.
 var verifyPassword = VerifyPassword
 
-// Credentials are what an administrator types to sign in.
 type Credentials struct {
 	Email    string
 	Password string
 	Code     string
 }
 
-// SignedIn is a new session. Token is the only copy of the token; the
-// database keeps its hash.
+// SignedIn holds the only copy of the token; the database keeps its hash.
 type SignedIn struct {
 	Token     string
 	ExpiresAt time.Time
@@ -38,49 +33,40 @@ type SignedIn struct {
 }
 
 // SignIn checks the credentials and starts a session. A user without a TOTP
-// secret signs in with the password alone and any code sent is ignored; a
-// user with one needs a valid code as well (issue #143).
-//
-// First the lockout counts the attempt against the email's hourly limit and
-// refuses an email that is over it or locked out with rate_limited, whether
-// or not it has an account, before any password is hashed. Every refusal
-// after that (an unknown email, a wrong password, a wrong, replayed or
-// concurrently reused code, a disabled user) is the same invalid_credentials
-// error, runs the same password hash and code check, and counts as a failure
-// towards the lockout. A success leaves the failures to expire on their own,
-// so it does not tell an attacker which guess was right.
+// secret signs in with the password alone. Every refusal after the lockout
+// is the same invalid_credentials, costs the same work and counts as a failure.
 func (s *Sessions) SignIn(ctx context.Context, c Credentials) (SignedIn, error) {
 	email := NormalizeEmail(c.Email)
 	if err := s.lockout.admit(ctx, email); err != nil {
 		return SignedIn{}, err
 	}
 	signedIn, err := s.checkAndStart(ctx, email, c)
-	var refused *apperr.Error
-	if errors.As(err, &refused) && refused.Code == apperr.InvalidCredentials {
+	if isInvalidCredentials(err) {
 		if err := s.lockout.failed(ctx, email); err != nil {
 			return SignedIn{}, err
 		}
 	}
+	// A success leaves earlier failures to expire, so it does not reveal which guess was right.
 	return signedIn, err
 }
 
-// checkAndStart checks the credentials for email and starts a session.
 func (s *Sessions) checkAndStart(ctx context.Context, email string, c Credentials) (SignedIn, error) {
 	u, err := db.New(s.pool).GetUserForSignIn(ctx, email)
 	known := err == nil
-	if err != nil && !errors.Is(err, pgx.ErrNoRows) {
+	if !known && !errors.Is(err, pgx.ErrNoRows) {
 		return SignedIn{}, err
 	}
 	if !known {
-		u.PasswordHash, u.TotpSecretEnc = dummyPasswordHash, s.dummySecret
+		u.PasswordHash = dummyPasswordHash
 	}
 	twoStep := u.TotpSecretEnc != nil
 	sealed := u.TotpSecretEnc
 	if !twoStep {
-		// The same code check as everyone else, so the work done does not
-		// tell which accounts have TOTP; its answer is not used.
+		// Check a code anyway, so the work done does not reveal which accounts
+		// exist or have TOTP; the answer is not used.
 		sealed = s.dummySecret
 	}
+
 	passwordOK, err := verifyPassword(c.Password, u.PasswordHash)
 	if err != nil {
 		return SignedIn{}, err
@@ -95,11 +81,9 @@ func (s *Sessions) checkAndStart(ctx context.Context, email string, c Credential
 	return s.start(ctx, u, twoStep, step)
 }
 
-// start claims the code's step (for a twoStep user), records the sign-in and
-// inserts the session in one transaction, so a failed insert leaves the code
-// unused. The step
-// claim and RecordSignIn lock the user's row: of two sign-ins with one code,
-// the second waits, then finds the step taken.
+// start claims the code's step, records the sign-in and saves the session in
+// one transaction, so a failed save leaves the code unused. The claim locks
+// the user's row: of two sign-ins with one code, the second finds it taken.
 func (s *Sessions) start(ctx context.Context, u db.GetUserForSignInRow, twoStep bool, step int64) (SignedIn, error) {
 	token, err := tokens.NewSession()
 	if err != nil {
@@ -145,4 +129,11 @@ func (s *Sessions) start(ctx context.Context, u db.GetUserForSignInRow, twoStep 
 		return SignedIn{}, err
 	}
 	return signedIn, nil
+}
+
+func invalidCredentials() error { return apperr.New(apperr.InvalidCredentials, "") }
+
+func isInvalidCredentials(err error) bool {
+	var appErr *apperr.Error
+	return errors.As(err, &appErr) && appErr.Code == apperr.InvalidCredentials
 }

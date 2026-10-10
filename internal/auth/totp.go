@@ -14,13 +14,12 @@ import (
 	"github.com/pquerna/otp"
 	"github.com/pquerna/otp/totp"
 
-	"github.com/VetMiMi/vetmimi-api/internal/apperr"
 	"github.com/VetMiMi/vetmimi-api/internal/clock"
 	"github.com/VetMiMi/vetmimi-api/internal/db"
 )
 
-// TOTP settings every authenticator app understands: a 20-byte secret,
-// HMAC-SHA-1, six digits, a new code every 30 seconds.
+// Settings every authenticator app understands: a 20-byte secret, HMAC-SHA-1,
+// six digits, a new code every 30 seconds.
 const (
 	totpIssuer      = "VetMiMi"
 	totpPeriod      = 30
@@ -38,8 +37,7 @@ type TOTP struct {
 	now  clock.Now
 }
 
-// NewTOTP takes TOTP_ENCRYPTION_KEY (32 bytes) and the clock codes are
-// checked against.
+// NewTOTP takes TOTP_ENCRYPTION_KEY, which must be 32 bytes.
 func NewTOTP(key []byte, now clock.Now) (*TOTP, error) {
 	if len(key) != totpKeyBytes {
 		return nil, errors.New("auth: the TOTP encryption key must be 32 bytes")
@@ -62,7 +60,6 @@ type Enrolment struct {
 	URI    string
 }
 
-// NewEnrolment generates a secret for the account email.
 func NewEnrolment(email string) (Enrolment, error) {
 	key, err := totp.Generate(totp.GenerateOpts{
 		Issuer:      totpIssuer,
@@ -82,7 +79,7 @@ func NewEnrolment(email string) (Enrolment, error) {
 	return Enrolment{Secret: secret, URI: key.URL()}, nil
 }
 
-// Seal encrypts a secret with AES-256-GCM and prepends the random nonce.
+// Seal encrypts with AES-256-GCM and prepends the random nonce.
 func (t *TOTP) Seal(secret []byte) ([]byte, error) {
 	nonce := make([]byte, t.aead.NonceSize())
 	if _, err := rand.Read(nonce); err != nil {
@@ -91,8 +88,7 @@ func (t *TOTP) Seal(secret []byte) ([]byte, error) {
 	return t.aead.Seal(nonce, nonce, secret, nil), nil
 }
 
-// Open decrypts what Seal produced. It fails if the ciphertext was altered or
-// sealed under another key.
+// Open fails if sealed was altered or sealed under another key.
 func (t *TOTP) Open(sealed []byte) ([]byte, error) {
 	n := t.aead.NonceSize()
 	if len(sealed) < n {
@@ -101,8 +97,8 @@ func (t *TOTP) Open(sealed []byte) ([]byte, error) {
 	return t.aead.Open(nil, sealed[:n], sealed[n:], nil)
 }
 
-// Match reports the step whose code equals code: the current step, or the
-// one before or after it to allow for a phone's clock drifting.
+// Match returns the step whose code equals code: the current step, or the one
+// either side of it to allow for a phone's clock drifting.
 func (t *TOTP) Match(secret []byte, code string) (step int64, ok bool) {
 	current := t.now().Unix() / totpPeriod
 	for _, s := range []int64{current, current - 1, current + 1} {
@@ -119,9 +115,6 @@ func codeAt(secret []byte, step int64) string {
 	return code
 }
 
-// MatchSealed opens a sealed secret and reports the step whose code equals
-// code, as Match does. Sign-in calls it on every attempt, the failing ones
-// included, so a wrong password costs the same work as a wrong code.
 func (t *TOTP) MatchSealed(sealed []byte, code string) (step int64, ok bool, err error) {
 	secret, err := t.Open(sealed)
 	if err != nil {
@@ -131,10 +124,9 @@ func (t *TOTP) MatchSealed(sealed []byte, code string) (step int64, ok bool, err
 	return step, ok, nil
 }
 
-// ClaimTOTPStep accepts step for the user. Each step is accepted once: the
-// database claims it only if it is later than the last accepted step, so a
-// replayed or concurrently reused code is refused. A refusal is the same
-// invalid_credentials as a wrong password.
+// ClaimTOTPStep accepts step only if it is later than the user's last
+// accepted one, so a replayed or concurrently reused code is refused with
+// invalid_credentials.
 func ClaimTOTPStep(ctx context.Context, q db.Querier, userID pgtype.UUID, step int64) error {
 	claimed, err := q.ClaimTOTPStep(ctx, db.ClaimTOTPStepParams{ID: userID, Step: step})
 	if err != nil {
@@ -145,5 +137,3 @@ func ClaimTOTPStep(ctx context.Context, q db.Querier, userID pgtype.UUID, step i
 	}
 	return nil
 }
-
-func invalidCredentials() error { return apperr.New(apperr.InvalidCredentials, "") }

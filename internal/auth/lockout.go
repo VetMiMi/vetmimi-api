@@ -17,9 +17,8 @@ import (
 	"github.com/VetMiMi/vetmimi-api/internal/ratelimit"
 )
 
-// The per-email sign-in limits in docs/architecture.md: ten attempts an
-// hour, and ten failures inside 15 minutes lock the email until 15 minutes
-// after the tenth. The visitor-IP limit is the HTTP layer's.
+// Per email: ten attempts an hour, and ten failures inside 15 minutes lock
+// the email until 15 minutes after the tenth.
 const (
 	attemptsPerHour = 10
 	lockoutFailures = 10
@@ -27,42 +26,29 @@ const (
 	lockoutPeriod   = 15 * time.Minute
 )
 
-// lockoutTimeout bounds the Redis calls of one sign-in, as ratelimit.Limiter
-// bounds its own: a stopped Redis must cost a sign-in a short wait, not
+// lockoutTimeout makes a stopped Redis cost a sign-in a short wait, not
 // go-redis's whole retry schedule.
 const lockoutTimeout = 250 * time.Millisecond
 
-// errNoLockout stands for Redis when Sessions was built without a Lockout,
-// so it refuses every sign-in rather than allowing unlimited guesses.
 var errNoLockout = errors.New("no sign-in lockout")
 
-// Lockout limits sign-in attempts for each email, whether or not it has an
-// account, so its answers reveal nothing about which emails do. Its Redis
-// keys hold a hash of the lower-cased email, never the email, and expire on
-// their own. Times come from its clock, not Redis's, and are stored as
-// values, so a test can move past a window without waiting for it.
+// Lockout limits sign-in attempts per email, known or not, so its answers
+// reveal nothing. Its Redis keys hold a hash of the email and expire.
 type Lockout struct {
 	limiter *ratelimit.Limiter
 	rdb     *redis.Client
-	// prefix starts every key: "" in production, a test's own in tests, as
-	// for ratelimit.Limiter.
-	prefix string
-	now    clock.Now
+	prefix  string // starts every key; tests use their own
+	now     clock.Now
 }
 
-// NewLockout returns a Lockout keeping its counters in rdb under prefix and
-// reading the time from now.
 func NewLockout(rdb *redis.Client, prefix string, now clock.Now) *Lockout {
 	return &Lockout{limiter: ratelimit.New(rdb, prefix, now), rdb: rdb, prefix: prefix, now: now}
 }
 
-// EmailHashPrefix is the first 12 hex characters of the SHA-256 of the
-// lower-cased email: enough for a log line to tell one email's attempts from
-// another's, without the email.
+// EmailHashPrefix tells one email's attempts from another's in a log line,
+// without the email.
 func EmailHashPrefix(email string) string { return emailHash(email)[:12] }
 
-// emailHash keys an email's counters: the first 32 hex characters of its
-// SHA-256, as ratelimit.Limiter keys its subjects.
 func emailHash(email string) string {
 	sum := sha256.Sum256([]byte(NormalizeEmail(email)))
 	return hex.EncodeToString(sum[:16])
@@ -72,12 +58,9 @@ func (l *Lockout) key(kind, email string) string {
 	return fmt.Sprintf("%slockout:%s:%s", l.prefix, kind, emailHash(email))
 }
 
-// admit counts one attempt for email against its hourly limit, and refuses
-// it with rate_limited while the email is over that limit or locked out,
-// telling the client to wait until both have passed. It runs before any
-// password is hashed, so a refused attempt costs no argon2 work. If Redis
-// does not answer it refuses with unavailable: sign-in fails closed, as the
-// HTTP visitor-IP limit does.
+// admit counts one attempt and refuses it with rate_limited while the email
+// is over its hourly limit or locked out. It runs before any password is
+// hashed, and fails closed with unavailable when Redis does not answer.
 func (l *Lockout) admit(ctx context.Context, email string) error {
 	if l == nil {
 		return signInUnavailable(errNoLockout)
@@ -97,7 +80,7 @@ func (l *Lockout) admit(ctx context.Context, email string) error {
 	return nil
 }
 
-// lockedUntil is when email's lockout ends, or the zero time if it has none.
+// lockedUntil returns the zero time when email is not locked out.
 func (l *Lockout) lockedUntil(ctx context.Context, email string) (time.Time, error) {
 	ctx, cancel := context.WithTimeout(ctx, lockoutTimeout)
 	defer cancel()
@@ -111,11 +94,8 @@ func (l *Lockout) lockedUntil(ctx context.Context, email string) (time.Time, err
 	return time.UnixMilli(ms), nil
 }
 
-// failed records a refused sign-in for email and, when it is the
-// lockoutFailures-th inside failureWindow, locks the email for
-// lockoutPeriod. Failures that have left the window are dropped first, so
-// they never count. Each failure is a member of its own, so two at the same
-// instant are both counted.
+// failed records a refused sign-in and locks the email on the
+// lockoutFailures-th failure inside failureWindow.
 func (l *Lockout) failed(ctx context.Context, email string) error {
 	if l == nil {
 		return signInUnavailable(errNoLockout)
@@ -123,20 +103,11 @@ func (l *Lockout) failed(ctx context.Context, email string) error {
 	ctx, cancel := context.WithTimeout(ctx, lockoutTimeout)
 	defer cancel()
 	now := l.now()
-	key := l.key("failures", email)
-	var count *redis.IntCmd
-	// One transaction, so the set is never left without its expiry.
-	_, err := l.rdb.TxPipelined(ctx, func(p redis.Pipeliner) error {
-		p.ZRemRangeByScore(ctx, key, "-inf", strconv.FormatInt(now.Add(-failureWindow).UnixMilli(), 10))
-		p.ZAdd(ctx, key, redis.Z{Score: float64(now.UnixMilli()), Member: rand.Text()})
-		count = p.ZCard(ctx, key)
-		p.PExpire(ctx, key, failureWindow)
-		return nil
-	})
+	count, err := l.addFailure(ctx, email, now)
 	if err != nil {
 		return signInUnavailable(fmt.Errorf("sign-in lockout: %w", err))
 	}
-	if count.Val() < lockoutFailures {
+	if count < lockoutFailures {
 		return nil
 	}
 	until := now.Add(lockoutPeriod)
@@ -146,8 +117,26 @@ func (l *Lockout) failed(ctx context.Context, email string) error {
 	return nil
 }
 
-// signInUnavailable is the 503 the HTTP limit answers when Redis is down,
-// wrapping the cause so the error log names it.
+// addFailure returns the failures inside failureWindow, counting this one.
+func (l *Lockout) addFailure(ctx context.Context, email string, now time.Time) (int64, error) {
+	key := l.key("failures", email)
+	var count *redis.IntCmd
+	// One transaction, so the set is never left without its expiry.
+	_, err := l.rdb.TxPipelined(ctx, func(p redis.Pipeliner) error {
+		p.ZRemRangeByScore(ctx, key, "-inf", strconv.FormatInt(now.Add(-failureWindow).UnixMilli(), 10))
+		// A random member, so two failures at the same instant both count.
+		p.ZAdd(ctx, key, redis.Z{Score: float64(now.UnixMilli()), Member: rand.Text()})
+		count = p.ZCard(ctx, key)
+		p.PExpire(ctx, key, failureWindow)
+		return nil
+	})
+	if err != nil {
+		return 0, err
+	}
+	return count.Val(), nil
+}
+
+// signInUnavailable wraps the cause so the error log names it.
 func signInUnavailable(cause error) error {
 	return fmt.Errorf("%w: %w", apperr.New(apperr.Unavailable, "Sign-in is unavailable; try again shortly."), cause)
 }

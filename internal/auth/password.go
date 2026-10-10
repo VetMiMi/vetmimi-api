@@ -1,5 +1,3 @@
-// Package auth owns administrator accounts: password hashing, TOTP enrolment
-// and verification, sessions, and (as they arrive) roles.
 package auth
 
 import (
@@ -13,26 +11,24 @@ import (
 	"golang.org/x/crypto/argon2"
 )
 
-// The argon2id parameters from docs/architecture.md. 64 MiB per hash is the
-// most the 2 GB live host can spare during a sign-in.
+// 64 MiB per hash is the most the 2 GB live host can spare during a sign-in.
 const (
 	argonMemoryKiB = 64 * 1024
 	argonTime      = 3
 	argonThreads   = 2
 	argonSaltBytes = 16
 	argonKeyBytes  = 32
+	// argonMinKeyBytes refuses a stored key too short to mean anything: an
+	// empty key would match any password.
+	argonMinKeyBytes = 16
 )
-
-// argonMinKeyBytes refuses a stored hash too short to mean anything: an
-// empty key compares equal to any password's empty key.
-const argonMinKeyBytes = 16
 
 var errMalformedHash = errors.New("auth: malformed password hash")
 
 // b64 is the PHC string encoding: standard base64 without padding.
 var b64 = base64.RawStdEncoding
 
-// HashPassword returns password hashed with argon2id as a PHC string,
+// HashPassword returns an argon2id PHC string,
 // $argon2id$v=19$m=65536,t=3,p=2$<salt>$<key>.
 func HashPassword(password string) (string, error) {
 	salt := make([]byte, argonSaltBytes)
@@ -44,36 +40,48 @@ func HashPassword(password string) (string, error) {
 		argon2.Version, argonMemoryKiB, argonTime, argonThreads, b64.EncodeToString(salt), b64.EncodeToString(key)), nil
 }
 
-// VerifyPassword reports whether password matches the PHC string encoded. It
-// hashes with the parameters stored in encoded, not the current constants,
-// so raising them later does not lock anyone out. It returns an error only
-// when encoded cannot be read.
+// VerifyPassword hashes with the parameters stored in encoded, so raising the
+// constants later locks no one out. It errors only when encoded is unreadable.
 func VerifyPassword(password, encoded string) (bool, error) {
+	h, err := parseHash(encoded)
+	if err != nil {
+		return false, err
+	}
+	got := argon2.IDKey([]byte(password), h.salt, h.rounds, h.memory, h.threads, uint32(len(h.key)))
+	return subtle.ConstantTimeCompare(got, h.key) == 1, nil
+}
+
+type passwordHash struct {
+	memory, rounds uint32
+	threads        uint8
+	salt, key      []byte
+}
+
+func parseHash(encoded string) (passwordHash, error) {
+	var h passwordHash
 	parts := strings.Split(encoded, "$")
 	if len(parts) != 6 || parts[0] != "" || parts[1] != "argon2id" {
-		return false, errMalformedHash
+		return h, errMalformedHash
 	}
 	var version int
 	if _, err := fmt.Sscanf(parts[2], "v=%d", &version); err != nil || version != argon2.Version {
-		return false, errMalformedHash
+		return h, errMalformedHash
 	}
-	var memory, rounds uint32
-	var threads uint8
-	if _, err := fmt.Sscanf(parts[3], "m=%d,t=%d,p=%d", &memory, &rounds, &threads); err != nil {
-		return false, errMalformedHash
+	if _, err := fmt.Sscanf(parts[3], "m=%d,t=%d,p=%d", &h.memory, &h.rounds, &h.threads); err != nil {
+		return h, errMalformedHash
 	}
 	// argon2.IDKey panics on zero rounds or zero threads.
-	if rounds == 0 || threads == 0 {
-		return false, errMalformedHash
+	if h.rounds == 0 || h.threads == 0 {
+		return h, errMalformedHash
 	}
-	salt, err := b64.DecodeString(parts[4])
-	if err != nil || len(salt) == 0 {
-		return false, errMalformedHash
+	var err error
+	h.salt, err = b64.DecodeString(parts[4])
+	if err != nil || len(h.salt) == 0 {
+		return h, errMalformedHash
 	}
-	want, err := b64.DecodeString(parts[5])
-	if err != nil || len(want) < argonMinKeyBytes {
-		return false, errMalformedHash
+	h.key, err = b64.DecodeString(parts[5])
+	if err != nil || len(h.key) < argonMinKeyBytes {
+		return h, errMalformedHash
 	}
-	got := argon2.IDKey([]byte(password), salt, rounds, memory, threads, uint32(len(want)))
-	return subtle.ConstantTimeCompare(got, want) == 1, nil
+	return h, nil
 }

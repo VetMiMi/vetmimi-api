@@ -5,6 +5,7 @@ import (
 	"crypto/rand"
 	"encoding/hex"
 	"errors"
+	"os"
 	"testing"
 	"time"
 
@@ -19,14 +20,22 @@ import (
 	"github.com/VetMiMi/vetmimi-api/internal/tokens"
 )
 
-// testClock is a clock a test moves by hand.
+func TestMain(m *testing.M) { os.Exit(pgtest.Run(m)) }
+
+// uniqueEmail keeps tests apart: they share one database.
+func uniqueEmail(t *testing.T) string {
+	t.Helper()
+	b := make([]byte, 6)
+	_, err := rand.Read(b)
+	require.NoError(t, err)
+	return "user-" + hex.EncodeToString(b) + "@example.com"
+}
+
 type testClock struct{ at time.Time }
 
 func (c *testClock) now() time.Time { return c.at }
 
-// fixture is Sessions on the test database, with sign-in attempts counted in
-// REDIS_URL_TEST under a key prefix of its own, and codes, expiry and
-// lockouts read from one clock the test moves.
+// fixture reads codes, expiry and lockouts from one clock the test moves.
 type fixture struct {
 	clock    *testClock
 	codes    *auth.TOTP
@@ -70,7 +79,6 @@ func (f *fixture) newAdmin(t *testing.T) admin {
 	return a
 }
 
-// newPasswordOnlyAdmin is an admin without a TOTP secret (issue #143).
 func (f *fixture) newPasswordOnlyAdmin(t *testing.T) admin {
 	t.Helper()
 	a := admin{email: uniqueEmail(t)}
@@ -361,4 +369,14 @@ func sessionCount(t *testing.T, userID pgtype.UUID) int {
 	err := pgtest.Pool(t).QueryRow(context.Background(), "SELECT count(*) FROM sessions WHERE user_id = $1", userID).Scan(&n)
 	require.NoError(t, err)
 	return n
+}
+
+func TestSessionTravelsInTheContext(t *testing.T) {
+	_, ok := auth.FromContext(context.Background())
+	require.False(t, ok)
+
+	s := auth.Session{User: auth.User{Email: "mi@example.com", Roles: []string{"booking_admin"}}}
+	got, ok := auth.FromContext(auth.WithSession(context.Background(), s))
+	require.True(t, ok)
+	require.Equal(t, s, got)
 }

@@ -1,3 +1,6 @@
+// Package auth signs administrators in and checks their requests. SignIn
+// checks the password (argon2id) and, when enrolled, a TOTP code, then starts
+// a session; Authenticate turns a session token back into the signed-in user.
 package auth
 
 import (
@@ -15,50 +18,39 @@ import (
 	"github.com/VetMiMi/vetmimi-api/internal/tokens"
 )
 
-// Session lifetimes from ADR-002 and docs/architecture.md: a session ends
-// after twelve idle hours or seven days in all, whichever comes first.
+// A session ends after SessionIdle without a request or SessionLifetime in
+// all, whichever comes first.
 const (
 	SessionIdle     = 12 * time.Hour
 	SessionLifetime = 7 * 24 * time.Hour
-	// lastSeenGrain is how stale last_seen_at may be before a request
-	// refreshes it, so a busy admin page writes once a minute, not on every
-	// request. It is far below SessionIdle, so the idle expiry moves by a
-	// minute at most.
+	// lastSeenGrain spares a busy admin page a write on every request.
 	lastSeenGrain = time.Minute
 )
 
-// User is the signed-in administrator.
 type User struct {
 	ID           pgtype.UUID
 	Email        string
 	DisplayName  string
 	Roles        []string
 	Practitioner bool
-	// TwoStep is whether the user signs in with a TOTP code as well as the
-	// password.
-	TwoStep bool
+	TwoStep      bool // signs in with a TOTP code as well as the password
 }
 
-// Session is the live session a request authenticated with.
 type Session struct {
 	ID   pgtype.UUID
 	User User
 }
 
-// Sessions signs administrators in and out and authenticates their requests.
 type Sessions struct {
 	pool    *pgxpool.Pool
 	codes   *TOTP
 	lockout *Lockout
 	now     clock.Now
-	// dummySecret is a sealed TOTP secret no user has. Sign-in checks the code
-	// of an unknown email against it, so every attempt does the same work.
+	// dummySecret is a sealed TOTP secret no user has, checked when the user has none.
 	dummySecret []byte
 }
 
-// NewSessions returns Sessions backed by pool, checking codes with codes,
-// limiting sign-in attempts with lockout and reading the time from now. A
-// nil lockout refuses every sign-in, as if Redis were down.
+// NewSessions takes a nil lockout to refuse every sign-in, as if Redis were down.
 func NewSessions(pool *pgxpool.Pool, codes *TOTP, lockout *Lockout, now clock.Now) (*Sessions, error) {
 	dummy, err := codes.Seal(make([]byte, totpSecretBytes))
 	if err != nil {
@@ -67,11 +59,8 @@ func NewSessions(pool *pgxpool.Pool, codes *TOTP, lockout *Lockout, now clock.No
 	return &Sessions{pool: pool, codes: codes, lockout: lockout, now: now, dummySecret: dummy}, nil
 }
 
-// Authenticate returns the live session token names. A token that is
-// malformed, unknown, idle for SessionIdle, past its absolute expiry or
-// belonging to a disabled user is refused with the same unauthenticated
-// error, so a caller learns nothing about which. A live session's
-// last_seen_at moves to now when it is more than lastSeenGrain old.
+// Authenticate returns the live session token names. Every refusal is the
+// same unauthenticated error, so a caller learns nothing about why.
 func (s *Sessions) Authenticate(ctx context.Context, token string) (Session, error) {
 	if !tokens.IsSession(token) {
 		return Session{}, unauthenticated()
@@ -84,14 +73,10 @@ func (s *Sessions) Authenticate(ctx context.Context, token string) (Session, err
 	if err != nil {
 		return Session{}, err
 	}
+
 	now := s.now()
-	if !now.Before(row.ExpiresAt) {
-		return Session{}, unauthenticated()
-	}
-	if !now.Before(row.LastSeenAt.Add(SessionIdle)) {
-		return Session{}, unauthenticated()
-	}
-	if row.DisabledAt.Valid {
+	expired := !now.Before(row.ExpiresAt) || !now.Before(row.LastSeenAt.Add(SessionIdle))
+	if expired || row.DisabledAt.Valid {
 		return Session{}, unauthenticated()
 	}
 	if now.Sub(row.LastSeenAt) > lastSeenGrain {
@@ -109,14 +94,12 @@ func (s *Sessions) Authenticate(ctx context.Context, token string) (Session, err
 	}}, nil
 }
 
-// SignOut deletes the session, so its token stops working at once.
 func (s *Sessions) SignOut(ctx context.Context, id pgtype.UUID) error {
 	return db.New(s.pool).DeleteSession(ctx, id)
 }
 
-// DeleteExpiredSessions deletes every session past either expiry at now and
-// reports how many. Authenticate already refuses them; this only keeps the
-// table small.
+// DeleteExpiredSessions only keeps the table small; Authenticate already
+// refuses expired sessions.
 func DeleteExpiredSessions(ctx context.Context, q db.Querier, now time.Time) (int64, error) {
 	return q.DeleteExpiredSessions(ctx, db.DeleteExpiredSessionsParams{
 		Now:        now,
@@ -126,4 +109,17 @@ func DeleteExpiredSessions(ctx context.Context, q db.Querier, now time.Time) (in
 
 func unauthenticated() error {
 	return apperr.New(apperr.Unauthenticated, "A valid session is required.")
+}
+
+type sessionKey struct{}
+
+func WithSession(ctx context.Context, s Session) context.Context {
+	return context.WithValue(ctx, sessionKey{}, s)
+}
+
+// FromContext returns the session the HTTP layer authenticated, whose route
+// roles it has already checked; domain code uses it for finer rules.
+func FromContext(ctx context.Context) (Session, bool) {
+	s, ok := ctx.Value(sessionKey{}).(Session)
+	return s, ok
 }

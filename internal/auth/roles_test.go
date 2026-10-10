@@ -1,7 +1,6 @@
 package auth_test
 
 import (
-	"context"
 	"testing"
 
 	"github.com/stretchr/testify/require"
@@ -37,14 +36,4 @@ func TestNoRolesOrUnknownRolesGrantNothing(t *testing.T) {
 			require.False(t, auth.HasRole(roles, r), "%q as %s", roles, r)
 		}
 	}
-}
-
-func TestSessionTravelsInTheContext(t *testing.T) {
-	_, ok := auth.FromContext(context.Background())
-	require.False(t, ok)
-
-	s := auth.Session{User: auth.User{Email: "mi@example.com", Roles: []string{"booking_admin"}}}
-	got, ok := auth.FromContext(auth.WithSession(context.Background(), s))
-	require.True(t, ok)
-	require.Equal(t, s, got)
 }
