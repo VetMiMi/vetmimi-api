@@ -11,58 +11,46 @@ import (
 	"github.com/VetMiMi/vetmimi-api/internal/video"
 )
 
-// RenderData is everything a template may show. It is a struct, not a map,
-// so a template cannot reach a field nobody chose to give it: admin notes,
-// reasons and ids have no field here, except AdminURL, which only the
-// practitioner kinds use.
+// RenderData is a struct, not a map, so templates see only chosen fields.
 type RenderData struct {
 	Reference       string
 	ServiceName     string
-	Start, End      string // in the practice timezone, with AEST or AEDT
-	PreviousStart   string // rescheduled only
+	Start, End      string
+	PreviousStart   string
 	DurationMinutes int
-	Format          string // online or in_person
-	Status          string // the appointment's status, for Daw Mi
+	Format          string
+	Status          string
 	FeeText         string
 	PreparationText string
-	PaymentMethods  []string // bank_transfer, card
-	InvoiceTiming   string   // after_session
+	PaymentMethods  []string
+	InvoiceTiming   string
 	Policy          Policy
 	ContactEmail    string
 	ResponseTime    string
 	BookURL         string
 
-	// ManageURL is the visitor's management link and JoinURL the VetMiMi room
-	// link, both derived at send time. MeetingLink is the link Daw Mi set in
-	// manual_link mode. JoinOpensMinutesBefore is when the room's page opens.
 	ManageURL              string
 	JoinURL                string
 	MeetingLink            string
 	JoinOpensMinutesBefore int
-	// MessageToVisitor is Daw Mi's own words on a decline or cancellation.
-	MessageToVisitor string
-	// LateCancellation is set when the visitor cancelled inside the notice
-	// period.
-	LateCancellation bool
+	MessageToVisitor       string
+	LateCancellation       bool
 
-	// For Daw Mi only.
-	VisitorName  string
-	VisitorEmail string
-	VisitorPhone string
-	VisitorNote  string
-	AdminURL     string
-	// ClientMessage is the visitor's own words with a cancellation or a
-	// reschedule request; PreferredTimes the starts they offered, formatted.
+	// Daw Mi's emails only.
+	VisitorName    string
+	VisitorEmail   string
+	VisitorPhone   string
+	VisitorNote    string
+	AdminURL       string
 	ClientMessage  string
 	PreferredTimes []string
-	// practitioner_new_enquiry only.
+
 	EnquirySubject      string
 	EnquiryMessage      string
 	EnquiryOrganisation string
 	EnquiryType         string
 }
 
-// Policy is the late cancellation and no-show terms from settings.
 type Policy struct {
 	NoticeHours      int
 	LateFeePercent   int
@@ -70,8 +58,7 @@ type Policy struct {
 	NoShowFeePercent int
 }
 
-// DataFor assembles what the templates show about appt in locale. previous
-// is where a reschedule moved it from, or zero.
+// DataFor's previous is the start before a reschedule, or zero.
 func DataFor(appt db.GetAppointmentForMessageRow, s settings.Settings, siteURL, locale string, previous time.Time) (RenderData, error) {
 	loc, err := time.LoadLocation(appt.Timezone)
 	if err != nil {
@@ -115,7 +102,6 @@ func DataFor(appt db.GetAppointmentForMessageRow, s settings.Settings, siteURL, 
 	return d, nil
 }
 
-// sitePath is a page of the public site in locale; English has no prefix.
 func sitePath(siteURL, locale, path string) string {
 	base := strings.TrimRight(siteURL, "/")
 	if locale != "en" {
@@ -145,9 +131,7 @@ var (
 		"ဇူလိုင်လ", "ဩဂုတ်လ", "စက်တင်ဘာလ", "အောက်တိုဘာလ", "နိုဝင်ဘာလ", "ဒီဇင်ဘာလ"}
 )
 
-// FormatTime writes t as the site's booking pages do (vetmimi-next
-// messages/*/book.json, "calendar"), in loc, ending with the zone
-// abbreviation the date has there, AEST or AEDT. Burmese keeps Western digits.
+// FormatTime matches the site's booking pages, ending in AEST or AEDT.
 func FormatTime(t time.Time, loc *time.Location, locale string) string {
 	t = t.In(loc)
 	if locale != "my" {

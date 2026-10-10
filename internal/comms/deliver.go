@@ -22,29 +22,27 @@ import (
 	"github.com/VetMiMi/vetmimi-api/internal/video"
 )
 
-// maxAttempts bounds the sends of one row (ADR-006: retries with backoff up
-// to 5 times, then failed). The row counts them, so the limit holds whatever
-// asynq's own retry count is.
 const maxAttempts = 5
+
+const (
+	SkipNotConfirmed   = "not_confirmed"
+	SkipAlreadyStarted = "already_started"
+	SkipSuperseded     = "superseded"
+)
 
 var emailsFailed = expvar.NewInt("emails_failed")
 
-// Tasks runs the comms task handlers in the worker.
 type Tasks struct {
-	Pool  *pgxpool.Pool
-	Queue *platform.Queue
-	// Resend is nil in development, where a send is logged, not made.
-	Resend  *resend.Client
-	From    string
-	SiteURL string
-	// SigningSecret derives the management and join links in a visitor's
-	// email.
+	Pool          *pgxpool.Pool
+	Queue         *platform.Queue
+	Resend        *resend.Client // nil in development: sends are only logged
+	From          string
+	SiteURL       string
 	SigningSecret []byte
 	Log           *slog.Logger
 	Now           clock.Now
 }
 
-// Register adds the comms handlers and the sweep schedule to w.
 func (t *Tasks) Register(w *platform.Worker) {
 	w.Handle(TaskDeliver, t.Deliver)
 	w.Handle(TaskSweep, t.Sweep)
@@ -52,18 +50,11 @@ func (t *Tasks) Register(w *platform.Worker) {
 	w.Every("@every 5m", TaskSweep)
 }
 
-// Deliver sends one queued communication. It holds the row's lock while it
-// sends, so a second worker given the same task skips it, and passes the row
-// id to Resend as the idempotency key, so a retry after a lost reply never
-// sends twice. It returns an error only when the send should be retried.
+// Deliver returns an error only when asynq should retry.
 func (t *Tasks) Deliver(ctx context.Context, payload []byte) error {
-	var p deliverPayload
-	if err := json.Unmarshal(payload, &p); err != nil {
-		return fmt.Errorf("comms: deliver payload: %w", err)
-	}
-	var id pgtype.UUID
-	if err := id.Scan(p.CommunicationID); err != nil {
-		return fmt.Errorf("comms: deliver payload: %w", err)
+	id, err := parseDeliverPayload(payload)
+	if err != nil {
+		return err
 	}
 
 	tx, err := t.Pool.Begin(ctx)
@@ -73,16 +64,16 @@ func (t *Tasks) Deliver(ctx context.Context, payload []byte) error {
 	defer func() { _ = tx.Rollback(ctx) }()
 	q := db.New(tx)
 
+	// The row stays locked until commit, so a second worker skips it.
 	row, err := q.LockCommunication(ctx, id)
 	if errors.Is(err, pgx.ErrNoRows) {
-		return nil // deleted, or another worker holds it
+		return nil
 	}
 	if err != nil {
 		return err
 	}
 	now := t.Now()
-	// A reminder moved later still has its old task; the task for the new
-	// time, or the sweep, sends it.
+	// A reminder moved later still has a task at its old time; the newer task sends it.
 	if Status(row.Status) != StatusQueued || row.ScheduledFor.After(now) {
 		return nil
 	}
@@ -92,12 +83,7 @@ func (t *Tasks) Deliver(ctx context.Context, payload []byte) error {
 		return err
 	}
 	if skip != "" {
-		if _, err := setStatus(ctx, q, row, StatusCancelled, skip); err != nil {
-			return err
-		}
-		t.Log.InfoContext(ctx, "communication skipped", "kind", row.Kind,
-			"communication_id", row.ID.String(), "skip", skip)
-		return tx.Commit(ctx)
+		return t.recordSkipped(ctx, tx, row, skip)
 	}
 
 	providerID, sendErr := t.send(ctx, row, email)
@@ -105,9 +91,34 @@ func (t *Tasks) Deliver(ctx context.Context, payload []byte) error {
 	if sendErr != nil {
 		return t.recordFailure(ctx, tx, row, sendErr)
 	}
+	return t.recordSent(ctx, tx, row, providerID, now)
+}
+
+func parseDeliverPayload(payload []byte) (pgtype.UUID, error) {
+	var p deliverPayload
+	var id pgtype.UUID
+	if err := json.Unmarshal(payload, &p); err != nil {
+		return id, fmt.Errorf("comms: deliver payload: %w", err)
+	}
+	if err := id.Scan(p.CommunicationID); err != nil {
+		return id, fmt.Errorf("comms: deliver payload: %w", err)
+	}
+	return id, nil
+}
+
+func (t *Tasks) recordSkipped(ctx context.Context, tx pgx.Tx, row db.Communication, skip string) error {
+	if err := setStatus(ctx, db.New(tx), row, StatusCancelled, skip); err != nil {
+		return err
+	}
+	t.Log.InfoContext(ctx, "communication skipped", "kind", row.Kind,
+		"communication_id", row.ID.String(), "skip", skip)
+	return tx.Commit(ctx)
+}
+
+func (t *Tasks) recordSent(ctx context.Context, tx pgx.Tx, row db.Communication, providerID string, now time.Time) error {
 	row.SentAt = sql.NullTime{Time: now, Valid: true}
 	row.ProviderMessageID = pgtype.Text{String: providerID, Valid: true}
-	if _, err := setStatus(ctx, q, row, StatusSent, ""); err != nil {
+	if err := setStatus(ctx, db.New(tx), row, StatusSent, ""); err != nil {
 		return err
 	}
 	if err := tx.Commit(ctx); err != nil {
@@ -117,8 +128,6 @@ func (t *Tasks) Deliver(ctx context.Context, payload []byte) error {
 	return nil
 }
 
-// recordFailure keeps the row queued for asynq to retry, or, on the last
-// attempt, marks it failed for the admin's "Attention required".
 func (t *Tasks) recordFailure(ctx context.Context, tx pgx.Tx, row db.Communication, sendErr error) error {
 	code := errorCode(sendErr)
 	q := db.New(tx)
@@ -134,7 +143,7 @@ func (t *Tasks) recordFailure(ctx context.Context, tx pgx.Tx, row db.Communicati
 		}
 		return fmt.Errorf("comms: send failed: %s", code)
 	}
-	if _, err := setStatus(ctx, q, row, StatusFailed, code); err != nil {
+	if err := setStatus(ctx, q, row, StatusFailed, code); err != nil {
 		return err
 	}
 	if err := tx.Commit(ctx); err != nil {
@@ -146,7 +155,7 @@ func (t *Tasks) recordFailure(ctx context.Context, tx pgx.Tx, row db.Communicati
 	return nil
 }
 
-// compose renders row, or names why it must not be sent.
+// compose renders row, or returns a skip reason when it must not be sent.
 func (t *Tasks) compose(ctx context.Context, q *db.Queries, row db.Communication, now time.Time) (Email, string, error) {
 	s, err := settings.Load(ctx, q)
 	if err != nil {
@@ -163,12 +172,13 @@ func (t *Tasks) compose(ctx context.Context, q *db.Queries, row db.Communication
 		return Email{}, skip, err
 	}
 	email, err := Render(Kind(row.Kind), row.Locale, data)
+	if err != nil {
+		return Email{}, "", err
+	}
 	email.ReplyTo = s.ContactEmail
-	return email, "", err
+	return email, "", nil
 }
 
-// appointmentData is what row's template shows about its appointment. Only
-// visitor messages carry the management link.
 func (t *Tasks) appointmentData(ctx context.Context, q *db.Queries, row db.Communication, s settings.Settings,
 	now time.Time) (RenderData, string, error) {
 	appt, err := q.GetAppointmentForMessage(ctx, row.AppointmentID)
@@ -181,6 +191,7 @@ func (t *Tasks) appointmentData(ctx context.Context, q *db.Queries, row db.Commu
 			return RenderData{}, skip, nil
 		}
 	}
+
 	var previous time.Time
 	if kind == Rescheduled {
 		r, err := q.PreviousRangeOf(ctx, row.AppointmentID)
@@ -193,6 +204,7 @@ func (t *Tasks) appointmentData(ctx context.Context, q *db.Queries, row db.Commu
 	if err != nil {
 		return RenderData{}, "", err
 	}
+
 	if kind.Audience() == Practitioner {
 		data.ClientMessage = row.Message.String
 	} else {
@@ -204,23 +216,38 @@ func (t *Tasks) appointmentData(ctx context.Context, q *db.Queries, row db.Commu
 		}
 	}
 	if kind == PractitionerRescheduleRequested {
-		data.PreferredTimes, err = preferredTimes(ctx, q, appt, row.Locale)
+		if data.PreferredTimes, err = preferredTimes(ctx, q, appt, row.Locale); err != nil {
+			return RenderData{}, "", err
+		}
 	}
-	return data, "", err
+	return data, "", nil
 }
 
-// joinURL is the join link of the appointment's VetMiMi room, derived from
-// its seed now and never stored, or empty when it has no room.
+// reminderSkip returns "" when the reminder may be sent.
+func reminderSkip(appt db.GetAppointmentForMessageRow, reminderHours int, scheduledFor, now time.Time) string {
+	switch {
+	case appt.Status != "confirmed":
+		return SkipNotConfirmed
+	case !appt.StartsAt.After(now):
+		return SkipAlreadyStarted
+	case !appt.StartsAt.Add(-time.Duration(reminderHours) * time.Hour).Equal(scheduledFor):
+		return SkipSuperseded
+	}
+	return ""
+}
+
 func (t *Tasks) joinURL(ctx context.Context, q *db.Queries, appointmentID pgtype.UUID, locale string) (string, error) {
 	room, ok, err := video.RoomOf(ctx, q, appointmentID)
-	if !ok || err != nil {
+	if err != nil {
 		return "", err
 	}
-	return sitePath(t.SiteURL, locale, "/session/"+platform.NewJoinToken(t.SigningSecret, room.JoinTokenSeed)), nil
+	if !ok {
+		return "", nil
+	}
+	token := platform.NewJoinToken(t.SigningSecret, room.JoinTokenSeed)
+	return sitePath(t.SiteURL, locale, "/session/"+token), nil
 }
 
-// preferredTimes are the starts the visitor offered in their newest
-// reschedule request, in the practice timezone.
 func preferredTimes(ctx context.Context, q *db.Queries, appt db.GetAppointmentForMessageRow, locale string) ([]string, error) {
 	raw, err := q.LatestRescheduleRequest(ctx, appt.ID)
 	if errors.Is(err, pgx.ErrNoRows) {

@@ -61,8 +61,7 @@ func fixture(t *testing.T, locale string) comms.RenderData {
 	return d
 }
 
-// Every kind renders in every locale and matches its reviewed golden file;
-// go test ./internal/comms -update rewrites them after a wording change.
+// go test ./internal/comms -update rewrites the golden files.
 func TestRender_Golden(t *testing.T) {
 	uuid := regexp.MustCompile(`[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}`)
 	for _, kind := range comms.Kinds {
@@ -137,8 +136,7 @@ func TestTemplates_AllKindsPresent(t *testing.T) {
 	require.ErrorContains(t, err, "reminder.my")
 }
 
-// Clocks go back at 03:00 AEDT on 5 April 2026; the zone name follows the
-// instant, never a fixed offset.
+// Clocks go back at 03:00 AEDT on 5 April 2026.
 func TestFormatTime_FollowsDaylightSaving(t *testing.T) {
 	before := time.Date(2026, 4, 4, 15, 30, 0, 0, time.UTC) // 02:30 AEDT
 	after := before.Add(2 * time.Hour)                      // 03:30 AEST
@@ -147,9 +145,6 @@ func TestFormatTime_FollowsDaylightSaving(t *testing.T) {
 	require.Equal(t, "တနင်္ဂနွေနေ့၊ 2026 ဧပြီလ 5 ရက်၊ နံနက် 3:30 AEST", comms.FormatTime(after, sydney, "my"))
 }
 
-// The join block follows the format and the link mode (ADR-007): the room
-// link with when it opens, Daw Mi's own link, a promise of details, or
-// nothing in person.
 func TestRender_JoinBlock(t *testing.T) {
 	for name, c := range map[string]struct {
 		edit       func(*comms.RenderData)

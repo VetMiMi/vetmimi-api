@@ -15,8 +15,6 @@ import (
 	"github.com/VetMiMi/vetmimi-api/internal/video"
 )
 
-// The worker derives the join link from the room's seed at send time; the
-// link in the email opens that room, and no log line carries it.
 func TestDeliver_JoinLinkOpensTheRoom(t *testing.T) {
 	ctx := context.Background()
 	secret := []byte("test-signing-secret-of-32-bytes!")
