@@ -424,7 +424,7 @@ values for secrets.
 | `MEDIA_S3_ENDPOINT` | S3-compatible endpoint. |
 | `MEDIA_S3_REGION` | Region name the provider expects. |
 | `MEDIA_S3_BUCKET` | Bucket for originals and derivatives. |
-| `MEDIA_S3_ACCESS_KEY`, `MEDIA_S3_SECRET_KEY` | Bucket keys; set together. Empty on the live host, where the EC2 instance role grants the bucket (`deploy/terraform/live/`). |
+| `MEDIA_S3_ACCESS_KEY`, `MEDIA_S3_SECRET_KEY` | Bucket keys; set together. Empty on AWS, where the EC2 instance role (`deploy/terraform/live/`) or the ECS task role (`deploy/terraform/demo/`, found through `AWS_CONTAINER_CREDENTIALS_RELATIVE_URI`) grants the bucket. |
 | `MEDIA_PUBLIC_URL` | Base URL the bucket's `public/` prefix is served from. |
 | `TURN_HOST` | coturn `host:port`. Empty in development: room tickets offer STUN only. |
 | `TURN_SECRET` | coturn `static-auth-secret` for time-limited credentials. |

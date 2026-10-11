@@ -44,10 +44,12 @@ type Config struct {
 	MediaS3Endpoint string
 	MediaS3Region   string
 	MediaS3Bucket   string
-	// Empty on the live host, where the EC2 instance role grants the bucket.
+	// Empty on AWS, where the instance or task role grants the bucket.
 	MediaS3AccessKey string
 	MediaS3SecretKey string
 	MediaPublicURL   string
+	// Set by ECS on Fargate, which has a task role instead of an instance role.
+	ContainerCredentialsURI string
 
 	TURNHost   string
 	TURNSecret string
@@ -104,12 +106,13 @@ func Load(getenv func(string) string) (Config, error) {
 		ResendAPIKey: l.requiredInProduction("RESEND_API_KEY"),
 		EmailFrom:    l.requiredInProduction("EMAIL_FROM"),
 
-		MediaS3Endpoint:  l.requiredInProduction("MEDIA_S3_ENDPOINT"),
-		MediaS3Region:    l.withDefault("MEDIA_S3_REGION", "auto"),
-		MediaS3Bucket:    l.requiredInProduction("MEDIA_S3_BUCKET"),
-		MediaS3AccessKey: l.optional("MEDIA_S3_ACCESS_KEY"),
-		MediaS3SecretKey: l.optional("MEDIA_S3_SECRET_KEY"),
-		MediaPublicURL:   l.requiredInProduction("MEDIA_PUBLIC_URL"),
+		MediaS3Endpoint:         l.requiredInProduction("MEDIA_S3_ENDPOINT"),
+		MediaS3Region:           l.withDefault("MEDIA_S3_REGION", "auto"),
+		MediaS3Bucket:           l.requiredInProduction("MEDIA_S3_BUCKET"),
+		MediaS3AccessKey:        l.optional("MEDIA_S3_ACCESS_KEY"),
+		MediaS3SecretKey:        l.optional("MEDIA_S3_SECRET_KEY"),
+		ContainerCredentialsURI: l.optional("AWS_CONTAINER_CREDENTIALS_RELATIVE_URI"),
+		MediaPublicURL:          l.requiredInProduction("MEDIA_PUBLIC_URL"),
 
 		TURNHost:   l.requiredInProduction("TURN_HOST"),
 		TURNSecret: l.requiredInProduction("TURN_SECRET"),
