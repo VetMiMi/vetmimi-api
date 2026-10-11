@@ -1,0 +1,88 @@
+## ECS tasks
+------------------------------------------------------------------------
+|                             DescribeTasks                            |
++-------------+-------------------+----------+----------+------+-------+
+|  service:api|  ap-southeast-2a  |  RUNNING |  UNKNOWN |  256 |  512  |
+|  service:api|  ap-southeast-2b  |  RUNNING |  UNKNOWN |  256 |  512  |
++-------------+-------------------+----------+----------+------+-------+
+---------------------------------------------------------------------------
+|                              DescribeTasks                              |
++----------------+-------------------+----------+----------+------+-------+
+|  service:worker|  ap-southeast-2a  |  RUNNING |  UNKNOWN |  256 |  512  |
++----------------+-------------------+----------+----------+------+-------+
+------------------------------------------------------------------------
+|                             DescribeTasks                            |
++-------------+-------------------+----------+----------+------+-------+
+|  service:web|  ap-southeast-2a  |  RUNNING |  UNKNOWN |  256 |  512  |
+|  service:web|  ap-southeast-2b  |  RUNNING |  UNKNOWN |  256 |  512  |
++-------------+-------------------+----------+----------+------+-------+
+## Target health
+api
+--------------------------------
+|     DescribeTargetHealth     |
++------------------+-----------+
+|  ap-southeast-2a |  healthy  |
+|  ap-southeast-2b |  healthy  |
++------------------+-----------+
+web
+--------------------------------
+|     DescribeTargetHealth     |
++------------------+-----------+
+|  ap-southeast-2a |  healthy  |
+|  ap-southeast-2b |  healthy  |
++------------------+-----------+
+## RDS
+----------------------------------
+|       DescribeDBInstances      |
++------------+-------------------+
+|  Class     |  db.t4g.micro     |
+|  Encrypted |  True             |
+|  Engine    |  17.9             |
+|  MultiAZ   |  True             |
+|  Primary   |  ap-southeast-2b  |
+|  Secondary |  ap-southeast-2a  |
+|  Status    |  available        |
++------------+-------------------+
+## Autoscaling
+---------------------------------------------------------------------
+|                      DescribeScalingPolicies                      |
++-----------------------+-------+-----------------------------------+
+|  vetmimi-demo-api-cpu |  60.0 |  ECSServiceAverageCPUUtilization  |
++-----------------------+-------+-----------------------------------+
+----------------------------------------
+|        DescribeScalableTargets       |
++---------------------------+----+-----+
+|  service/vetmimi-demo/api |  2 |  4  |
++---------------------------+----+-----+
+## Alarms
+--------------------------------------------
+|              DescribeAlarms              |
++------------------------------------+-----+
+|  vetmimi-demo-api-5xx              |  OK |
+|  vetmimi-demo-api-unhealthy-hosts  |  OK |
+|  vetmimi-demo-db-free-storage      |  OK |
+|  vetmimi-demo-web-5xx              |  OK |
+|  vetmimi-demo-web-unhealthy-hosts  |  OK |
++------------------------------------+-----+
+## HTTPS via CloudFront
+api  /readyz      HTTP/2 200 application/json
+web  /            HTTP/2 200 text/html; charset=utf-8
+web  /api/health  HTTP/2 200 application/json
+## Rolling deploy under load
+requests:  201
+by status:
+ 201 200
+window:    06:08:56 -> 06:11:37 UTC
+## ECS service events (api)
+2026-10-11T13:11:38.279000+07:00	(service api) has reached a steady state.
+2026-10-11T13:11:38.278000+07:00	(service api) (deployment ecs-svc/7228104314296347397) deployment completed.
+2026-10-11T13:10:44.374000+07:00	(service api, taskSet ecs-svc/6168321312651563206) has begun draining connections on 1 tasks.
+2026-10-11T13:10:44.369000+07:00	(service api) deregistered 1 targets in (target-group arn:aws:elasticloadbalancing:ap-southeast-2:<account>:targetgroup/vetmimi-demo-api/fb1da49e0f3f5d3b)
+2026-10-11T13:10:34.462000+07:00	(service api) has stopped 1 running tasks: (task 5a1d204ea89c4dbb920c15f65d2f12f0).
+2026-10-11T13:10:23.113000+07:00	(service api, taskSet ecs-svc/6168321312651563206) has begun draining connections on 1 tasks.
+2026-10-11T13:10:23.109000+07:00	(service api) deregistered 1 targets in (target-group arn:aws:elasticloadbalancing:ap-southeast-2:<account>:targetgroup/vetmimi-demo-api/fb1da49e0f3f5d3b)
+2026-10-11T13:10:14.086000+07:00	(service api) has stopped 1 running tasks: (task 043b9ff3d6244d66b356500f09744bd7).
+2026-10-11T13:09:52.342000+07:00	(service api) registered 1 targets in (target-group arn:aws:elasticloadbalancing:ap-southeast-2:<account>:targetgroup/vetmimi-demo-api/fb1da49e0f3f5d3b)
+2026-10-11T13:09:32.072000+07:00	(service api) has started 1 tasks: (task cb7879d1c9264b9caf6344b6ec038b64).
+2026-10-11T13:09:31.435000+07:00	(service api) registered 1 targets in (target-group arn:aws:elasticloadbalancing:ap-southeast-2:<account>:targetgroup/vetmimi-demo-api/fb1da49e0f3f5d3b)
+2026-10-11T13:09:10.423000+07:00	(service api) has started 1 tasks: (task 04d7331b17dc4af8999247aec62db40a).

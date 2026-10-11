@@ -63,6 +63,7 @@ evidence() {
   aws ecs update-service --cluster "$cluster" --service api --force-new-deployment --query 'service.serviceName' --output text >/dev/null
   aws ecs wait services-stable --cluster "$cluster" --services api
   kill "$loop"
+  wait "$loop" 2>/dev/null || true
   trap - EXIT
   echo "requests:  $(wc -l <"$log" | tr -d ' ')"
   echo "by status:"
