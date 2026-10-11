@@ -257,12 +257,26 @@ What the tests promise:
 
 ## Deployment
 
-Written and checked, not yet applied: [ADR-010](docs/adr/010-live-host-on-ec2-with-the-website.md) and the runbook in [`deploy/README.md`](deploy/README.md).
+The runbook is [`deploy/README.md`](deploy/README.md); the decisions are [ADR-010](docs/adr/010-live-host-on-ec2-with-the-website.md) and [ADR-005](docs/adr/005-cheap-live-host-and-fargate-target.md).
 
 - **Live host:** one AWS EC2 `t4g.small` in Sydney (`deploy/terraform/live`), running Docker Compose with the API and worker (one image), the website, PostgreSQL 17, Redis 7, Caddy and coturn.
 - **Releases:** after CI passes on `main`, `release.yml` builds an arm64 image, pushes it to ECR through GitHub's OIDC role and deploys over SSH. A release that fails its health check within a minute is rolled back.
 - **Backups and alarms:** a nightly `pg_dump` to a private S3 bucket, kept 30 days; CloudWatch emails the owner on failed status checks, high CPU, memory or disk.
-- **Later:** ECS Fargate with RDS (ADR-005). Not written yet; see [`deploy/terraform/README.md`](deploy/terraform/README.md).
+- **Fargate target:** the same images on ECS Fargate across two Availability Zones, behind CloudFront and an Application Load Balancer, with RDS PostgreSQL Multi-AZ and ElastiCache Redis (`deploy/terraform/demo`). It is applied for one evidence session and destroyed the same day, because it costs about US$5 a day against the live host's few dollars a month.
+
+### Deployment evidence
+
+From the Fargate session on 2026-10-11. Screenshots have the account id replaced on the page before capture, and [`cli-evidence.txt`](docs/evidence/cli-evidence.txt) has it replaced with `<account>`.
+
+| Claim | Evidence |
+|---|---|
+| The API and the website each run as two Fargate tasks in two Availability Zones, healthy behind the load balancer | [Target group](docs/evidence/aws-alb-targets.webp): 2 healthy targets, one in `ap-southeast-2a` and one in `ap-southeast-2b`. [ECS cluster](docs/evidence/aws-ecs-service.webp): 3 services, 5 tasks running. `cli-evidence.txt`, "ECS tasks" and "Target health" |
+| PostgreSQL 17 is Multi-AZ and encrypted | [RDS configuration](docs/evidence/aws-rds-multi-az.webp): Multi-AZ Yes, secondary zone `ap-southeast-2a`, encryption enabled. `cli-evidence.txt`, "RDS" |
+| A rolling deploy drops no requests | `cli-evidence.txt`, "Rolling deploy under load": 201 of 201 health checks returned HTTP 200 during a forced redeploy, 06:08:56 to 06:11:37 UTC. The ECS events below it show the new tasks registering before the old ones drain |
+| The API scales on CPU | `cli-evidence.txt`, "Autoscaling": target tracking at 60% CPU, 2 to 4 tasks |
+| Failures alert by email | [CloudWatch alarms](docs/evidence/aws-cloudwatch-alarms.webp): 5xx and unhealthy-host alarms for the API and the website, database free storage, all OK with actions enabled |
+| Spend is capped and watched | [Budget](docs/evidence/aws-budget.webp): US$25 a month, filtered on the `Project: vetmimi` tag |
+| The site works end to end on Fargate over HTTPS | [Home page](docs/evidence/app-home-on-fargate.webp) and [booking page](docs/evidence/app-booking-on-fargate.webp), whose services come from the API and RDS. `cli-evidence.txt`, "HTTPS via CloudFront": HTTP/2 200 for the API, the site and its health check |
 
 ## Project status
 
