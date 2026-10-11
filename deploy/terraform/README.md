@@ -42,9 +42,6 @@ Left out on purpose:
 - Video calls. Fargate cannot publish a UDP range for TURN, and the signalling
   hub lives in one api process, so two participants on different tasks never
   meet.
-- Media uploads. The API signs S3 requests with the EC2 instance role only,
-  which a Fargate task does not have; the task role is ready for when it uses
-  the SDK's default credentials.
 - Email, unless you pass `TF_VAR_resend_api_key`; without it each send fails
   and is recorded as failed.
 
