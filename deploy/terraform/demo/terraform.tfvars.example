@@ -1,0 +1,4 @@
+# Copy to terraform.tfvars and fill in. terraform.tfvars is gitignored.
+api_image_tag = "<full commit sha of vetmimi-api main>"
+web_image_tag = "<full commit sha of vetmimi-next main>"
+alert_email   = "you@example.com"
