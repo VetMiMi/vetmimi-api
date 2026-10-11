@@ -37,9 +37,10 @@ authenticator and saves a password-only account, clearing any existing secret.
 
 ## Package layout
 
-One package per domain under `internal/`, matching `AGENTS.md`. Domain packages
-take `context.Context` and a `*pgxpool.Pool` or `db.Querier`, return typed
-errors from `internal/apperr`, and never import `net/http`.
+One package per purpose under `internal/`, matching `AGENTS.md`. Domain packages
+take `context.Context` and a `*pgxpool.Pool` or `db.Querier` and return typed
+errors from `internal/apperr`. Only `httpapi` and `cmd/api` serve HTTP; `meta`,
+`linkedin`, `assistant` and `content` use `net/http` only as clients of outside APIs.
 
 | Package | Owns |
 |---|---|
@@ -48,15 +49,16 @@ errors from `internal/apperr`, and never import `net/http`.
 | `queue` | asynq: the `Task` domain functions return, the queue handlers enqueue them on, and the worker that runs task handlers and periodic tasks. |
 | `ratelimit` | Fixed-window request counters in Redis. |
 | `tokens` | Session tokens, management and join link tokens, OAuth state, booking and enquiry references. |
+| `secretbox` | AES-256-GCM sealing of stored secrets: TOTP secrets and the Meta and LinkedIn tokens, under `TOTP_ENCRYPTION_KEY`. |
 | `listing` | Keyset cursors and search patterns shared by the admin lists. |
 | `apperr` | Typed errors with a stable code. |
 | `clock` | The current time, injectable in tests. |
 | `settings` | Typed read and write of the `settings` table. |
 | `idempotency` | Stored responses under a create's `Idempotency-Key`. |
 | `pgtest`, `redistest` | Test-only: a migrated database per test binary, and Redis clients. |
-| `httpapi` | The generated strict server (`httpapi/gen`, from `openapi.yaml`), handlers that parse → call a domain function → map the result, middleware (auth, rate limits, body caps, security headers, request logging), and the single `apperr` → `Problem` mapping. |
+| `httpapi` | The generated strict server (`httpapi/gen`, from `openapi.yaml`); `router.go` (the middleware chain); one handler file per API area (`booking_public.go`, `appointments.go`, `posts.go`, ...); the tables `rolesByOperation` (`roles.go`), `limitsByOperation` (`ratelimit.go`) and `bodyCapByOperation` (`middleware.go`); and the single `apperr` → `Problem` mapping (`problem.go`). |
 | `auth` | Users, password hashing (argon2id), TOTP enrolment and verification, sessions, roles, the sign-in throttle. |
-| `booking` | Services, availability rules, overrides and blocks, slot generation, appointments, the status transition table (`status.go`), appointment events, management tokens, hold expiry, retention purge. |
+| `booking` | Services, availability rules, overrides and blocks, slot generation (`slots.go`), appointment requests (`requests.go`), the status transition table (`status.go`), reschedules, the management link (`manage.go`), the admin dashboard (`dashboard.go`), hold expiry, reminders, retention purge, and their tasks (`worker.go`). |
 | `video` | Video rooms, join tokens, room tickets, TURN credentials, the in-memory room hub and the WebSocket signaling loop, room closing. |
 | `content` | The publishing portal (ADR-009): posts, their channel versions and publications, the workflow (`workflow.go`), approval checks per platform, public articles. |
 | `media` | Uploads, type sniffing, web-sized derivatives, object storage, usage checks. |
@@ -77,10 +79,10 @@ chi middleware runs in this order for every HTTP route:
 1. **Request id** — reuse a valid incoming `X-Request-Id` or generate one; echo it in the response.
 2. **Real IP** — trust `X-Forwarded-For` from Caddy only (the API port is not exposed elsewhere).
 3. **Logger** — one slog line per request after it completes: request id, method, chi route pattern (never the raw path, so tokens in paths are never logged), status, duration, bytes.
-4. **Recover** — a panic becomes `500 internal_error` and an error log with the stack.
-5. **Timeout** — 30 seconds, and the request context carries it into every query. Media upload gets 120 seconds. The WebSocket route is mounted outside this group.
+4. **Recover** — a panic becomes `500 internal_error` and an error log with the stack. Then the security headers (below) are set.
+5. **Timeout** — 30 seconds, and the request context carries it into every query. AI suggestions get 45 seconds (`timeoutByOperation`), media upload 120. The WebSocket route is mounted outside this group.
 6. **Body cap** — `http.MaxBytesReader`: 64 KiB for JSON, 512 KiB for saving a post (`bodyCapByOperation`: Markdown in two languages), 21 MiB for media upload.
-7. **Authentication** — `X-Service-Key` for `/public/*` and `POST /auth/sessions`; `Authorization: Bearer <session>` for `/admin/*` and the other `/auth/*` routes. Then the role check for the route group, then the rate limiter for the group.
+7. **Authentication** — `X-Service-Key` for `/public/*` and `POST /auth/sessions`; `Authorization: Bearer <session>` for `/admin/*` and the other `/auth/*` routes. Then the role check, the rate limit, and the operation's own body cap and timeout (`operationLimits`).
 8. **OpenAPI validation** — `nethttp-middleware` validates path, query, headers and body against the embedded spec. Shape errors become `400 invalid_request` with `errors[]`.
 9. **Handler** — strict-server handler; calls one domain function; maps the result or the `apperr` to a response.
 
@@ -257,9 +259,9 @@ content. Daw Mi holds all three roles.
    take its time between the two states.
 5. If the format is `online` and `meeting_link_mode = vetmimi_room`, a
    `video_rooms` row is inserted with a join-token seed and hash, `opens_at` =
-   start − 15 minutes, `closes_at` = end + 60 minutes. In `manual_link` mode the
-   request may carry `meetingLink`; without one the dashboard lists the
-   appointment under "Attention required".
+   start − 15 minutes, `closes_at` = end + 60 minutes. `manual_link` mode is not
+   served yet: confirm ignores `meetingLink`, and its own operation is excluded
+   from generation.
 6. Events row `confirmed`; communications `booking_confirmed` (visitor) and
    `reminder` (visitor, `scheduled_for` = start − `reminder_hours`, only if that
    is still in the future).
@@ -269,9 +271,9 @@ content. Daw Mi holds all three roles.
 8. The worker renders the confirmation in the visitor's locale, re-derives the
    join link from the room's seed, sends through Resend (idempotency key = row
    id) and records `sent`, or retries 5 times and records `failed`. A failed
-   email never reverts the confirmation; the detail page shows "Appointment
-   confirmed. Visitor notification failed." with Resend and Mark as
-   communicated.
+   email never reverts the confirmation; the dashboard lists it under
+   attention as `failed_communication`. Resend and Mark as communicated are in
+   the contract but not served yet.
 
 ### 3. Reminder firing
 
@@ -433,7 +435,7 @@ values for secrets.
 | `LINKEDIN_API_VERSION` | `LinkedIn-Version` header, `YYYYMM` (default `202609`); LinkedIn supports each version for at least a year. |
 | `ANTHROPIC_API_KEY` | The portal's AI assistant (`POST /admin/posts/{id}/suggestions`). Empty: the assistant answers `503 feature_unavailable`. |
 | `ANTHROPIC_MODEL` | Model the assistant asks (default `claude-haiku-4-5-20251001`). |
-| `METRICS_ADDR` | Optional `127.0.0.1:9090`; serves counters at `/debug/vars`. Empty disables. |
+| `METRICS_ADDR` | Optional `host:port`, checked at start-up. Reserved for serving the `expvar` counters; nothing listens on it yet. |
 
 ## Observability
 
@@ -444,10 +446,9 @@ values for secrets.
   serve; it touches no dependency. The deploy rollback (ADR-005) polls it.
 - **`/readyz`** (readiness): pings PostgreSQL and Redis (one second each);
   `200` when both answer, else `503` with per-check status.
-- **Counters** via stdlib `expvar` on `METRICS_ADDR`: HTTP requests by route
-  and status class, appointments created, slot conflicts, emails sent and
-  failed, tasks processed and failed by type, open WebSocket connections, rate
-  limit rejections. CloudWatch on the Fargate target reads the logs instead.
+- **Counters** are registered with stdlib `expvar`: appointments created, slot
+  conflicts, appointments and enquiries purged, emails failed. Nothing serves
+  them yet: `METRICS_ADDR` is read and checked but no listener uses it.
 
 ## Security
 
@@ -530,20 +531,18 @@ passes on `main`, GitHub Actions builds the arm64 image, pushes it to ECR
 tagged with the SHA (through an OIDC role, no stored key), and runs
 `deploy/deploy.sh` on the host, which polls the public `/healthz` for a minute
 and rolls back on failure. Nightly `pg_dump` goes to a private S3 bucket, and
-CloudWatch alarms email the owner. `deploy/README.md` is the runbook; the
-Fargate topology is a later bundle in `deploy/terraform/`, validated in CI and
-never applied by agents.
+CloudWatch alarms email the owner. `deploy/README.md` is the runbook. The
+Terraform roots are `deploy/terraform/live` and `deploy/terraform/budget`; the
+Fargate topology is a later bundle, not written yet.
 
 ## Open points
 
 - ADR-004 says nothing is stored as local wall-clock time; weekly rules are
   wall-clock by nature, so `availability_rules` alone stores local `time`.
-- ADR-007 and `AGENTS.md` call link tokens random 32-byte values, but ADR-006
+- ADR-007 calls link tokens random 32-byte values, but ADR-006
   tasks carry only a row id, so tokens are HMAC-derived from a random seed.
 - ADR-006 fixes `channel = 'email'`; "Mark as communicated" rows use `manual`.
 - The content requirements name Professional Approver and Publisher roles;
   ADR-002 fixes three, so approving and publishing are `site_admin` rights.
-- `AGENTS.md` calls durations and buffers settings rows; they belong to a
-  service, so they are columns on `services`, editable like settings.
 - The video hub lives in one api process; ADR-005's two-zone Fargate target
   would need sticky routing by room or Redis fan-out first.
