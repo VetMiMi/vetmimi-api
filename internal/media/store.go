@@ -9,6 +9,7 @@ import (
 	"github.com/aws/aws-sdk-go-v2/aws"
 	"github.com/aws/aws-sdk-go-v2/credentials"
 	"github.com/aws/aws-sdk-go-v2/credentials/ec2rolecreds"
+	"github.com/aws/aws-sdk-go-v2/credentials/endpointcreds"
 	"github.com/aws/aws-sdk-go-v2/service/s3"
 	"github.com/jackc/pgx/v5/pgtype"
 
@@ -23,14 +24,20 @@ type Store struct {
 }
 
 // NewStore returns nil when no media endpoint is configured; uploads are then
-// refused. Without keys it signs with the EC2 instance role, as on the live host.
+// refused. Without keys it signs with the ECS task role on Fargate, or the EC2
+// instance role on the live host.
 func NewStore(cfg config.Config) *Store {
 	if cfg.MediaS3Endpoint == "" {
 		return nil
 	}
-	var creds aws.CredentialsProvider = aws.NewCredentialsCache(ec2rolecreds.New())
-	if cfg.MediaS3AccessKey != "" {
+	var creds aws.CredentialsProvider
+	switch {
+	case cfg.MediaS3AccessKey != "":
 		creds = credentials.NewStaticCredentialsProvider(cfg.MediaS3AccessKey, cfg.MediaS3SecretKey, "")
+	case cfg.ContainerCredentialsURI != "":
+		creds = aws.NewCredentialsCache(endpointcreds.New("http://169.254.170.2" + cfg.ContainerCredentialsURI))
+	default:
+		creds = aws.NewCredentialsCache(ec2rolecreds.New())
 	}
 	client := s3.New(s3.Options{
 		BaseEndpoint: aws.String(cfg.MediaS3Endpoint),
