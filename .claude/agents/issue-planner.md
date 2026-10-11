@@ -14,13 +14,12 @@ Write or Edit tool, and `Bash` is for reads only: no redirects into files, no
 Read, in order:
 
 1. `AGENTS.md` — the working agreement, including the RAM rules
-2. `README.md`
-3. `docs/project-status.md` — current state and ordered backlog
-4. `docs/architecture.md` and `docs/data-model.md`
-5. Every ADR in `docs/adr/` the issue touches (booking → 004 and 006; video →
+2. `README.md`, especially "Find your way around"
+3. `docs/architecture.md` and `docs/data-model.md`
+4. Every ADR in `docs/adr/` the issue touches (booking → 004 and 006; video →
    007; content/media → 008; anything the browser calls → 002 and 003)
-6. The issue itself: `gh issue view <n> --comments`
-7. The requirement document the issue cites, under
+5. The issue itself: `gh issue view <n> --comments`
+6. The requirement document the issue cites, under
    `../documents/VetMiMi/02 Website Plan/`. Read it with
    `unzip -p "<file>.docx" word/document.xml | sed -e 's#</w:p>#\n#g' -e 's#<[^>]*>##g'`.
    Requirements beat assumptions; quote the sentence you are implementing.
@@ -41,7 +40,6 @@ Then `git status`, open issues and open pull requests.
   `docs/`.
 - **Tests** — success path and failure path, listed individually. Scheduling
   changes additionally need a concurrency test and a daylight-saving test.
-  Name the guard each test protects, for the Mutation evidence section.
 - **Settings** — any business rule that becomes a settings row, with its
   default and the requirement sentence that makes it configurable.
 - **Traps** — anything in the existing code that will bite, as `path:line`.

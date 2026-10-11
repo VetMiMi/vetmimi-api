@@ -16,7 +16,6 @@ conflicts. Shared surfaces that force serialisation:
 - `AGENTS.md`, `CLAUDE.md`, `.claude/`, `.github/`, `.gitignore`
 - `openapi.yaml` and the generated `internal/httpapi/gen/`, `internal/db/`
 - `migrations/` (sequence numbers) and `docs/data-model.md`
-- `docs/project-status.md` — orchestrator-owned, implementers never touch it
 - `docs/adr/` numbers — the orchestrator allocates them
 
 Safe pairings: an API domain issue with a `vetmimi-next` admin screen whose
@@ -32,7 +31,8 @@ gh issue list --state open --json number,title,labels,milestone
 gh pr list --state open
 ```
 
-Take the next issue from the ordered backlog in `docs/project-status.md`.
+Take the top issue in the **Ready** column of the
+[VetMiMi Website](https://github.com/orgs/VetMiMi/projects/1) board.
 Verify the previous pull request merged before branching (PRs here squash,
 so old branches are stale).
 
@@ -95,13 +95,10 @@ Then `git worktree remove .worktrees/<short-name>`.
 ## 7. Close out
 
 Set the issue's and the PR's board items to **Done** (`1c14b8a1`); close the
-issue if `Closes #` did not. If the change altered `openapi.yaml`, tag the
-merge (`git tag v0.<minor>.<patch> && git push --tags`) so `vetmimi-next` can
-pin it. Then **read the board back** and confirm the statuses.
-
-Update `docs/project-status.md` (current state, last merged commit, backlog,
-blockers) on a `docs/status-<short-name>` branch and land it through steps
-4–6; it is the one pull request without its own issue.
+issue if `Closes #` did not. A change to `openapi.yaml` is tagged
+`v<info.version>` by CI on merge; check the tag exists before starting the
+`vetmimi-next` follow-up. Then **read the board back** and confirm the
+statuses.
 
 ## Failure handling
 
@@ -129,6 +126,4 @@ the owner can make. Then:
 1. Comment the question and the options on the issue.
 2. Set the board item back to **In progress** and add the `status: blocked`
    label.
-3. Write it into **Current blockers** in `docs/project-status.md` (landed as
-   in step 7) so a fresh session recovers it.
-4. Report to the owner, once, with the question and your recommendation.
+3. Report to the owner, once, with the question and your recommendation.
