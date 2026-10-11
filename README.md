@@ -23,6 +23,75 @@ VetMiMi is Daw Mi's art therapy practice in Sydney. This repository is its backe
 
 It is designed for its real scale: one practitioner, tens of appointments a month, and one or two admins. It also aims to be correct under concurrency, and it never logs a client's personal data.
 
+## Find your way around
+
+### The folders
+
+| Path | What it holds |
+|---|---|
+| `cmd/api/` | `main`: one binary with four modes (`api`, `worker`, `create-user`, `healthcheck`) |
+| `internal/httpapi/` | Routes, middleware and handlers, one file per API area; `gen/` is generated from `openapi.yaml` |
+| `internal/booking/` | Services, availability, slots, appointments and their background tasks |
+| `internal/video/` | Video rooms, room tickets and the WebSocket signalling hub |
+| `internal/content/` | The publishing portal: posts, channel versions, workflow, publishing |
+| `internal/media/` | Image uploads, resizing and the S3 bucket |
+| `internal/comms/` | Email rows, templates, delivery through Resend, contact enquiries |
+| `internal/auth/` | Admin accounts, sign-in (password and TOTP), sessions, roles, lockout |
+| `internal/meta/`, `internal/linkedin/` | Connecting and posting to Facebook and Instagram, and to LinkedIn |
+| `internal/assistant/` | AI suggestions for posts through the Anthropic API |
+| `internal/db/` | sqlc output (generated); `queries/` holds the SQL you edit |
+| `internal/config/` | Environment variables, read and checked once at start-up |
+| `internal/postgres/` | The pgx pool and the migrations |
+| `internal/queue/` | asynq tasks, the queue and the worker |
+| `internal/settings/` | The `settings` table: rules Daw Mi can change without a deploy |
+| `internal/idempotency/` | `Idempotency-Key` storage for creates |
+| `internal/tokens/` | Session tokens, signed links, booking references, OAuth state |
+| `internal/secretbox/` | AES-256-GCM for stored secrets (TOTP secrets, OAuth tokens) |
+| `internal/ratelimit/` | Fixed-window request counters in Redis |
+| `internal/listing/` | Keyset cursors and search for the admin lists |
+| `internal/apperr/` | Typed errors with a stable code |
+| `internal/clock/` | The current time, fixed in tests |
+| `internal/pgtest/`, `internal/redistest/` | A test database per test binary, and Redis for tests |
+| `migrations/` | goose SQL migrations, embedded in the binary |
+| `openapi.yaml` | The HTTP contract |
+| `deploy/` | Dockerfile, Compose, Caddy, coturn and Terraform for the live host |
+| `scripts/` | `gate.sh` (the machine-wide lock) and the contract-version check |
+| `docs/` | Architecture, data model, social setup guides, ADRs |
+
+### How a request flows
+
+A visitor asks for an appointment: `POST /public/appointments`.
+
+1. **Contract.** `openapi.yaml` declares the operation `createPublicAppointment`, secured by `serviceKey`, with a required `Idempotency-Key` header.
+2. **Generated interface.** `make generate` adds `CreatePublicAppointment` to `gen.StrictServerInterface` in `internal/httpapi/gen/api.gen.go`. `NewRouter` in `internal/httpapi/router.go` mounts it.
+3. **Middleware**, in the order `router.go` runs it:
+   - every route: `requestID`, `realIP`, `logRequests`, `recoverPanics`, `setSecurityHeaders`
+   - then `WithTimeout` (30 s) and `WithBodyCap` (64 KiB)
+   - then per operation (`mountAPI`): `requireServiceKey`, `requireSession`, `requireRoles`, the rate limit (`limitsByOperation`: 5 per 10 minutes per visitor IP), `operationLimits`, `validateRequests`. Each check acts only when the operation's `security` asks for it.
+4. **Handler.** `server.CreatePublicAppointment` in `internal/httpapi/booking_public.go` turns the body into a `booking.Request`.
+5. **Domain.** `booking.RequestAppointment` in `internal/booking/requests.go` opens one transaction (`inSchedule`, which takes the schedule lock). It checks the idempotency key, the settings, the service, the booking window and the slot, then calls `InsertAppointment` and `AppendEvent`.
+6. **SQL.** `InsertAppointment` and `LockSchedule` live in `internal/db/queries/appointments.sql`; sqlc generates `internal/db/appointments.sql.go`. If the exclusion constraint rejects an overlap, `refusal` in `internal/booking/booking.go` turns it into `409 slot_unavailable`.
+7. **Email row.** `notifyRequested` calls `comms.Queue` (`internal/comms/comms.go`), which inserts a `communications` row in the same transaction and returns a `comms:deliver` task. Booking adds a `booking:expire-hold` task.
+8. **After commit.** The handler calls `s.enqueue`, which puts the tasks on Redis, and answers `201` with the receipt. Any error becomes a Problem body in `responseError` (`internal/httpapi/problem.go`).
+9. **Worker.** `comms.Tasks.Deliver` (`internal/comms/deliver.go`, registered in `cmd/api/worker.go`) locks the row, renders `templates/request_received.<locale>.tmpl`, sends it through Resend with the row id as the idempotency key, and marks it `sent`. If Redis lost the task, `comms:sweep` finds the row within 5 minutes.
+
+### Add an endpoint in 6 steps
+
+1. **Contract.** Add the operation to `openapi.yaml`: an `operationId`, a tag and one `security` entry. Raise `info.version`. A new tag also goes in `include-tags` in `oapi-codegen.yaml`.
+2. **Generate.** Run `make generate`. The build now fails until the new method on `gen.StrictServerInterface` exists.
+3. **Handler.** Write the method in `internal/httpapi/<area>.go`: parse, call one domain function, map the result.
+4. **Domain.** Write the function in its `internal/<package>`. It takes `context.Context` and a pool or `db.Querier`, and returns `apperr` errors.
+5. **Query.** Add the SQL to `internal/db/queries/<table>.sql` and run `make generate` again. A schema change is a new migration (`make migrate-new NAME=...`).
+6. **Tests.** A success and a failure test for the domain function against real PostgreSQL, and a handler test in `internal/httpapi`.
+
+Then fill in the tables in `internal/httpapi`:
+
+| Table | File | When |
+|---|---|---|
+| `rolesByOperation` | `roles.go` | Every `sessionToken` operation. Without a row, nobody may call it, and `TestEverySessionOperationHasRoles` fails. |
+| `limitsByOperation` | `ratelimit.go` | Only if it needs its own limit. Otherwise it shares its scheme's limit (1,200/min per service key, or 300/min per session). |
+| `bodyCapByOperation`, `timeoutByOperation` | `middleware.go` | Only if 64 KiB or 30 s is not enough. |
+
 ## Features
 
 **Booking**
@@ -41,10 +110,7 @@ It is designed for its real scale: one practitioner, tens of appointments a mont
 **Publishing portal**
 - **Posts** have versions for the website, Facebook, Instagram and LinkedIn. Each post goes through an editorial workflow: idea, draft, review, approved, scheduled, published.
 - **Approval checks each platform's rules.** For example, Instagram needs an image and allows at most 2,200 characters and 30 hashtags, and a True Story needs the client's consent.
-- **Publishing:**
-  - to Meta (a Facebook Page and its linked Instagram account) and to LinkedIn, through OAuth connections
-  - the website version becomes a public article, and the site refreshes the affected pages
-  - if a channel isn't connected, Daw Mi gets the text to post herself
+- **Publishing** to a Facebook Page, its Instagram account and LinkedIn through OAuth connections. The website version becomes a public article and the site refreshes it. If a channel isn't connected, Daw Mi gets the text to post herself.
 - **AI suggestions** draft each channel's version and translations through the Anthropic API. This is optional and turns off cleanly without a key.
 
 **Media and email**
@@ -70,26 +136,21 @@ It is designed for its real scale: one practitioner, tens of appointments a mont
 - **A pending request *is* the hold.** Its expiry time is stored on the row, and a CHECK constraint ties it to the pending status. The worker expires it on time, and a 5-minute sweep catches anything missed. A reschedule is a single `UPDATE`, so the new time is secured before the old one is released.
 - **Emails are durable records** ([ADR-006](docs/adr/006-communications-as-durable-records.md)). Email rows are written in the same transaction as the change that caused them, and only the row id is queued. A sweep rebuilds anything Redis lost, the row id is Resend's idempotency key, and reminders are re-checked at the moment they are sent.
 - **Links are safe even if the database leaks.** Manage and join links are derived with HMAC-SHA256 from a stored seed. The database keeps only the seed and a hash of each link, so a database dump contains no working links.
-- **The OpenAPI contract drives security.** Each of the contract's 89 operations must declare how callers authenticate, or the server refuses to start. Access rules follow each operation's declaration, not its URL path. A test checks that every admin operation has its roles set; an operation without them is refused to everyone. Requests are validated against the spec, and errors are returned as `application/problem+json` with stable codes.
-- **Signaling** ([ADR-007](docs/adr/007-one-to-one-webrtc-with-go-signaling.md)):
-  - one connection per role per room
-  - a reconnect replaces the old socket
-  - frames are capped at 16 KiB, with pings and a check on the page's origin
-  - each room allows 20 connection attempts a minute
-  - the server re-reads room state every 30 s, so the worker can end sessions
-- **Privacy-preserving rate limits.** Requests are counted per minute in Redis under hashed keys, so no IP address or email address is stored. Sign-in fails closed when Redis is down; other requests fail open.
+- **The OpenAPI contract drives security.** Each of the contract's 89 operations must declare how callers authenticate, or the server refuses to start. Access rules follow each operation's declaration, not its URL path. An admin operation without a roles row is refused to everyone. Requests are validated against the spec, and errors are `application/problem+json` with stable codes.
+- **Signaling** ([ADR-007](docs/adr/007-one-to-one-webrtc-with-go-signaling.md)): one connection per role per room, a reconnect replaces the old socket, frames are capped at 16 KiB, and the hub re-reads room state every 30 s so the worker can end sessions.
+- **Privacy-preserving rate limits.** Requests are counted in fixed windows in Redis under hashed keys, so no IP address or email address is stored. Sign-in fails closed when Redis is down; other requests fail open.
 - **The contract is versioned across repos** ([ADR-003](docs/adr/003-openapi-first-contract.md)). CI rejects a change to `openapi.yaml` that doesn't raise its version, and merging tags the new version. The web app pins that tag and regenerates its client types from it.
 
 ## Tech stack
 
 | Layer | Technology |
 |---|---|
-| Language | Go 1.27 (one binary: `api`, `worker` and `create-user` modes) |
+| Language | Go 1.27, one binary with `api`, `worker`, `create-user` and `healthcheck` modes |
 | HTTP | chi, oapi-codegen (strict server from `openapi.yaml`), kin-openapi request validation, coder/websocket |
 | Data | PostgreSQL 17 (pgx, sqlc, goose migrations embedded in the binary), `btree_gist` exclusion constraints |
 | Jobs | Redis + asynq (email, reminders, hold expiry, publishing, sweeps, retention) |
 | Integrations | Resend (email), S3-compatible storage, coturn (TURN), Meta Graph API, LinkedIn API, Anthropic Messages API |
-| Security | argon2id, TOTP (pquerna/otp), AES-256-GCM for stored secrets, HMAC-derived tokens |
+| Security | argon2id, TOTP (pquerna/otp), AES-256-GCM for stored secrets (`secretbox`), HMAC-derived tokens |
 | Quality | `go test -race`, real-PostgreSQL integration tests, staticcheck, golden-file email templates |
 
 ## Architecture
@@ -108,17 +169,9 @@ flowchart LR
   api --> s3[("S3 bucket")]
 ```
 
-- **Domain packages** in `internal/`: `booking`, `video`, `content`, `media`, `comms`, `auth`, `meta`, `linkedin`, `assistant`. They never import `net/http`, and they return typed errors that `internal/httpapi` maps to Problem responses.
-- **Shared code:** one small package each for `config`, `postgres` (pool and migrations), `queue` (asynq tasks and the worker), `ratelimit`, `tokens`, `listing` (cursors and search), `apperr`, `clock`, `settings` and `idempotency`, plus `pgtest` and `redistest` for tests. `internal/db` is generated by sqlc.
-- **Database:** 19 migrations. Statuses are `text` with a `CHECK`, admin-edited rows carry a `version` for optimistic locking, and translatable text is a `jsonb` with `en` and `my` keys.
-- **Request pipeline**, in order:
-  1. request id, real IP, logging (route pattern only) and panic recovery
-  2. 30 s timeout and a body size cap
-  3. auth chosen from the operation's declaration
-  4. roles and rate limits
-  5. OpenAPI validation, then the handler
+The database has 20 migrations. Statuses are `text` with a `CHECK`, admin-edited rows carry a `version` for optimistic locking, and translatable text is a `jsonb` with `en` and `my` keys.
 
-See [`docs/architecture.md`](docs/architecture.md) for the full component table and walkthroughs of booking, confirmation, reminders, video join and publishing. See [`docs/data-model.md`](docs/data-model.md) for every table.
+[`docs/architecture.md`](docs/architecture.md) has the components, the error codes, the roles and walkthroughs of booking, confirmation, reminders, video join and publishing. [`docs/data-model.md`](docs/data-model.md) has every table.
 
 ## Getting started
 
@@ -130,12 +183,16 @@ See [`docs/architecture.md`](docs/architecture.md) for the full component table 
 ```sh
 brew services start postgresql@17 && brew services start redis
 createdb vetmimi && createdb vetmimi_test
-make tools                         # pinned sqlc, oapi-codegen, goose, staticcheck
-cp .env.example .env               # fill in the values
-set -a; . ./.env; set +a           # nothing loads .env automatically: export it into your shell
-make dev                           # API on :8080, migrates on start → curl localhost:8080/healthz
-make worker                        # in a second terminal: background jobs
+make tools
+cp .env.example .env
+set -a; . ./.env; set +a
+make dev
 ```
+
+- `make tools` installs the pinned sqlc, oapi-codegen, goose and staticcheck.
+- Fill in `.env`. Nothing loads it for you, so `set -a; . ./.env; set +a` exports it into your shell.
+- `make dev` runs the API on `:8080` and migrates on start. Check it with `curl localhost:8080/healthz`.
+- Run `make worker` in a second terminal for background jobs.
 
 **Create the first admin.** Run this in a terminal (it needs a TTY):
 
@@ -164,49 +221,40 @@ Setting up the social connections: [`docs/meta-setup.md`](docs/meta-setup.md), [
 ## Testing
 
 ```sh
-make gate                          # lint + test + build + generated-code drift check
 make test-pkg PKG=./internal/booking
-go test ./internal/comms -update   # regenerate email golden files
+make gate
+go test ./internal/comms -update
 ```
 
-- **About 450 tests in 97 files.** Integration tests run against **real PostgreSQL**, with no mocks: each test binary gets its own migrated database, which is dropped afterwards. If the test databases aren't configured, the run fails rather than skipping.
+- `make test-pkg` tests one package. Use it while you work.
+- `make gate` is lint, the whole suite, build and the generated-code drift check, behind the machine-wide lock. CI runs the same. Run it once before you push.
+- `-update` rewrites the email golden files in `internal/comms/testdata`.
+
+What the tests promise:
+
+- **About 470 tests in 84 files.** Integration tests run against **real PostgreSQL**, with no mocks: each test binary gets its own migrated database, which is dropped afterwards. If the test databases aren't configured, the run fails rather than skipping.
 - **Every external API is tested against a fake HTTP server:** Resend, Meta, LinkedIn and Anthropic.
 - **Each behaviour gets a success test and a failure test**, and anything touching scheduling gets a concurrency test.
-- **CI** (`.github/workflows/ci.yml`) runs on PRs and on pushes to `main`:
-  - **API checks** on Postgres 17 and Redis 7: `make tools`, `make lint`, `make generate-check`, `go build ./...`, `go test -race ./...`
-  - **Deployment checks:** shellcheck, the `deploy.sh` and compose tests, `caddy validate`, an image build, and `terraform validate` for each root
-  - **Contract version:** an `openapi.yaml` change must raise its version
-  - **Commit checks:** every commit message follows the Conventional Commits format
-  - `contract-tag.yml` tags each new contract version on `main`
+- **CI** (`.github/workflows/ci.yml`) also runs the deployment checks (shellcheck, the deploy and compose tests, `caddy validate`, an image build, `terraform validate`), the contract-version check and the Conventional Commits check. `contract-tag.yml` tags each new contract version on `main`.
 
 ## Deployment
 
 Written and checked, not yet applied: [ADR-010](docs/adr/010-live-host-on-ec2-with-the-website.md) and the runbook in [`deploy/README.md`](deploy/README.md).
 
-- **Live host:** one AWS EC2 `t4g.small` in Sydney, described in Terraform (`deploy/terraform/live`), running Docker Compose with:
-  - the API and the worker, from the same image
-  - the website (`vetmimi-next`)
-  - PostgreSQL 17 and Redis 7
-  - Caddy for TLS
-  - coturn for TURN
-- **Releases:** after CI passes on `main`, `release.yml` builds an arm64 image, pushes it to ECR through GitHub's OIDC role and deploys over SSH. A release that fails its health check within a minute is rolled back automatically.
-- **Backups:** a nightly `pg_dump` to a private S3 bucket, kept 30 days.
-- **Alarms:** CloudWatch emails the owner on failed status checks (recovering or rebooting the instance), high CPU, memory or disk.
-- **Later target:** ECS Fargate behind an ALB, with RDS, written in Terraform. CI validates it but never applies it.
+- **Live host:** one AWS EC2 `t4g.small` in Sydney (`deploy/terraform/live`), running Docker Compose with the API and worker (one image), the website, PostgreSQL 17, Redis 7, Caddy and coturn.
+- **Releases:** after CI passes on `main`, `release.yml` builds an arm64 image, pushes it to ECR through GitHub's OIDC role and deploys over SSH. A release that fails its health check within a minute is rolled back.
+- **Backups and alarms:** a nightly `pg_dump` to a private S3 bucket, kept 30 days; CloudWatch emails the owner on failed status checks, high CPU, memory or disk.
+- **Later:** ECS Fargate with RDS (ADR-005). Not written yet; see [`deploy/terraform/README.md`](deploy/terraform/README.md).
 
 ## Project status
 
-The foundation, booking and contact, video, and the publishing portal milestones are complete. Launch work is in progress:
-
-- deployment and backups
-- a runbook and handover guide
-- Daw Mi's review of the English and Burmese emails
+The foundation, booking and contact, video, and the publishing portal milestones are complete. Launch work is in progress: deployment and backups, a runbook and handover guide, and Daw Mi's review of the English and Burmese emails.
 
 Four operations are already in the contract but not served yet: manual meeting links, and the communications list, resend and mark-as-sent. See the [project board](https://github.com/orgs/VetMiMi/projects/1) and [open issues](https://github.com/VetMiMi/vetmimi-api/issues).
 
 ## Documentation
 
-- [`docs/architecture.md`](docs/architecture.md): components, request flows, error codes, deployment summary
+- [`docs/architecture.md`](docs/architecture.md): components, request lifecycle, error codes, roles, background jobs
 - [`docs/data-model.md`](docs/data-model.md): tables and constraints
-- [`docs/adr/`](docs/adr): decision records 001–009
-- [`AGENTS.md`](AGENTS.md): working agreement, layout and contribution rules
+- [`docs/adr/`](docs/adr): decision records 001–010
+- [`AGENTS.md`](AGENTS.md): the working agreement and code style
