@@ -532,8 +532,9 @@ tagged with the SHA (through an OIDC role, no stored key), and runs
 `deploy/deploy.sh` on the host, which polls the public `/healthz` for a minute
 and rolls back on failure. Nightly `pg_dump` goes to a private S3 bucket, and
 CloudWatch alarms email the owner. `deploy/README.md` is the runbook. The
-Terraform roots are `deploy/terraform/live` and `deploy/terraform/budget`; the
-Fargate topology is a later bundle, not written yet.
+Terraform roots are `deploy/terraform/live` and `deploy/terraform/budget`;
+`deploy/terraform/demo` is ADR-005's Fargate topology, applied only for a
+one-day demo.
 
 ## Open points
 
