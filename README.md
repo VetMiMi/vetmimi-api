@@ -13,6 +13,10 @@
 ![OpenAPI 3.1](https://img.shields.io/badge/OpenAPI-3.1-6BA539?style=flat-square&logo=openapiinitiative&logoColor=white)
 ![WebRTC](https://img.shields.io/badge/WebRTC-signaling-333333?style=flat-square&logo=webrtc&logoColor=white)
 
+<br>
+
+[![A visitor books a session in English and Burmese, a second booking for the same time is refused, and Daw Mi manages her week in the admin](docs/evidence/intro-video.gif)](docs/evidence/intro-video.mp4)
+
 </div>
 
 ---
