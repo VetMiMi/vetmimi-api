@@ -42,6 +42,7 @@ type Querier interface {
 	// password-only user has a NULL secret and step.
 	CreateUser(ctx context.Context, arg CreateUserParams) (pgtype.UUID, error)
 	DashboardCounts(ctx context.Context, arg DashboardCountsParams) (DashboardCountsRow, error)
+	DeleteAllAvailabilityRules(ctx context.Context) error
 	DeleteArticle(ctx context.Context, postID pgtype.UUID) error
 	DeleteAvailabilityBlock(ctx context.Context, id pgtype.UUID) (int64, error)
 	DeleteAvailabilityOverride(ctx context.Context, id pgtype.UUID) (int64, error)

@@ -53,6 +53,31 @@ func TestAvailabilityRules(t *testing.T) {
 	require.NoError(t, err)
 }
 
+func TestReplaceWeeklyHours(t *testing.T) {
+	ctx := context.Background()
+	_, err := pgtest.Pool(t).Exec(ctx, "DELETE FROM availability_rules")
+	require.NoError(t, err)
+	a := newAuthAPI(t)
+	token := insertSession(t, a.clock.at, "booking_admin")
+
+	week := decoded(t, http.StatusOK, a.sendJSON(http.MethodPut, rulesURL, token,
+		`{"periods": [{"weekday": 3, "startTime": "13:00", "endTime": "17:00"}, {"weekday": 1, "startTime": "09:00", "endTime": "12:00"}]}`))
+	require.Equal(t, "Australia/Sydney", week["timezone"])
+	items := week["items"].([]any)
+	require.Len(t, items, 2)
+	require.Equal(t, float64(1), items[0].(map[string]any)["weekday"])
+	require.Equal(t, week, decoded(t, http.StatusOK, a.send(http.MethodGet, rulesURL, token)))
+
+	refused(t, http.StatusConflict, "overlapping_period", a.sendJSON(http.MethodPut, rulesURL, token,
+		`{"periods": [{"weekday": 2, "startTime": "10:00", "endTime": "13:00"}, {"weekday": 2, "startTime": "12:30", "endTime": "15:00"}]}`))
+	refused(t, http.StatusBadRequest, "invalid_request", a.sendJSON(http.MethodPut, rulesURL, token, `{}`))
+	requireForbidden(t, a.sendJSON(http.MethodPut, rulesURL, insertSession(t, a.clock.at, "content_editor"), `{"periods": []}`))
+	require.Len(t, decoded(t, http.StatusOK, a.send(http.MethodGet, rulesURL, token))["items"], 2)
+
+	empty := decoded(t, http.StatusOK, a.sendJSON(http.MethodPut, rulesURL, token, `{"periods": []}`))
+	require.Empty(t, empty["items"])
+}
+
 func TestAvailabilityOverrides(t *testing.T) {
 	a := newAuthAPI(t)
 	token := insertSession(t, a.clock.at, "booking_admin")

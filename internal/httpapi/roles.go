@@ -38,6 +38,7 @@ var rolesByOperation = map[string][]auth.Role{
 	"createAvailabilityRule":     bookingAdmin,
 	"updateAvailabilityRule":     bookingAdmin,
 	"deleteAvailabilityRule":     bookingAdmin,
+	"replaceWeeklyHours":         bookingAdmin,
 	"listAvailabilityOverrides":  bookingAdmin,
 	"createAvailabilityOverride": bookingAdmin,
 	"updateAvailabilityOverride": bookingAdmin,
