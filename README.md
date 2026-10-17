@@ -21,6 +21,18 @@
 
 ---
 
+## Screens
+
+Captured from the real site and API running locally with demo data; every name is made up.
+
+| Home, English | Home, မြန်မာ, on a phone |
+|---|---|
+| <img src="docs/screenshots/home-en.webp" width="420" alt="Home page in English with Daw Mi's artwork behind the heading"> | <img src="docs/screenshots/home-my-phone.webp" height="262" alt="Home page in Burmese on a phone"> |
+| **Booking: review and send** | **Same time, second visitor: refused, offered the next times** |
+| <img src="docs/screenshots/booking-review.webp" width="420" alt="Booking step 4: the request to review before sending"> | <img src="docs/screenshots/slot-taken.webp" width="420" alt="That time is no longer available, with the next five free times"> |
+| **Admin: weekly hours and days off on one page** | **Admin: appointments and what needs attention** |
+| <img src="docs/screenshots/admin-availability-calendar.webp" width="420" alt="Availability calendar showing days off, changed hours and bookings per day"> | <img src="docs/screenshots/admin-appointments.webp" width="420" alt="Appointments with a needs-attention panel and pending requests"> |
+
 ## About
 
 VetMiMi is Daw Mi's art therapy practice in Sydney. This repository is its backend: one Go binary that owns the database, admin sign-in, booking rules, video signaling, content and email. The Next.js app in [vetmimi-next](https://github.com/VetMiMi/vetmimi-next) is the only thing that calls it over HTTP. The one exception is the video WebSocket, which browsers open directly with a short-lived ticket.
