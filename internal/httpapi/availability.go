@@ -54,6 +54,27 @@ func (s *server) DeleteAvailabilityRule(ctx context.Context, req gen.DeleteAvail
 	return gen.DeleteAvailabilityRule204Response{}, nil
 }
 
+func (s *server) ReplaceWeeklyHours(ctx context.Context, req gen.ReplaceWeeklyHoursRequestObject) (gen.ReplaceWeeklyHoursResponseObject, error) {
+	rules := make([]booking.Rule, len(req.Body.Periods))
+	for i, p := range req.Body.Periods {
+		rules[i] = rule(p)
+	}
+	rows, err := booking.ReplaceRules(ctx, s.Pool, rules)
+	if err != nil {
+		return nil, err
+	}
+	tz, _, err := booking.PracticeZone(ctx, db.New(s.Pool))
+	if err != nil {
+		return nil, err
+	}
+	s.Log.InfoContext(ctx, "weekly_hours_replaced", "request_id", RequestID(ctx), "periods", len(rows))
+	items := make([]gen.AvailabilityRule, len(rows))
+	for i, r := range rows {
+		items[i] = ruleView(r)
+	}
+	return gen.ReplaceWeeklyHours200JSONResponse{Timezone: tz, Items: items}, nil
+}
+
 // ListAvailabilityOverrides lists the given local dates, by default the next 62 days.
 func (s *server) ListAvailabilityOverrides(ctx context.Context, req gen.ListAvailabilityOverridesRequestObject) (gen.ListAvailabilityOverridesResponseObject, error) {
 	q := db.New(s.Pool)

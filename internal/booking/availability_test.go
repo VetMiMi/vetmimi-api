@@ -2,6 +2,7 @@ package booking_test
 
 import (
 	"context"
+	"fmt"
 	"sync"
 	"testing"
 	"time"
@@ -125,6 +126,65 @@ func TestRule_StoresWallClock(t *testing.T) {
 	require.NoError(t, pgtest.Pool(t).QueryRow(context.Background(),
 		"SELECT start_time::text, end_time::text FROM availability_rules").Scan(&start, &end))
 	require.Equal(t, []string{"01:00:00", "04:00:00"}, []string{start, end})
+}
+
+func weekOf(t *testing.T) []string {
+	t.Helper()
+	rules, err := booking.ListRules(context.Background(), db.New(pgtest.Pool(t)))
+	require.NoError(t, err)
+	var got []string
+	for _, r := range rules {
+		got = append(got, fmt.Sprintf("%d %s-%s", r.Weekday, booking.Clock(r.StartTime), booking.Clock(r.EndTime)))
+	}
+	return got
+}
+
+func TestReplaceRules_ReplacesTheWeek(t *testing.T) {
+	clearRules(t)
+	_, err := createRule(t, sunday, "09:00", "12:00")
+	require.NoError(t, err)
+
+	rows, err := booking.ReplaceRules(context.Background(), pgtest.Pool(t), []booking.Rule{
+		{Weekday: tuesday, Start: "14:00", End: "17:00"},
+		{Weekday: tuesday, Start: "10:00", End: "14:00"},
+		{Weekday: 1, Start: "09:00", End: "17:00"},
+	})
+	require.NoError(t, err)
+	require.Len(t, rows, 3)
+	require.Equal(t, []string{"1 09:00-17:00", "2 10:00-14:00", "2 14:00-17:00"}, weekOf(t))
+}
+
+func TestReplaceRules_EmptyClosesEveryDay(t *testing.T) {
+	clearRules(t)
+	_, err := createRule(t, tuesday, "10:00", "13:00")
+	require.NoError(t, err)
+
+	rows, err := booking.ReplaceRules(context.Background(), pgtest.Pool(t), nil)
+	require.NoError(t, err)
+	require.Empty(t, rows)
+	require.Empty(t, weekOf(t))
+}
+
+func TestReplaceRules_RefusalKeepsTheOldWeek(t *testing.T) {
+	clearRules(t)
+	_, err := createRule(t, sunday, "09:00", "12:00")
+	require.NoError(t, err)
+
+	_, err = booking.ReplaceRules(context.Background(), pgtest.Pool(t), []booking.Rule{
+		{Weekday: 1, Start: "09:00", End: "17:00"},
+		{Weekday: tuesday, Start: "10:00", End: "13:00"},
+		{Weekday: tuesday, Start: "12:30", End: "15:00"},
+	})
+	requireCode(t, apperr.OverlappingPeriod, err)
+	require.Equal(t, []string{"7 09:00-12:00"}, weekOf(t))
+
+	_, err = booking.ReplaceRules(context.Background(), pgtest.Pool(t), []booking.Rule{
+		{Weekday: 1, Start: "09:00", End: "17:00"},
+		{Weekday: tuesday, Start: "15:00", End: "09:00"},
+	})
+	e := requireCode(t, apperr.ActionNotAllowed, err)
+	require.Equal(t, "/endTime", e.Fields[0].Field)
+	require.Equal(t, []string{"7 09:00-12:00"}, weekOf(t))
 }
 
 var sydney, _ = time.LoadLocation("Australia/Sydney")

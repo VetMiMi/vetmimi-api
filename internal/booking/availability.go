@@ -91,6 +91,32 @@ func DeleteRule(ctx context.Context, pool *pgxpool.Pool, id pgtype.UUID) error {
 	})
 }
 
+// ReplaceRules saves the whole week or nothing; an empty list closes every day.
+func ReplaceRules(ctx context.Context, pool *pgxpool.Pool, rules []Rule) ([]db.AvailabilityRule, error) {
+	params := make([]db.CreateAvailabilityRuleParams, len(rules))
+	for i, r := range rules {
+		start, end, err := r.times()
+		if err != nil {
+			return nil, err
+		}
+		params[i] = db.CreateAvailabilityRuleParams{Weekday: r.Weekday, StartTime: start, EndTime: end}
+	}
+	var rows []db.AvailabilityRule
+	err := inSchedule(ctx, pool, func(q *db.Queries) (err error) {
+		if err = q.DeleteAllAvailabilityRules(ctx); err != nil {
+			return err
+		}
+		for _, p := range params {
+			if _, err = q.CreateAvailabilityRule(ctx, p); err != nil {
+				return err
+			}
+		}
+		rows, err = q.ListAvailabilityRules(ctx)
+		return err
+	})
+	return rows, refusal(err)
+}
+
 func (r Rule) times() (pgtype.Time, pgtype.Time, error) {
 	start, err := parseClock(r.Start)
 	if err != nil {

@@ -14,3 +14,6 @@ RETURNING *;
 
 -- name: DeleteAvailabilityRule :execrows
 DELETE FROM availability_rules WHERE id = @id;
+
+-- name: DeleteAllAvailabilityRules :exec
+DELETE FROM availability_rules;

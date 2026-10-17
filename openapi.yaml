@@ -1,7 +1,7 @@
 openapi: "3.1.0"
 info:
   title: VetMiMi API
-  version: "0.4.3"
+  version: "0.4.4"
   description: >-
     The API behind VetMiMi, Daw Mi's art therapy practice. The Next.js site is the only caller
     (ADR-002): public routes take the shared service key, admin routes a session token. The one
@@ -480,6 +480,42 @@ paths:
             application/json:
               schema:
                 $ref: "#/components/schemas/AvailabilityRule"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "409":
+          $ref: "#/components/responses/Conflict"
+        "422":
+          $ref: "#/components/responses/UnprocessableEntity"
+        "429":
+          $ref: "#/components/responses/TooManyRequests"
+        "500":
+          $ref: "#/components/responses/InternalError"
+    put:
+      tags: [availability]
+      operationId: replaceWeeklyHours
+      summary: Replace every weekly availability period at once
+      description: >-
+        Saves the whole week or nothing. An empty list closes every day. Overlapping periods on the
+        same weekday are refused with `409 overlapping_period`.
+      security:
+        - sessionToken: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/WeeklyHoursInput"
+      responses:
+        "200":
+          description: Success.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/AvailabilityRuleList"
         "400":
           $ref: "#/components/responses/BadRequest"
         "401":
@@ -3916,6 +3952,16 @@ components:
         id:
           type: string
           format: uuid
+      additionalProperties: false
+    WeeklyHoursInput:
+      type: object
+      required: [periods]
+      properties:
+        periods:
+          type: array
+          maxItems: 70
+          items:
+            $ref: "#/components/schemas/AvailabilityRuleInput"
       additionalProperties: false
     AvailabilityRuleList:
       type: object

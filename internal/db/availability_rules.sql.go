@@ -38,6 +38,15 @@ func (q *Queries) CreateAvailabilityRule(ctx context.Context, arg CreateAvailabi
 	return i, err
 }
 
+const deleteAllAvailabilityRules = `-- name: DeleteAllAvailabilityRules :exec
+DELETE FROM availability_rules
+`
+
+func (q *Queries) DeleteAllAvailabilityRules(ctx context.Context) error {
+	_, err := q.db.Exec(ctx, deleteAllAvailabilityRules)
+	return err
+}
+
 const deleteAvailabilityRule = `-- name: DeleteAvailabilityRule :execrows
 DELETE FROM availability_rules WHERE id = $1
 `
