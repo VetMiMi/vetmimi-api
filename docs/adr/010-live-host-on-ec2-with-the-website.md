@@ -43,7 +43,8 @@ have since been decided by the owner:
   (`<ecr_registry>/vetmimi-next`), `postgres:17`, `redis:7`, `caddy:2` and
   `coturn`, with memory limits summing to about 1.5 GB. Caddy serves
   `SITE_DOMAIN` from `web` and `API_DOMAIN` from `api`; until a real domain
-  exists both are `sslip.io` names of the Elastic IP. Only Caddy publishes
+  exists both are free names of the Elastic IP: `sslip.io` at first, DuckDNS's
+  `vetmimi.duckdns.org` and `api.vetmimi.duckdns.org` since 2026-10-17. Only Caddy publishes
   ports and only coturn uses the host network.
 - **Media:** the API signs S3 requests with the instance role when
   `MEDIA_S3_ACCESS_KEY` is empty, through the AWS SDK's

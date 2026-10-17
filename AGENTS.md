@@ -1,6 +1,6 @@
 # vetmimi-api — working agreement
 
-The Go API behind [VetMiMi](https://vetmimi-next.vercel.app), Daw Mi's art
+The Go API behind [VetMiMi](https://vetmimi.duckdns.org), Daw Mi's art
 therapy practice in Sydney. It owns the database, sign-in, booking, video
 sessions, the publishing portal, media and email. The site and its `/admin`
 live in [VetMiMi/vetmimi-next](https://github.com/VetMiMi/vetmimi-next); both

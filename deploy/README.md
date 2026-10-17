@@ -326,10 +326,13 @@ the agent stops: `systemctl status amazon-cloudwatch-agent`.
 
 ## Change the host names
 
-When a real domain exists, point an A record for the site and one for the API
-at the Elastic IP, set `SITE_DOMAIN` and `API_DOMAIN` in `.env`, and release
-`api` and then `web` again: Caddy obtains the new certificates and the API's
-URLs follow. `DEPLOY_HOST` and its pin name the IP, so they do not change.
+The host uses `vetmimi.duckdns.org` and `api.vetmimi.duckdns.org`, set at
+duckdns.org by the owner. When a real domain exists, point an A record for the
+site and one for the API at the Elastic IP, set `SITE_DOMAIN` and `API_DOMAIN`
+in `.env`, and run `docker compose --env-file .env --env-file .env.tags up -d
+--wait`: Caddy obtains the new certificates and the API's URLs follow. Then set
+the `SITE_URL` variable in vetmimi-next and release `web` again, since its
+pages are prerendered with the address. `DEPLOY_HOST` and its pin name the IP, so they do not change.
 
 ## Teardown
 

@@ -4,7 +4,7 @@
 
 **The Go API behind VetMiMi, an art therapy practice in Sydney. It handles appointment booking, WebRTC video sessions, a publishing portal for the website and social channels, media, and email.**
 
-[Website](https://vetmimi-arts-therapy.vercel.app) · [Web app repo](https://github.com/VetMiMi/vetmimi-next) · [Architecture](docs/architecture.md) · [Project board](https://github.com/orgs/VetMiMi/projects/1)
+[Website](https://vetmimi.duckdns.org) · [Web app repo](https://github.com/VetMiMi/vetmimi-next) · [Architecture](docs/architecture.md) · [Project board](https://github.com/orgs/VetMiMi/projects/1)
 
 [![CI](https://github.com/VetMiMi/vetmimi-api/actions/workflows/ci.yml/badge.svg)](https://github.com/VetMiMi/vetmimi-api/actions/workflows/ci.yml)
 ![Go](https://img.shields.io/badge/Go-1.27-00ADD8?style=flat-square&logo=go&logoColor=white)

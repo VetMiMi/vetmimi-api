@@ -13,7 +13,7 @@ and needs no App Review.
 - Daw Mi has full control of the Page, and of the business portfolio if a
   business portfolio owns it.
 - The site's Privacy page is live at `{SITE_URL}/privacy`, e.g.
-  `https://vetmimi-next.vercel.app/privacy`.
+  `https://vetmimi.duckdns.org/privacy`.
 
 ## Create the app
 
@@ -24,7 +24,7 @@ and needs no App Review.
    Business) → type **Business**. Name it `VetMiMi Publishing`.
 3. Add the product **Facebook Login for Business**. Under its Settings:
    - Valid OAuth Redirect URIs: `{SITE_URL}/admin/settings/connections`, e.g.
-     `https://vetmimi-next.vercel.app/admin/settings/connections` (exactly; the
+     `https://vetmimi.duckdns.org/admin/settings/connections` (exactly; the
      API sends this address, built from `SITE_URL`).
    - Leave Client OAuth login and Web OAuth login on; turn on Enforce HTTPS.
 4. Facebook Login for Business → Configurations → Create configuration:

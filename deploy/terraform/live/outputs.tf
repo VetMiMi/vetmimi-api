@@ -1,5 +1,5 @@
 output "public_ip" {
-  description = "The Elastic IP: TURN_EXTERNAL_IP, and the address SSH and the sslip.io names use."
+  description = "The Elastic IP: TURN_EXTERNAL_IP, the address SSH uses and the DuckDNS record points at."
   value       = aws_eip.live.public_ip
 }
 

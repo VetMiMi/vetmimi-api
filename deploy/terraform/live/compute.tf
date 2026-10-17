@@ -44,7 +44,7 @@ resource "aws_instance" "live" {
   }
 }
 
-# Keeps the address, and so the sslip.io names, across a stop and start.
+# Keeps the address, and so the DuckDNS record, across a stop and start.
 resource "aws_eip" "live" {
   domain   = "vpc"
   instance = aws_instance.live.id
