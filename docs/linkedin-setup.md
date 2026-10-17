@@ -24,7 +24,7 @@ so the app needs no review.
    scopes the API asks for: `openid profile w_member_social`.
 3. **Auth** → OAuth 2.0 settings → Authorized redirect URLs for your app: add
    `{SITE_URL}/admin/settings/connections/linkedin`, e.g.
-   `https://vetmimi-next.vercel.app/admin/settings/connections/linkedin`
+   `https://vetmimi.duckdns.org/admin/settings/connections/linkedin`
    (exactly; the API sends this address, built from `SITE_URL`).
 4. **Auth** → copy the **Client ID** and the **Primary Client Secret**.
 

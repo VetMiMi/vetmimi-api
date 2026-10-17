@@ -10,9 +10,9 @@ locals {
     ManagedBy   = "terraform"
   }
 
-  # Free host names that need no DNS until a real domain exists: sslip.io
-  # answers <anything>-<ip with dashes>.sslip.io with that address.
-  ip_dashes   = replace(aws_eip.live.public_ip, ".", "-")
-  site_domain = "${local.ip_dashes}.sslip.io"
-  api_domain  = "api-${local.ip_dashes}.sslip.io"
+  # Free DuckDNS names until a real domain exists. The owner points
+  # vetmimi.duckdns.org at the Elastic IP at duckdns.org; DuckDNS answers every
+  # name under it with the same address.
+  site_domain = "vetmimi.duckdns.org"
+  api_domain  = "api.vetmimi.duckdns.org"
 }
