@@ -150,6 +150,7 @@ Then fill in the tables in `internal/httpapi`:
 **Media and email**
 - **Image uploads** up to 20 MiB. EXIF data is stripped and the image is rotated upright, then resized to 1600, 800 and 400 px JPEGs in an S3-compatible bucket.
 - **Transactional email** through Resend, or any SMTP server such as Gmail until the practice has a domain: 12 kinds of message, each in English and Burmese, with appointment reminders.
+- **A failed email can be sent again**, to the visitor's current address, or recorded as handled by phone; either clears it from the dashboard.
 
 **Admin auth**
 - **Sign-in needs** email, password (argon2id) and a **TOTP** code; accounts created with `--no-totp` sign in with the password alone until two-step setup moves into the admin website.

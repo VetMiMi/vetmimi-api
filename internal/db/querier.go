@@ -116,6 +116,7 @@ type Querier interface {
 	// InsertIdempotencyKey waits for a transaction holding the same key, then
 	// inserts nothing if that transaction committed.
 	InsertIdempotencyKey(ctx context.Context, arg InsertIdempotencyKeyParams) (int64, error)
+	InsertManualCommunication(ctx context.Context, arg InsertManualCommunicationParams) (Communication, error)
 	InsertVideoRoom(ctx context.Context, arg InsertVideoRoomParams) (VideoRoom, error)
 	// LatestRescheduleRequest is the detail of the visitor's newest request.
 	LatestRescheduleRequest(ctx context.Context, appointmentID pgtype.UUID) ([]byte, error)

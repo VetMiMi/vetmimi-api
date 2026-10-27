@@ -25,6 +25,7 @@ output-options:
     - articles
     - media
     - connections
+    - communications
   # The WebSocket upgrade is a plain net/http handler, not a strict operation.
   exclude-operation-ids:
     - connectVideoRoom
@@ -32,6 +33,8 @@ output-options:
     - uploadMedia
     # The manual meeting link arrives with its own issue.
     - setAppointmentMeetingLink
+    # The admin reads an appointment's messages on its detail; no screen lists them all yet.
+    - listCommunications
 compatibility:
   # Keep each operationId as openapi.yaml spells it in the embedded spec, which
   # the operation index reads, so its ids match the contract and the docs.

@@ -1,9 +1,19 @@
 -- name: InsertCommunication :one
 INSERT INTO communications (
-    appointment_id, contact_enquiry_id, kind, audience, recipient, locale, scheduled_for, message
+    appointment_id, contact_enquiry_id, kind, audience, recipient, locale, scheduled_for, message,
+    resend_of, created_by
 ) VALUES (
     @appointment_id, @contact_enquiry_id, @kind, @audience, @recipient, @locale,
-    coalesce(sqlc.narg(scheduled_for)::timestamptz, now()), sqlc.narg(message)
+    coalesce(sqlc.narg(scheduled_for)::timestamptz, now()), sqlc.narg(message),
+    @resend_of, @created_by
+)
+RETURNING *;
+
+-- name: InsertManualCommunication :one
+INSERT INTO communications (
+    appointment_id, kind, audience, channel, locale, status, scheduled_for, sent_at, created_by, note
+) VALUES (
+    @appointment_id, @kind, 'visitor', 'manual', @locale, 'sent', @sent_at, @sent_at, @created_by, @note
 )
 RETURNING *;
 
