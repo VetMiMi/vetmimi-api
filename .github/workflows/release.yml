@@ -99,7 +99,22 @@ jobs:
       DEPLOY_HOST: ${{ secrets.DEPLOY_HOST }}
       SHA: ${{ needs.image.outputs.sha }}
     steps:
+      # Deploys wait their turn, so an older commit can reach the front after a
+      # newer one; only main's tip goes live, through its own release.
+      - name: Skip a commit that is no longer the tip of main
+        id: tip
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          tip=$(gh api "repos/$GITHUB_REPOSITORY/commits/main" --jq .sha)
+          if [ "$tip" = "$SHA" ]; then
+            echo "current=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "::notice::main is at $tip now; skipping $SHA"
+          fi
+
       - name: Check that a host is configured
+        if: steps.tip.outputs.current == 'true'
         id: host
         run: |
           if [ -n "$DEPLOY_HOST" ]; then
