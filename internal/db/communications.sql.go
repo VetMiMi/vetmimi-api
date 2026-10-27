@@ -132,10 +132,12 @@ func (q *Queries) GetCommunication(ctx context.Context, id pgtype.UUID) (Communi
 
 const insertCommunication = `-- name: InsertCommunication :one
 INSERT INTO communications (
-    appointment_id, contact_enquiry_id, kind, audience, recipient, locale, scheduled_for, message
+    appointment_id, contact_enquiry_id, kind, audience, recipient, locale, scheduled_for, message,
+    resend_of, created_by
 ) VALUES (
     $1, $2, $3, $4, $5, $6,
-    coalesce($7::timestamptz, now()), $8
+    coalesce($7::timestamptz, now()), $8,
+    $9, $10
 )
 RETURNING id, appointment_id, contact_enquiry_id, kind, audience, channel, recipient, locale, status, scheduled_for, sent_at, provider_message_id, error, attempts, resend_of, created_by, note, created_at, message
 `
@@ -149,6 +151,8 @@ type InsertCommunicationParams struct {
 	Locale           string
 	ScheduledFor     sql.NullTime
 	Message          pgtype.Text
+	ResendOf         pgtype.UUID
+	CreatedBy        pgtype.UUID
 }
 
 func (q *Queries) InsertCommunication(ctx context.Context, arg InsertCommunicationParams) (Communication, error) {
@@ -161,6 +165,60 @@ func (q *Queries) InsertCommunication(ctx context.Context, arg InsertCommunicati
 		arg.Locale,
 		arg.ScheduledFor,
 		arg.Message,
+		arg.ResendOf,
+		arg.CreatedBy,
+	)
+	var i Communication
+	err := row.Scan(
+		&i.ID,
+		&i.AppointmentID,
+		&i.ContactEnquiryID,
+		&i.Kind,
+		&i.Audience,
+		&i.Channel,
+		&i.Recipient,
+		&i.Locale,
+		&i.Status,
+		&i.ScheduledFor,
+		&i.SentAt,
+		&i.ProviderMessageID,
+		&i.Error,
+		&i.Attempts,
+		&i.ResendOf,
+		&i.CreatedBy,
+		&i.Note,
+		&i.CreatedAt,
+		&i.Message,
+	)
+	return i, err
+}
+
+const insertManualCommunication = `-- name: InsertManualCommunication :one
+INSERT INTO communications (
+    appointment_id, kind, audience, channel, locale, status, scheduled_for, sent_at, created_by, note
+) VALUES (
+    $1, $2, 'visitor', 'manual', $3, 'sent', $4, $4, $5, $6
+)
+RETURNING id, appointment_id, contact_enquiry_id, kind, audience, channel, recipient, locale, status, scheduled_for, sent_at, provider_message_id, error, attempts, resend_of, created_by, note, created_at, message
+`
+
+type InsertManualCommunicationParams struct {
+	AppointmentID pgtype.UUID
+	Kind          string
+	Locale        string
+	SentAt        time.Time
+	CreatedBy     pgtype.UUID
+	Note          pgtype.Text
+}
+
+func (q *Queries) InsertManualCommunication(ctx context.Context, arg InsertManualCommunicationParams) (Communication, error) {
+	row := q.db.QueryRow(ctx, insertManualCommunication,
+		arg.AppointmentID,
+		arg.Kind,
+		arg.Locale,
+		arg.SentAt,
+		arg.CreatedBy,
+		arg.Note,
 	)
 	var i Communication
 	err := row.Scan(

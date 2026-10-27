@@ -121,7 +121,12 @@ func skipReason(ctx context.Context, q *db.Queries, row db.Communication, s sett
 	if err != nil {
 		return "", err
 	}
-	return reminderSkip(appt, s.ReminderHours, row.ScheduledFor, now), nil
+	skip := reminderSkip(appt, s.ReminderHours, row.ScheduledFor, now)
+	// An admin's resend goes out at once, not at the reminder offset.
+	if skip == SkipSuperseded && row.ResendOf.Valid {
+		return "", nil
+	}
+	return skip, nil
 }
 
 func (t *Tasks) send(ctx context.Context, row db.Communication, email Email, now time.Time) (string, error) {
