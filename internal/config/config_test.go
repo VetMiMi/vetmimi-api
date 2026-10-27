@@ -58,6 +58,17 @@ func productionEnv() map[string]string {
 	}
 }
 
+// smtpEnv is production sending through Gmail instead of Resend.
+func smtpEnv() map[string]string {
+	env := with(productionEnv(), "RESEND_API_KEY", "")
+	env["EMAIL_PROVIDER"] = "smtp"
+	env["EMAIL_FROM"] = "VetMiMi <vetmimi@gmail.com>"
+	env["SMTP_HOST"] = "smtp.gmail.com"
+	env["SMTP_USERNAME"] = "vetmimi@gmail.com"
+	env["SMTP_PASSWORD"] = "app-password"
+	return env
+}
+
 func load(env map[string]string) (Config, error) {
 	return Load(func(name string) string { return env[name] })
 }
@@ -93,6 +104,17 @@ func TestLoadConfigDevelopmentDefaults(t *testing.T) {
 	require.Equal(t, "auto", c.MediaS3Region)
 	require.Empty(t, c.MetricsAddr)
 	require.Empty(t, c.ResendAPIKey)
+}
+
+func TestLoadConfigSMTP(t *testing.T) {
+	c, err := load(smtpEnv())
+	require.NoError(t, err, "SMTP needs no Resend key")
+
+	require.Equal(t, EmailSMTP, c.EmailProvider)
+	require.Equal(t, "smtp.gmail.com", c.SMTPHost)
+	require.Equal(t, 587, c.SMTPPort)
+	require.Equal(t, "vetmimi@gmail.com", c.SMTPUsername)
+	require.Equal(t, "app-password", c.SMTPPassword)
 }
 
 func TestLoadConfigNamesEachMissingRequiredVariable(t *testing.T) {
@@ -163,6 +185,11 @@ func TestLoadConfigRules(t *testing.T) {
 		{"metrics address with bad port", "METRICS_ADDR", "127.0.0.1:metrics", "METRICS_ADDR must be host:port", developmentEnv()},
 		{"meta app id without its secret", "META_APP_ID", "123", "META_APP_ID and META_APP_SECRET must be set together", developmentEnv()},
 		{"media access key without its secret", "MEDIA_S3_SECRET_KEY", "", "MEDIA_S3_ACCESS_KEY and MEDIA_S3_SECRET_KEY must be set together", productionEnv()},
+		{"unknown email provider", "EMAIL_PROVIDER", "mailgun", "EMAIL_PROVIDER must be resend or smtp", developmentEnv()},
+		{"smtp without a host", "SMTP_HOST", "", "SMTP_HOST is required when EMAIL_PROVIDER is smtp", smtpEnv()},
+		{"smtp without a username", "SMTP_USERNAME", "", "SMTP_USERNAME is required when EMAIL_PROVIDER is smtp", smtpEnv()},
+		{"smtp without a password", "SMTP_PASSWORD", "", "SMTP_PASSWORD is required when EMAIL_PROVIDER is smtp", smtpEnv()},
+		{"smtp port not a number", "SMTP_PORT", "gmail", "SMTP_PORT must be a port number from 1 to 65535", smtpEnv()},
 		{"linkedin client id without its secret", "LINKEDIN_CLIENT_ID", "abc", "LINKEDIN_CLIENT_ID and LINKEDIN_CLIENT_SECRET must be set together", developmentEnv()},
 	}
 	for _, tc := range cases {
@@ -212,7 +239,7 @@ func TestEnvExampleLeavesSecretsEmpty(t *testing.T) {
 	example := envExample(t)
 	for _, name := range []string{
 		"SERVICE_KEY", "SIGNING_SECRET", "TOTP_ENCRYPTION_KEY", "SITE_REVALIDATE_SECRET",
-		"RESEND_API_KEY", "MEDIA_S3_ACCESS_KEY", "MEDIA_S3_SECRET_KEY", "TURN_SECRET", "META_APP_SECRET",
+		"RESEND_API_KEY", "SMTP_PASSWORD", "MEDIA_S3_ACCESS_KEY", "MEDIA_S3_SECRET_KEY", "TURN_SECRET", "META_APP_SECRET",
 		"LINKEDIN_CLIENT_SECRET", "ANTHROPIC_API_KEY",
 	} {
 		require.Contains(t, example, name)

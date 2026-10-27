@@ -51,7 +51,7 @@ It is designed for its real scale: one practitioner, tens of appointments a mont
 | `internal/video/` | Video rooms, room tickets and the WebSocket signalling hub |
 | `internal/content/` | The publishing portal: posts, channel versions, workflow, publishing |
 | `internal/media/` | Image uploads, resizing and the S3 bucket |
-| `internal/comms/` | Email rows, templates, delivery through Resend, contact enquiries |
+| `internal/comms/` | Email rows, templates, delivery through Resend or SMTP, contact enquiries |
 | `internal/auth/` | Admin accounts, sign-in (password and TOTP), sessions, roles, lockout |
 | `internal/meta/`, `internal/linkedin/` | Connecting and posting to Facebook and Instagram, and to LinkedIn |
 | `internal/assistant/` | AI suggestions for posts through the Anthropic API |
@@ -149,7 +149,7 @@ Then fill in the tables in `internal/httpapi`:
 
 **Media and email**
 - **Image uploads** up to 20 MiB. EXIF data is stripped and the image is rotated upright, then resized to 1600, 800 and 400 px JPEGs in an S3-compatible bucket.
-- **Transactional email** through Resend: 12 kinds of message, each in English and Burmese, with appointment reminders.
+- **Transactional email** through Resend, or any SMTP server such as Gmail until the practice has a domain: 12 kinds of message, each in English and Burmese, with appointment reminders.
 
 **Admin auth**
 - **Sign-in needs** email, password (argon2id) and a **TOTP** code; accounts created with `--no-totp` sign in with the password alone until two-step setup moves into the admin website.
@@ -183,7 +183,7 @@ Then fill in the tables in `internal/httpapi`:
 | HTTP | chi, oapi-codegen (strict server from `openapi.yaml`), kin-openapi request validation, coder/websocket |
 | Data | PostgreSQL 17 (pgx, sqlc, goose migrations embedded in the binary), `btree_gist` exclusion constraints |
 | Jobs | Redis + asynq (email, reminders, hold expiry, publishing, sweeps, retention) |
-| Integrations | Resend (email), S3-compatible storage, coturn (TURN), Meta Graph API, LinkedIn API, Anthropic Messages API |
+| Integrations | Resend or SMTP (email), S3-compatible storage, coturn (TURN), Meta Graph API, LinkedIn API, Anthropic Messages API |
 | Security | argon2id, TOTP (pquerna/otp), AES-256-GCM for stored secrets (`secretbox`), HMAC-derived tokens |
 | Quality | `go test -race`, real-PostgreSQL integration tests, staticcheck, golden-file email templates |
 
@@ -242,7 +242,7 @@ It asks for a password twice, prints an `otpauth://` URI for your authenticator 
 | Group | Variables |
 |---|---|
 | Always required | `DATABASE_URL`, `REDIS_URL`, `SERVICE_KEY`, `SIGNING_SECRET` (32+ bytes), `TOTP_ENCRYPTION_KEY` (base64 of 32 bytes), `PUBLIC_API_URL`, `SITE_URL` |
-| Required in production | `SITE_REVALIDATE_SECRET`, `RESEND_API_KEY`, `EMAIL_FROM`, `MEDIA_S3_*`, `MEDIA_PUBLIC_URL`, `TURN_HOST`, `TURN_SECRET` |
+| Required in production | `SITE_REVALIDATE_SECRET`, `EMAIL_FROM`, `RESEND_API_KEY` (or `SMTP_HOST`, `SMTP_USERNAME`, `SMTP_PASSWORD` with `EMAIL_PROVIDER=smtp`), `MEDIA_S3_*`, `MEDIA_PUBLIC_URL`, `TURN_HOST`, `TURN_SECRET` |
 | Optional | `META_APP_ID` + `META_APP_SECRET`, `META_CONFIG_ID`, `LINKEDIN_CLIENT_ID` + `LINKEDIN_CLIENT_SECRET`, `ANTHROPIC_API_KEY`, `PORT`, `LOG_LEVEL` |
 | Tests | `DATABASE_URL_TEST`, `REDIS_URL_TEST` |
 

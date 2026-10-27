@@ -91,7 +91,8 @@ func TestAdminAppointmentLifecycle(t *testing.T) {
 	appt = decoded(t, http.StatusOK, a.sendJSON(http.MethodPost, path+"/confirm", token, `{"version": 1}`))
 	require.Equal(t, "confirmed", appt["status"])
 	require.NotContains(t, appt, "holdExpiresAt")
-	require.Equal(t, []string{"request_received", "booking_confirmed", "reminder"}, kinds(t, appt, "communications"))
+	// The confirmation is scheduled by the database's real clock, the reminder by the test's.
+	require.ElementsMatch(t, []string{"request_received", "booking_confirmed", "reminder"}, kinds(t, appt, "communications"))
 	room := appt["videoRoom"].(map[string]any)
 	require.Equal(t, "waiting", room["state"])
 	require.Equal(t, "2026-10-20T22:45:00Z", room["opensAt"])

@@ -17,6 +17,9 @@ import (
 const (
 	envDevelopment = "development"
 	envProduction  = "production"
+
+	EmailResend = "resend"
+	EmailSMTP   = "smtp"
 )
 
 // Config is every environment variable the process reads; docs/architecture.md
@@ -38,8 +41,14 @@ type Config struct {
 	SiteURL              string
 	SiteRevalidateSecret string
 
-	ResendAPIKey string
-	EmailFrom    string
+	// EmailProvider is resend or smtp; SMTP suits a Gmail app password until a domain exists.
+	EmailProvider string
+	ResendAPIKey  string
+	EmailFrom     string
+	SMTPHost      string
+	SMTPPort      int
+	SMTPUsername  string
+	SMTPPassword  string
 
 	MediaS3Endpoint string
 	MediaS3Region   string
@@ -103,8 +112,8 @@ func Load(getenv func(string) string) (Config, error) {
 		SiteURL:              l.required("SITE_URL"),
 		SiteRevalidateSecret: l.requiredInProduction("SITE_REVALIDATE_SECRET"),
 
-		ResendAPIKey: l.requiredInProduction("RESEND_API_KEY"),
-		EmailFrom:    l.requiredInProduction("EMAIL_FROM"),
+		EmailProvider: l.withDefault("EMAIL_PROVIDER", EmailResend),
+		EmailFrom:     l.requiredInProduction("EMAIL_FROM"),
 
 		MediaS3Endpoint:         l.requiredInProduction("MEDIA_S3_ENDPOINT"),
 		MediaS3Region:           l.withDefault("MEDIA_S3_REGION", "auto"),
@@ -147,6 +156,7 @@ func Load(getenv func(string) string) (Config, error) {
 	c.TOTPEncryptionKey = l.totpKey(totpKey)
 	l.serviceKey(c.ServiceKey)
 	l.emailAddress("EMAIL_FROM", c.EmailFrom)
+	l.email(&c)
 	l.hostPort("METRICS_ADDR", c.MetricsAddr)
 	if (c.MetaAppID == "") != (c.MetaAppSecret == "") {
 		l.fail("META_APP_ID", "and META_APP_SECRET must be set together")
@@ -199,6 +209,34 @@ func (l *loader) requiredInProduction(name string) string {
 		return l.required(name)
 	}
 	return l.optional(name)
+}
+
+func (l *loader) email(c *Config) {
+	c.ResendAPIKey = l.optional("RESEND_API_KEY")
+	c.SMTPHost = l.optional("SMTP_HOST")
+	smtpPort := l.withDefault("SMTP_PORT", "587")
+	c.SMTPUsername = l.optional("SMTP_USERNAME")
+	c.SMTPPassword = l.optional("SMTP_PASSWORD")
+
+	switch c.EmailProvider {
+	case EmailResend:
+		if l.production && c.ResendAPIKey == "" {
+			l.fail("RESEND_API_KEY", "is required")
+		}
+	case EmailSMTP:
+		c.SMTPPort = l.port("SMTP_PORT", smtpPort)
+		l.requiredForSMTP("SMTP_HOST", c.SMTPHost)
+		l.requiredForSMTP("SMTP_USERNAME", c.SMTPUsername)
+		l.requiredForSMTP("SMTP_PASSWORD", c.SMTPPassword)
+	default:
+		l.fail("EMAIL_PROVIDER", "must be resend or smtp")
+	}
+}
+
+func (l *loader) requiredForSMTP(name, v string) {
+	if v == "" {
+		l.fail(name, "is required when EMAIL_PROVIDER is smtp")
+	}
 }
 
 func (l *loader) port(name, v string) int {

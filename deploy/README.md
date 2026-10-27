@@ -132,7 +132,8 @@ In `.env`: `ECR_REGISTRY` from the output `ecr_registry`; `SITE_DOMAIN` and
 `SERVICE_KEY`, `SITE_REVALIDATE_SECRET` and `TURN_SECRET`.
 
 In `api.env`: `SIGNING_SECRET` (`openssl rand -hex 32`), `TOTP_ENCRYPTION_KEY`
-(`openssl rand -base64 32`), `RESEND_API_KEY`, `EMAIL_FROM`,
+(`openssl rand -base64 32`), `EMAIL_FROM` with either `RESEND_API_KEY` or
+`EMAIL_PROVIDER=smtp` and the `SMTP_*` values,
 `MEDIA_S3_ENDPOINT`, `MEDIA_S3_BUCKET` and `MEDIA_PUBLIC_URL` from the outputs,
 `MEDIA_S3_REGION=ap-southeast-2`, and the optional Meta, LinkedIn and
 Anthropic values. Leave `MEDIA_S3_ACCESS_KEY` and `MEDIA_S3_SECRET_KEY` empty:
