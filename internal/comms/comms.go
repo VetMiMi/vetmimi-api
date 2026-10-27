@@ -1,6 +1,6 @@
 // Package comms stores and sends the practice's emails. Queue writes a
 // communication row in the caller's transaction and returns a task; the
-// worker's Deliver renders the row's template and sends it through Resend.
+// worker's Deliver renders the row's template and sends it through Resend or SMTP.
 package comms
 
 import (

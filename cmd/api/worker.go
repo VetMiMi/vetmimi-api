@@ -31,6 +31,10 @@ func runWorker(ctx context.Context, log *slog.Logger, cfg config.Config, pool *p
 	if err != nil {
 		return err
 	}
+	var smtp *comms.SMTP
+	if cfg.EmailProvider == config.EmailSMTP {
+		smtp = &comms.SMTP{Host: cfg.SMTPHost, Port: cfg.SMTPPort, Username: cfg.SMTPUsername, Password: cfg.SMTPPassword}
+	}
 	current, err := settings.Load(ctx, db.New(pool))
 	if err != nil {
 		return err
@@ -47,7 +51,7 @@ func runWorker(ctx context.Context, log *slog.Logger, cfg config.Config, pool *p
 	})
 	w.Every("@hourly", taskCleanup)
 	(&comms.Tasks{
-		Pool: pool, Queue: tasks, Resend: resend, From: cfg.EmailFrom, SiteURL: cfg.SiteURL,
+		Pool: pool, Queue: tasks, SMTP: smtp, Resend: resend, From: cfg.EmailFrom, SiteURL: cfg.SiteURL,
 		SigningSecret: cfg.SigningSecret, Log: log, Now: time.Now,
 	}).Register(w)
 	(&booking.Tasks{Pool: pool, Queue: tasks, Log: log, Now: time.Now, Timezone: current.Timezone}).Register(w)

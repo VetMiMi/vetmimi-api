@@ -3,6 +3,9 @@ package comms
 import (
 	"context"
 	"errors"
+	"fmt"
+	"net"
+	"net/textproto"
 	"net/url"
 	"time"
 
@@ -30,11 +33,7 @@ func NewResend(apiKey, baseURL string) (*resend.Client, error) {
 }
 
 // The row id is the idempotency key, so a retry never sends twice.
-func (t *Tasks) send(ctx context.Context, row db.Communication, email Email) (string, error) {
-	if t.Resend == nil {
-		t.Log.InfoContext(ctx, "would send", "kind", row.Kind, "communication_id", row.ID.String())
-		return "dev", nil
-	}
+func (t *Tasks) sendResend(ctx context.Context, row db.Communication, email Email) (string, error) {
 	ctx, cancel := context.WithTimeout(ctx, sendTimeout)
 	defer cancel()
 	res, err := t.Resend.Emails.SendWithOptions(ctx, &resend.SendEmailRequest{
@@ -51,12 +50,16 @@ func (t *Tasks) send(ctx context.Context, row db.Communication, email Email) (st
 	return res.Id, nil
 }
 
-// errorCode replaces Resend's error text, which may quote the recipient.
+// errorCode replaces the provider's error text, which may quote the recipient.
 func errorCode(err error) string {
+	var smtpErr *textproto.Error
+	var netErr net.Error
 	switch {
+	case errors.As(err, &smtpErr):
+		return fmt.Sprintf("smtp_%d", smtpErr.Code)
 	case errors.Is(err, resend.ErrRateLimit):
 		return "provider_rate_limited"
-	case errors.Is(err, context.DeadlineExceeded):
+	case errors.Is(err, context.DeadlineExceeded), errors.As(err, &netErr) && netErr.Timeout():
 		return "provider_timeout"
 	default:
 		return "provider_error"

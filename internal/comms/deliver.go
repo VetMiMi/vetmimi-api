@@ -36,6 +36,7 @@ var emailsFailed = expvar.NewInt("emails_failed")
 type Tasks struct {
 	Pool          *pgxpool.Pool
 	Queue         *queue.Queue
+	SMTP          *SMTP          // set when EMAIL_PROVIDER is smtp
 	Resend        *resend.Client // nil in development: sends are only logged
 	From          string
 	SiteURL       string
@@ -123,8 +124,20 @@ func skipReason(ctx context.Context, q *db.Queries, row db.Communication, s sett
 	return reminderSkip(appt, s.ReminderHours, row.ScheduledFor, now), nil
 }
 
+func (t *Tasks) send(ctx context.Context, row db.Communication, email Email, now time.Time) (string, error) {
+	switch {
+	case t.SMTP != nil:
+		return t.SMTP.send(ctx, t.From, row, email, now)
+	case t.Resend != nil:
+		return t.sendResend(ctx, row, email)
+	default:
+		t.Log.InfoContext(ctx, "would send", "kind", row.Kind, "communication_id", row.ID.String())
+		return "dev", nil
+	}
+}
+
 func (t *Tasks) sendAndRecord(ctx context.Context, tx pgx.Tx, row db.Communication, email Email, now time.Time) error {
-	providerID, err := t.send(ctx, row, email)
+	providerID, err := t.send(ctx, row, email, now)
 	row.Attempts++
 	switch {
 	case err == nil:

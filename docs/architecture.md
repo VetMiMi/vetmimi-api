@@ -23,7 +23,7 @@ from database constraints and small transactions, not from clever Go.
 | **worker process** | The same binary with `--mode worker`. Runs the asynq server: email delivery, hold expiry, scheduled publishing, social channel publishing, site revalidation, sweeps and clean-up. Never serves HTTP. |
 | **PostgreSQL 17** | Every durable fact: settings, users, sessions, services, availability, appointments, communications, posts, media metadata. Enforces "no overlapping appointments" with an exclusion constraint (ADR-004). |
 | **Redis 7 + asynq** | Task queues (`critical`, `default`, `low`) and rate-limit counters. Losing Redis loses only queued tasks; sweepers rebuild them from PostgreSQL (ADR-006). |
-| **Resend** | Transactional email. Called only by the worker. |
+| **Resend** or **SMTP** | Transactional email, chosen by `EMAIL_PROVIDER`. Called only by the worker. |
 | **S3-compatible bucket** | Media originals (private prefix `originals/`) and web sizes (public prefix `public/`), served from `MEDIA_PUBLIC_URL`. The API writes them during the upload request. |
 | **coturn** | TURN relay on the live host for video sessions; the API mints time-limited credentials with the shared `TURN_SECRET` (ADR-007). |
 | **Next.js site** (`vetmimi-next`) | The browser's only HTTP origin (ADR-002). Its server components and route handlers call this API server-side with `X-Service-Key` (public routes) or `Authorization: Bearer` (admin routes). The API has no CORS. |
@@ -65,7 +65,7 @@ errors from `internal/apperr`. Only `httpapi` and `cmd/api` serve HTTP; `meta`,
 | `meta` | The Facebook Page connection (Facebook Login, the sealed Page token, the linked Instagram account) and the Graph API calls that post the facebook and instagram channels (docs/meta-setup.md). |
 | `linkedin` | The LinkedIn profile connection (OpenID Connect sign-in, the sealed member token and its expiry) and the Posts and Images API calls that post the linkedin channel (docs/linkedin-setup.md). |
 | `assistant` | The portal's AI helper: suggests Facebook, Instagram and LinkedIn versions, and translates the website version, from the post's own text through the Anthropic Messages API; saves nothing. |
-| `comms` | Communication records, templates (`comms/templates/<kind>.<locale>.tmpl`), delivery through Resend, the sweeper, contact enquiries. |
+| `comms` | Communication records, templates (`comms/templates/<kind>.<locale>.tmpl`), delivery through Resend or SMTP, the sweeper, contact enquiries. |
 | `db` | sqlc output (generated, committed) and `db/queries/*.sql`. |
 
 Domain functions that cause background work return the tasks to enqueue; the
@@ -419,8 +419,11 @@ values for secrets.
 | `PUBLIC_API_URL` | The API's public origin, used to build the `wss://` URL in room tickets. |
 | `SITE_URL` | The public site, for links in emails, the WebSocket `Origin` check and revalidation. |
 | `SITE_REVALIDATE_SECRET` | Shared with the site's `POST /api/revalidate`. |
-| `RESEND_API_KEY` | Resend API key. Empty in development: emails are logged as "would send" (kind and id only). |
-| `EMAIL_FROM` | Daw Mi's approved sender, e.g. `VetMiMi <hello@…>`. Reply-to is `settings.contact_email`. |
+| `EMAIL_PROVIDER` | `resend` (default; needs a verified domain) or `smtp` (e.g. Gmail with an app password). |
+| `RESEND_API_KEY` | Resend API key, required in production when the provider is `resend`. Empty in development: emails are logged as "would send" (kind and id only). |
+| `EMAIL_FROM` | Daw Mi's approved sender, e.g. `VetMiMi <hello@…>`; with Gmail, the Gmail address. Reply-to is `settings.contact_email`. |
+| `SMTP_HOST`, `SMTP_PORT` | Mail server when the provider is `smtp`, e.g. `smtp.gmail.com` and `587` (STARTTLS). |
+| `SMTP_USERNAME`, `SMTP_PASSWORD` | Sign-in for the mail server; for Gmail, the address and an app password. |
 | `MEDIA_S3_ENDPOINT` | S3-compatible endpoint. |
 | `MEDIA_S3_REGION` | Region name the provider expects. |
 | `MEDIA_S3_BUCKET` | Bucket for originals and derivatives. |
