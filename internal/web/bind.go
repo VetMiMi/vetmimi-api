@@ -15,6 +15,8 @@ import (
 	"github.com/gin-gonic/gin"
 	"github.com/gin-gonic/gin/binding"
 	"github.com/go-playground/validator/v10"
+	"github.com/google/uuid"
+	"github.com/jackc/pgx/v5/pgtype"
 
 	"github.com/VetMiMi/vetmimi-api/internal/apperr"
 )
@@ -68,6 +70,16 @@ func BindQuery(c *gin.Context, v any) bool {
 	return true
 }
 
+// PathUUID reads the path parameter name as a UUID. When it returns false it has answered 400.
+func PathUUID(c *gin.Context, name string) (pgtype.UUID, bool) {
+	id, err := uuid.Parse(c.Param(name))
+	if err != nil {
+		Error(c, apperr.Invalid("The request is not valid.", apperr.FieldError{Field: name, Message: "must be a valid uuid"}))
+		return pgtype.UUID{}, false
+	}
+	return pgtype.UUID{Bytes: id, Valid: true}, true
+}
+
 // invalid names each field that failed: as a JSON pointer in a body, by name in a query.
 // Messages come from the rule, never the error text, which can quote the value.
 func invalid(err error, prefix string) error {
@@ -109,7 +121,7 @@ func rule(fe validator.FieldError) string {
 		return "is required"
 	case "email":
 		return "must be a valid email"
-	case "uuid":
+	case "uuid", "uuid_rfc4122":
 		return "must be a valid uuid"
 	case "oneof":
 		return "must be one of: " + strings.ReplaceAll(fe.Param(), " ", ", ")
