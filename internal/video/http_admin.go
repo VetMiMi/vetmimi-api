@@ -38,8 +38,7 @@ func (h *Handler) startSession(c *gin.Context) {
 	c.JSON(http.StatusCreated, t)
 }
 
-// endSession closes both sockets. The appointment keeps its status until
-// Daw Mi marks it completed or a no-show.
+// The appointment keeps its status until Daw Mi marks it completed or a no-show.
 func (h *Handler) endSession(c *gin.Context) {
 	id, ok := web.PathUUID(c, "appointmentId")
 	if !ok {

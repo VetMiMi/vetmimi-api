@@ -29,9 +29,9 @@ func (h *Handler) Routes(r web.Routes) {
 	r.Public.GET("/public/sessions/:token", r.Limit(sessionLimit), h.getSession)
 	r.Public.POST("/public/sessions/:token/ticket", r.Limit(sessionLimit), h.createClientTicket)
 
-	admin := r.Admin.Group("", web.Role(auth.BookingAdmin))
-	admin.POST("/admin/appointments/:appointmentId/video-session", h.startSession)
-	admin.POST("/admin/appointments/:appointmentId/video-session/end", h.endSession)
+	bookingAdmin := web.Role(auth.BookingAdmin)
+	r.Admin.POST("/admin/appointments/:appointmentId/video-session", bookingAdmin, h.startSession)
+	r.Admin.POST("/admin/appointments/:appointmentId/video-session/end", bookingAdmin, h.endSession)
 
 	// The socket stays open for a whole session, so it skips the groups' deadline and body cap.
 	r.Root.GET("/video/rooms/:roomId/ws", h.checkRoomRequest, r.Limit(roomLimit), h.connectRoom)

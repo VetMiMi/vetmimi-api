@@ -39,9 +39,7 @@ func (h *Handler) connectRoom(c *gin.Context) {
 	h.joinRoom(c.Request.Context(), conn, roomID, c.Query("ticket"))
 }
 
-// joinRoom checks the ticket and the room after the upgrade and refuses with
-// close codes, because a browser cannot read why a handshake failed. Nothing
-// is relayed before both pass, and the ticket is never logged.
+// Refused with close codes after the upgrade: a browser cannot read why a handshake failed.
 func (h *Handler) joinRoom(ctx context.Context, conn *websocket.Conn, roomID pgtype.UUID, ticket string) {
 	now := h.Now()
 	role, err := VerifyTicket(h.Issuer.Secret, ticket, roomID, now)

@@ -15,8 +15,7 @@ import (
 	"github.com/VetMiMi/vetmimi-api/internal/video"
 )
 
-// dialRoom opens the room's socket through the whole router, which proves the
-// upgrade survives the request log and panic recovery.
+// dialRoom goes through the whole router, so the upgrade passes the request log and panic recovery.
 func dialRoom(t *testing.T, srv *httptest.Server, roomID, ticket, origin string) (*websocket.Conn, *http.Response, error) {
 	t.Helper()
 	u := "ws" + strings.TrimPrefix(srv.URL, "http") + "/video/rooms/" + roomID + "/ws?ticket=" + ticket
