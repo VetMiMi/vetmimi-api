@@ -28,9 +28,9 @@ func (h *authHandler) Routes(r web.Routes) {
 }
 
 type signInInput struct {
-	Email    string `json:"email" binding:"required,email,max=254"`
-	Password string `json:"password" binding:"required,min=12,max=200"`
-	TotpCode string `json:"totpCode" binding:"omitempty,totp"`
+	Email    string  `json:"email" binding:"required,email,max=254"`
+	Password string  `json:"password" binding:"required,min=12,max=200"`
+	TotpCode *string `json:"totpCode" binding:"omitnil,totp"`
 }
 
 type sessionCreated struct {
@@ -45,8 +45,12 @@ func (h *authHandler) signIn(c *gin.Context) {
 	if !web.BindJSON(c, &in) {
 		return
 	}
+	creds := auth.Credentials{Email: in.Email, Password: in.Password}
+	if in.TotpCode != nil {
+		creds.Code = *in.TotpCode
+	}
 	ctx := c.Request.Context()
-	signedIn, err := h.Sessions.SignIn(ctx, auth.Credentials{Email: in.Email, Password: in.Password, Code: in.TotpCode})
+	signedIn, err := h.Sessions.SignIn(ctx, creds)
 	var refused *apperr.Error
 	if errors.As(err, &refused) && refused.Code == apperr.RateLimited {
 		slog.WarnContext(ctx, "sign_in_locked", "request_id", web.RequestID(ctx), "email_hash", auth.EmailHashPrefix(in.Email))

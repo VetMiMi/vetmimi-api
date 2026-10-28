@@ -4,9 +4,12 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"maps"
 	"net/http"
 	"reflect"
 	"regexp"
+	"slices"
+	"strconv"
 	"strings"
 
 	"github.com/gin-gonic/gin"
@@ -38,12 +41,22 @@ func init() {
 }
 
 // BindJSON decodes and checks the body into v. When it returns false it has answered 400.
+// The body is kept, so a handler may bind it again into another shape.
 func BindJSON(c *gin.Context, v any) bool {
-	if err := c.ShouldBindJSON(v); err != nil {
-		Error(c, invalid(err, "/"))
-		return false
+	err := c.ShouldBindBodyWithJSON(v)
+	if err == nil {
+		return true
 	}
-	return true
+	if strings.HasPrefix(err.Error(), "json: unknown field ") {
+		body, _ := c.Get(gin.BodyBytesKey)
+		b, _ := body.([]byte)
+		err = apperr.Invalid("The request is not valid.",
+			apperr.FieldError{Field: unknownField(b, reflect.TypeOf(v)), Message: "is not an allowed property"})
+	} else {
+		err = invalid(err, "/")
+	}
+	Error(c, err)
+	return false
 }
 
 // BindQuery decodes and checks the query string into v. When it returns false it has answered 400.
@@ -73,9 +86,6 @@ func invalid(err error, prefix string) error {
 	case errors.As(err, &wrongType):
 		fields = append(fields, apperr.FieldError{Field: prefix + strings.ReplaceAll(wrongType.Field, ".", "/"),
 			Message: "must be of type " + jsonType(wrongType.Type)})
-	case strings.HasPrefix(err.Error(), "json: unknown field "):
-		name := strings.Trim(strings.TrimPrefix(err.Error(), "json: unknown field "), `"`)
-		fields = append(fields, apperr.FieldError{Field: prefix + name, Message: "is not an allowed property"})
 	default:
 		fields = append(fields, apperr.FieldError{Message: "is missing or malformed"})
 	}
@@ -135,6 +145,9 @@ func rule(fe validator.FieldError) string {
 
 func jsonType(t reflect.Type) string {
 	switch t.Kind() {
+	case reflect.Int, reflect.Int8, reflect.Int16, reflect.Int32, reflect.Int64,
+		reflect.Uint, reflect.Uint8, reflect.Uint16, reflect.Uint32, reflect.Uint64:
+		return "integer"
 	case reflect.String:
 		return "string"
 	case reflect.Bool:
@@ -145,4 +158,70 @@ func jsonType(t reflect.Type) string {
 		return "object"
 	}
 	return "number"
+}
+
+// unknownField is the JSON pointer of the first key in body that t has no field for:
+// encoding/json names the key but not the object it sits in.
+func unknownField(body []byte, t reflect.Type) string {
+	var doc any
+	_ = json.Unmarshal(body, &doc)
+	return findUnknown(doc, t, "")
+}
+
+func findUnknown(doc any, t reflect.Type, path string) string {
+	for t.Kind() == reflect.Pointer {
+		t = t.Elem()
+	}
+	switch doc := doc.(type) {
+	case map[string]any:
+		if t.Kind() != reflect.Struct {
+			return ""
+		}
+		for _, key := range slices.Sorted(maps.Keys(doc)) {
+			f, ok := fieldNamed(t, key)
+			if !ok {
+				return path + "/" + key
+			}
+			if p := findUnknown(doc[key], f.Type, path+"/"+key); p != "" {
+				return p
+			}
+		}
+	case []any:
+		if t.Kind() != reflect.Slice && t.Kind() != reflect.Array {
+			return ""
+		}
+		for i, item := range doc {
+			if p := findUnknown(item, t.Elem(), path+"/"+strconv.Itoa(i)); p != "" {
+				return p
+			}
+		}
+	}
+	return ""
+}
+
+// fieldNamed matches key the way encoding/json does: by tag or field name, ignoring case.
+func fieldNamed(t reflect.Type, key string) (reflect.StructField, bool) {
+	for i := range t.NumField() {
+		f := t.Field(i)
+		name, _, _ := strings.Cut(f.Tag.Get("json"), ",")
+		if f.Anonymous && name == "" {
+			embedded := f.Type
+			if embedded.Kind() == reflect.Pointer {
+				embedded = embedded.Elem()
+			}
+			if embedded.Kind() == reflect.Struct {
+				if inner, ok := fieldNamed(embedded, key); ok {
+					return inner, true
+				}
+				continue
+			}
+		}
+		if name == "" {
+			name = f.Name
+		}
+		if name != "-" && f.IsExported() && strings.EqualFold(name, key) {
+			return f, true
+		}
+	}
+	return reflect.StructField{}, false
 }

@@ -15,7 +15,6 @@ import (
 	"github.com/VetMiMi/vetmimi-api/internal/assistant"
 	"github.com/VetMiMi/vetmimi-api/internal/auth"
 	"github.com/VetMiMi/vetmimi-api/internal/booking"
-	"github.com/VetMiMi/vetmimi-api/internal/comms"
 	"github.com/VetMiMi/vetmimi-api/internal/config"
 	"github.com/VetMiMi/vetmimi-api/internal/httpapi"
 	"github.com/VetMiMi/vetmimi-api/internal/linkedin"
@@ -48,7 +47,7 @@ func runAPI(ctx context.Context, log *slog.Logger, cfg config.Config, pool *pgxp
 	r.GET("/healthz", healthz)
 	r.GET("/readyz", readyz(pool.Ping, pingRedis))
 	(&authHandler{Sessions: sessions}).Routes(routes)
-	(&settings.Handler{Pool: pool, Queue: tasks, Now: time.Now, Tasks: comms.ReminderRescheduleTasks}).Routes(routes)
+	(&settings.Handler{Pool: pool, Queue: tasks, Now: time.Now}).Routes(routes)
 	(&booking.Handler{Pool: pool, Secret: cfg.SigningSecret, Queue: tasks, Hub: hub, Now: time.Now}).Routes(routes)
 
 	// Routes not yet moved to Gin fall through to the generated router.

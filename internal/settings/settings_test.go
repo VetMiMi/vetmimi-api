@@ -154,3 +154,13 @@ func TestKeyNames(t *testing.T) {
 	require.Equal(t, "late_cancellation_first_waived", settings.Key("lateCancellationFirstWaived"))
 	require.Equal(t, "lateCancellationFirstWaived", settings.JSONName("late_cancellation_first_waived"))
 }
+
+func TestRescheduleTasks_OnlyWhenReminderHoursChanges(t *testing.T) {
+	now := time.Date(2026, 10, 11, 9, 0, 0, 0, time.UTC)
+	require.Empty(t, settings.RescheduleTasks(settings.Patch{"pending_hold_hours": []byte("12")}, now))
+
+	tasks := settings.RescheduleTasks(settings.Patch{"reminder_hours": []byte("48")}, now)
+	require.Len(t, tasks, 1)
+	require.Equal(t, settings.TaskRescheduleReminders, tasks[0].Type)
+	require.Equal(t, "reminders:1791709200000000000", tasks[0].ID)
+}

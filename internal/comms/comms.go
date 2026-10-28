@@ -16,12 +16,13 @@ import (
 
 	"github.com/VetMiMi/vetmimi-api/internal/db"
 	"github.com/VetMiMi/vetmimi-api/internal/queue"
+	"github.com/VetMiMi/vetmimi-api/internal/settings"
 )
 
 const (
 	TaskDeliver             = "comms:deliver"
 	TaskSweep               = "comms:sweep"
-	TaskRescheduleReminders = "comms:reschedule-reminders"
+	TaskRescheduleReminders = settings.TaskRescheduleReminders
 )
 
 type Kind string

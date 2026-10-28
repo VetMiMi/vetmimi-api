@@ -74,11 +74,14 @@ func TestHTTP_PatchSettingsRefusesBadBodies(t *testing.T) {
 
 	require.Equal(t, at("/timezone", "must be an IANA timezone name"), field(`{"timezone": "Mars/Olympus"}`))
 	require.Equal(t, at("/pendingHoldHours", "must be at least 1"), field(`{"pendingHoldHours": 0}`))
-	require.Equal(t, at("/pendingHoldHours", "must be of type number"), field(`{"pendingHoldHours": "72"}`))
+	require.Equal(t, at("/pendingHoldHours", "must be of type integer"), field(`{"pendingHoldHours": "72"}`))
+	require.Equal(t, at("/pendingHoldHours", "must be of type integer"), field(`{"pendingHoldHours": 1.5}`))
 	require.Equal(t, at("/paymentMethods", "must have at least 1 items"), field(`{"paymentMethods": []}`))
 	require.Equal(t, at("/paymentMethods", "must not repeat an item"), field(`{"paymentMethods": ["card", "card"]}`))
 	require.Equal(t, at("/paymentMethods/0", "must be one of: bank_transfer, card"), field(`{"paymentMethods": ["cash"]}`))
 	require.Equal(t, at("/colour", "is not an allowed property"), field(`{"colour": "rose"}`))
+	require.Equal(t, at("/responseTime/fr", "is not an allowed property"), field(`{"responseTime": {"en": "x", "fr": "y"}}`))
+	require.Equal(t, at("/timezone", "must not be null"), field(`{"reminderHours": 12, "timezone": null}`))
 	webtest.Refused(t, http.StatusBadRequest, "invalid_request", a.Admin(http.MethodPatch, "/admin/settings", token, `{}`))
 
 	after := webtest.JSON(t, http.StatusOK, a.Admin(http.MethodGet, "/admin/settings", token, ""))

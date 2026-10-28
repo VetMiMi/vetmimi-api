@@ -57,7 +57,11 @@ func insertAdmin(t *testing.T, secret []byte) (pgtype.UUID, string) {
 
 func signIn(t *testing.T, a *webtest.API, email, password, code string) *httptest.ResponseRecorder {
 	t.Helper()
-	body, err := json.Marshal(map[string]string{"email": email, "password": password, "totpCode": code})
+	fields := map[string]string{"email": email, "password": password}
+	if code != "" {
+		fields["totpCode"] = code
+	}
+	body, err := json.Marshal(fields)
 	require.NoError(t, err)
 	return a.Public(http.MethodPost, "/auth/sessions", string(body))
 }
@@ -113,6 +117,9 @@ func TestHTTP_SignInFailures(t *testing.T) {
 	p = webtest.Refused(t, http.StatusBadRequest, "invalid_request",
 		a.Public(http.MethodPost, "/auth/sessions", `{"email": "`+email+`", "password": "`+password+`", "remember": true}`))
 	require.Equal(t, "/remember", p["errors"].([]any)[0].(map[string]any)["field"])
+	p = webtest.Refused(t, http.StatusBadRequest, "invalid_request",
+		a.Public(http.MethodPost, "/auth/sessions", `{"email": "`+email+`", "password": "`+password+`", "totpCode": ""}`))
+	require.Equal(t, []any{map[string]any{"field": "/totpCode", "message": "must be six digits"}}, p["errors"])
 	webtest.Refused(t, http.StatusUnauthorized, "unauthenticated",
 		a.Send(http.MethodPost, "/auth/sessions", `{"email": "`+email+`", "password": "`+password+`"}`))
 

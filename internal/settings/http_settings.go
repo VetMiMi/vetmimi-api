@@ -10,6 +10,7 @@ import (
 
 	"github.com/gin-gonic/gin"
 
+	"github.com/VetMiMi/vetmimi-api/internal/apperr"
 	"github.com/VetMiMi/vetmimi-api/internal/auth"
 	"github.com/VetMiMi/vetmimi-api/internal/db"
 	"github.com/VetMiMi/vetmimi-api/internal/web"
@@ -52,35 +53,36 @@ func (h *Handler) getSettings(c *gin.Context) {
 	c.JSON(http.StatusOK, settingsView(current, session.User.Roles))
 }
 
-// patchInput holds the keys a patch sets; omitnil checks a value only when it is sent.
+// patchInput checks the keys a patch sets; omitnil checks a value only when it is sent.
 type patchInput struct {
-	Timezone                    *string    `json:"timezone,omitempty"`
-	BookingMode                 *string    `json:"bookingMode,omitempty" binding:"omitnil,oneof=request_approval instant"`
-	PublicBookingEnabled        *bool      `json:"publicBookingEnabled,omitempty"`
-	PendingHoldHours            *int       `json:"pendingHoldHours,omitempty" binding:"omitnil,min=1,max=168"`
-	ReminderHours               *int       `json:"reminderHours,omitempty" binding:"omitnil,min=1,max=168"`
-	MinNoticeHours              *int       `json:"minNoticeHours,omitempty" binding:"omitnil,min=0,max=720"`
-	MaxAdvanceDays              *int       `json:"maxAdvanceDays,omitempty" binding:"omitnil,min=1,max=365"`
-	SlotStepMinutes             *int       `json:"slotStepMinutes,omitempty" binding:"omitnil,min=5,max=120"`
-	CancellationNoticeHours     *int       `json:"cancellationNoticeHours,omitempty" binding:"omitnil,min=0,max=168"`
-	LateCancellationFeePercent  *int       `json:"lateCancellationFeePercent,omitempty" binding:"omitnil,min=0,max=100"`
-	LateCancellationFirstWaived *bool      `json:"lateCancellationFirstWaived,omitempty"`
-	NoShowFeePercent            *int       `json:"noShowFeePercent,omitempty" binding:"omitnil,min=0,max=100"`
-	MeetingLinkMode             *string    `json:"meetingLinkMode,omitempty" binding:"omitnil,oneof=vetmimi_room manual_link"`
-	PaymentMethods              []string   `json:"paymentMethods,omitempty" binding:"omitnil,min=1,unique,dive,oneof=bank_transfer card"`
-	InvoiceTiming               *string    `json:"invoiceTiming,omitempty" binding:"omitnil,oneof=after_session"`
-	RetentionMonths             *int       `json:"retentionMonths,omitempty" binding:"omitnil,min=6,max=120"`
-	ContactEmail                *string    `json:"contactEmail,omitempty" binding:"omitnil,email"`
-	ResponseTime                *Localized `json:"responseTime,omitempty"`
+	Timezone                    *string    `json:"timezone"`
+	BookingMode                 *string    `json:"bookingMode" binding:"omitnil,oneof=request_approval instant"`
+	PublicBookingEnabled        *bool      `json:"publicBookingEnabled"`
+	PendingHoldHours            *int       `json:"pendingHoldHours" binding:"omitnil,min=1,max=168"`
+	ReminderHours               *int       `json:"reminderHours" binding:"omitnil,min=1,max=168"`
+	MinNoticeHours              *int       `json:"minNoticeHours" binding:"omitnil,min=0,max=720"`
+	MaxAdvanceDays              *int       `json:"maxAdvanceDays" binding:"omitnil,min=1,max=365"`
+	SlotStepMinutes             *int       `json:"slotStepMinutes" binding:"omitnil,min=5,max=120"`
+	CancellationNoticeHours     *int       `json:"cancellationNoticeHours" binding:"omitnil,min=0,max=168"`
+	LateCancellationFeePercent  *int       `json:"lateCancellationFeePercent" binding:"omitnil,min=0,max=100"`
+	LateCancellationFirstWaived *bool      `json:"lateCancellationFirstWaived"`
+	NoShowFeePercent            *int       `json:"noShowFeePercent" binding:"omitnil,min=0,max=100"`
+	MeetingLinkMode             *string    `json:"meetingLinkMode" binding:"omitnil,oneof=vetmimi_room manual_link"`
+	PaymentMethods              []string   `json:"paymentMethods" binding:"omitnil,min=1,unique,dive,oneof=bank_transfer card"`
+	InvoiceTiming               *string    `json:"invoiceTiming" binding:"omitnil,oneof=after_session"`
+	RetentionMonths             *int       `json:"retentionMonths" binding:"omitnil,min=6,max=120"`
+	ContactEmail                *string    `json:"contactEmail" binding:"omitnil,email"`
+	ResponseTime                *Localized `json:"responseTime"`
 }
 
 // updateSettings applies all of the patch or none of it.
 func (h *Handler) updateSettings(c *gin.Context) {
 	var in patchInput
-	if !web.BindJSON(c, &in) {
+	var sent map[string]json.RawMessage
+	if !web.BindJSON(c, &in) || !web.BindJSON(c, &sent) {
 		return
 	}
-	patch, err := in.patch()
+	patch, err := patchOf(sent)
 	if err != nil {
 		web.Error(c, err)
 		return
@@ -93,27 +95,27 @@ func (h *Handler) updateSettings(c *gin.Context) {
 		web.Error(c, err)
 		return
 	}
-	if h.Queue != nil && h.Tasks != nil {
-		h.Queue.Enqueue(ctx, h.Tasks(patch, now)...)
+	if h.Queue != nil {
+		h.Queue.Enqueue(ctx, RescheduleTasks(patch, now)...)
 	}
 	slog.InfoContext(ctx, "settings_changed", "request_id", web.RequestID(ctx),
 		"user_id", session.User.ID.String(), "keys", slices.Sorted(maps.Keys(patch)))
 	c.JSON(http.StatusOK, settingsView(updated, session.User.Roles))
 }
 
-// patch keys each value the body sets by its table key.
-func (in patchInput) patch() (Patch, error) {
-	body, err := json.Marshal(in)
-	if err != nil {
-		return nil, err
+// patchOf keys each value sent by its table key. A null is refused: no setting can be cleared.
+func patchOf(sent map[string]json.RawMessage) (Patch, error) {
+	patch := make(Patch, len(sent))
+	var nulls []apperr.FieldError
+	for _, name := range slices.Sorted(maps.Keys(sent)) {
+		if string(sent[name]) == "null" {
+			nulls = append(nulls, apperr.FieldError{Field: "/" + name, Message: "must not be null"})
+			continue
+		}
+		patch[Key(name)] = sent[name]
 	}
-	var fields map[string]json.RawMessage
-	if err := json.Unmarshal(body, &fields); err != nil {
-		return nil, err
-	}
-	patch := make(Patch, len(fields))
-	for name, value := range fields {
-		patch[Key(name)] = value
+	if nulls != nil {
+		return nil, apperr.Invalid("The request is not valid.", nulls...)
 	}
 	return patch, nil
 }

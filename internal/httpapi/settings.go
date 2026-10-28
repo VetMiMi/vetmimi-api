@@ -9,7 +9,6 @@ import (
 	openapi_types "github.com/oapi-codegen/runtime/types"
 
 	"github.com/VetMiMi/vetmimi-api/internal/auth"
-	"github.com/VetMiMi/vetmimi-api/internal/comms"
 	"github.com/VetMiMi/vetmimi-api/internal/db"
 	"github.com/VetMiMi/vetmimi-api/internal/httpapi/gen"
 	"github.com/VetMiMi/vetmimi-api/internal/settings"
@@ -37,7 +36,7 @@ func (s *server) UpdateSettings(ctx context.Context, req gen.UpdateSettingsReque
 	if err != nil {
 		return nil, err
 	}
-	s.enqueue(ctx, comms.ReminderRescheduleTasks(patch, now)...)
+	s.enqueue(ctx, settings.RescheduleTasks(patch, now)...)
 	s.Log.InfoContext(ctx, "settings_changed", "request_id", RequestID(ctx),
 		"user_id", session.User.ID.String(), "keys", slices.Sorted(maps.Keys(patch)))
 	return gen.UpdateSettings200JSONResponse(settingsView(updated, session.User.Roles)), nil
