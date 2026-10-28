@@ -11,10 +11,13 @@ import (
 	"slices"
 	"strconv"
 	"strings"
+	"time"
 
 	"github.com/gin-gonic/gin"
 	"github.com/gin-gonic/gin/binding"
 	"github.com/go-playground/validator/v10"
+	"github.com/google/uuid"
+	"github.com/jackc/pgx/v5/pgtype"
 
 	"github.com/VetMiMi/vetmimi-api/internal/apperr"
 )
@@ -68,6 +71,21 @@ func BindQuery(c *gin.Context, v any) bool {
 	return true
 }
 
+// PathUUID reads the path parameter name as a UUID. When it returns false it has answered 400.
+func PathUUID(c *gin.Context, name string) (pgtype.UUID, bool) {
+	return ParseUUID(c, name, c.Param(name))
+}
+
+// ParseUUID reads value, from the request's field, as a UUID. When it returns false it has answered 400.
+func ParseUUID(c *gin.Context, field, value string) (pgtype.UUID, bool) {
+	id, err := uuid.Parse(value)
+	if err != nil {
+		Error(c, apperr.Invalid("The request is not valid.", apperr.FieldError{Field: field, Message: "must be a valid uuid"}))
+		return pgtype.UUID{}, false
+	}
+	return pgtype.UUID{Bytes: id, Valid: true}, true
+}
+
 // invalid names each field that failed: as a JSON pointer in a body, by name in a query.
 // Messages come from the rule, never the error text, which can quote the value.
 func invalid(err error, prefix string) error {
@@ -111,6 +129,11 @@ func rule(fe validator.FieldError) string {
 		return "must be a valid email"
 	case "uuid":
 		return "must be a valid uuid"
+	case "datetime":
+		if fe.Param() == time.DateOnly {
+			return "must be a valid date"
+		}
+		return "must be a valid date-time"
 	case "oneof":
 		return "must be one of: " + strings.ReplaceAll(fe.Param(), " ", ", ")
 	case "slug":
