@@ -22,6 +22,7 @@ import (
 	"github.com/VetMiMi/vetmimi-api/internal/meta"
 	"github.com/VetMiMi/vetmimi-api/internal/queue"
 	"github.com/VetMiMi/vetmimi-api/internal/ratelimit"
+	"github.com/VetMiMi/vetmimi-api/internal/settings"
 	"github.com/VetMiMi/vetmimi-api/internal/video"
 	"github.com/VetMiMi/vetmimi-api/internal/web"
 )
@@ -42,12 +43,17 @@ func runAPI(ctx context.Context, log *slog.Logger, cfg config.Config, pool *pgxp
 
 	r := web.NewRouter()
 	routes := web.NewRoutes(r, cfg.ServiceKey, sessions, web.NewLimiter(counter))
+	pingRedis := func(ctx context.Context) error { return rdb.Ping(ctx).Err() }
+	r.GET("/healthz", healthz)
+	r.GET("/readyz", readyz(pool.Ping, pingRedis))
+	(&authHandler{Sessions: sessions}).Routes(routes)
+	(&settings.Handler{Pool: pool, Queue: tasks, Now: time.Now}).Routes(routes)
 	(&booking.Handler{Pool: pool, Secret: cfg.SigningSecret, Queue: tasks, Hub: hub, Now: time.Now}).Routes(routes)
 
 	// Routes not yet moved to Gin fall through to the generated router.
 	r.NoRoute(gin.WrapH(httpapi.NewRouter(httpapi.Deps{
 		PingPostgres:   pool.Ping,
-		PingRedis:      func(ctx context.Context) error { return rdb.Ping(ctx).Err() },
+		PingRedis:      pingRedis,
 		Log:            log,
 		ServiceKey:     cfg.ServiceKey,
 		RateLimits:     httpapi.NewRateLimits(counter, log, time.Now),

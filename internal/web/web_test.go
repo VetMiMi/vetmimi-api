@@ -69,6 +69,9 @@ func TestBindJSONNamesEachFieldAsAPointer(t *testing.T) {
 
 	p = problem(t, send(r, http.MethodPost, "/things", `{"name": "Mi", "extra": 1}`), http.StatusBadRequest, "invalid_request")
 	require.Equal(t, []any{map[string]any{"field": "/extra", "message": "is not an allowed property"}}, p["errors"])
+	p = problem(t, send(r, http.MethodPost, "/things", `{"name": "Mi", "periods": [{"start": "09:00", "end": "10:00"}]}`),
+		http.StatusBadRequest, "invalid_request")
+	require.Equal(t, []any{map[string]any{"field": "/periods/0/end", "message": "is not an allowed property"}}, p["errors"])
 
 	problem(t, send(r, http.MethodPost, "/things", `{"name": "`+strings.Repeat("x", 200)+`"}`),
 		http.StatusRequestEntityTooLarge, "payload_too_large")

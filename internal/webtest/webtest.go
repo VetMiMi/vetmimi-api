@@ -17,6 +17,7 @@ import (
 
 	"github.com/gin-gonic/gin"
 	"github.com/jackc/pgx/v5/pgtype"
+	"github.com/redis/go-redis/v9"
 	"github.com/stretchr/testify/require"
 
 	"github.com/VetMiMi/vetmimi-api/internal/auth"
@@ -51,16 +52,27 @@ func New(t *testing.T, register func(web.Routes)) *API {
 	slog.SetDefault(slog.New(slog.NewJSONHandler(a.Logs, nil)))
 	t.Cleanup(func() { slog.SetDefault(old) })
 
-	codes, err := auth.NewTOTP(bytes.Repeat([]byte{7}, 32), Clock)
-	require.NoError(t, err)
-	sessions, err := auth.NewSessions(pgtest.Pool(t), codes, nil, Clock)
-	require.NoError(t, err)
-	register(web.NewRoutes(a.Router, ServiceKey, sessions, web.NewLimiter(liveCounter(t))))
+	rdb, prefix := liveRedis(t)
+	register(web.NewRoutes(a.Router, ServiceKey, Sessions(t), web.NewLimiter(ratelimit.New(rdb, prefix, Clock))))
 	return a
 }
 
-// liveCounter counts under a prefix of its own and deletes its keys afterwards.
-func liveCounter(t *testing.T) *ratelimit.Limiter {
+// TOTPKey seals the TOTP secrets of the users Sessions signs in.
+var TOTPKey = bytes.Repeat([]byte{7}, 32)
+
+// Sessions signs users in on the test database, counting failures on REDIS_URL_TEST.
+func Sessions(t *testing.T) *auth.Sessions {
+	t.Helper()
+	codes, err := auth.NewTOTP(TOTPKey, Clock)
+	require.NoError(t, err)
+	rdb, prefix := liveRedis(t)
+	sessions, err := auth.NewSessions(pgtest.Pool(t), codes, auth.NewLockout(rdb, prefix, Clock), Clock)
+	require.NoError(t, err)
+	return sessions
+}
+
+// liveRedis gives a test a key prefix of its own and deletes its keys afterwards.
+func liveRedis(t *testing.T) (*redis.Client, string) {
 	rdb := redistest.Client(t)
 	b := make([]byte, 6)
 	_, _ = rand.Read(b)
@@ -71,7 +83,7 @@ func liveCounter(t *testing.T) *ratelimit.Limiter {
 			rdb.Del(context.Background(), keys...)
 		}
 	})
-	return ratelimit.New(rdb, prefix, Clock)
+	return rdb, prefix
 }
 
 // Public calls as the website's server does, with the service key and a visitor address.
