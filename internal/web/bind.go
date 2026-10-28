@@ -32,6 +32,9 @@ func init() {
 		if name == "" {
 			name, _, _ = strings.Cut(f.Tag.Get("form"), ",")
 		}
+		if name == "" {
+			name = f.Tag.Get("uri")
+		}
 		return name
 	})
 	pattern := func(re *regexp.Regexp) validator.Func {
@@ -84,6 +87,15 @@ func ParseUUID(c *gin.Context, field, value string) (pgtype.UUID, bool) {
 		return pgtype.UUID{}, false
 	}
 	return pgtype.UUID{Bytes: id, Valid: true}, true
+}
+
+// BindURI checks the path parameters into v. When it returns false it has answered 400.
+func BindURI(c *gin.Context, v any) bool {
+	if err := c.ShouldBindUri(v); err != nil {
+		Error(c, invalid(err, ""))
+		return false
+	}
+	return true
 }
 
 // invalid names each field that failed: as a JSON pointer in a body, by name in a query.
