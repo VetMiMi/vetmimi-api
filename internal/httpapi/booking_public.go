@@ -199,7 +199,7 @@ func managedView(m booking.Managed) gen.ManagedAppointment {
 	return gen.ManagedAppointment{
 		Reference:               m.Reference,
 		Status:                  gen.AppointmentStatus(m.Status),
-		Service:                 gen.PublicServiceRef{Slug: m.ServiceSlug, Name: m.ServiceName},
+		Service:                 gen.PublicServiceRef{Slug: m.Service.Slug, Name: m.Service.Name},
 		StartsAt:                m.StartsAt,
 		EndsAt:                  m.EndsAt,
 		DurationMinutes:         m.DurationMinutes,

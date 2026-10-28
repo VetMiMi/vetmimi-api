@@ -44,17 +44,17 @@ type Request struct {
 
 // Receipt's JSON is the stored idempotent response, so it matches AppointmentRequestReceipt.
 type Receipt struct {
-	Reference       string         `json:"reference"`
-	Status          Status         `json:"status"`
-	Service         ReceiptService `json:"service"`
-	StartsAt        time.Time      `json:"startsAt"`
-	EndsAt          time.Time      `json:"endsAt"`
-	DurationMinutes int            `json:"durationMinutes"`
-	Timezone        string         `json:"timezone"`
-	Format          string         `json:"format"`
+	Reference       string     `json:"reference"`
+	Status          Status     `json:"status"`
+	Service         ServiceRef `json:"service"`
+	StartsAt        time.Time  `json:"startsAt"`
+	EndsAt          time.Time  `json:"endsAt"`
+	DurationMinutes int        `json:"durationMinutes"`
+	Timezone        string     `json:"timezone"`
+	Format          string     `json:"format"`
 }
 
-type ReceiptService struct {
+type ServiceRef struct {
 	Slug string `json:"slug"`
 	Name string `json:"name"`
 }
@@ -152,7 +152,7 @@ func receiptOf(appt db.Appointment, svc db.Service, locale string) Receipt {
 	return Receipt{
 		Reference:       appt.Reference,
 		Status:          Status(appt.Status),
-		Service:         ReceiptService{Slug: svc.Slug, Name: inLocale(svc.Name, locale)},
+		Service:         ServiceRef{Slug: svc.Slug, Name: inLocale(svc.Name, locale)},
 		StartsAt:        appt.StartsAt.UTC(),
 		EndsAt:          appt.EndsAt.UTC(),
 		DurationMinutes: int(appt.DurationMinutes),
