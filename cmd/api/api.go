@@ -44,6 +44,8 @@ func runAPI(ctx context.Context, log *slog.Logger, cfg config.Config, pool *pgxp
 	counter := ratelimit.New(rdb, "", time.Now)
 	store := media.NewStore(cfg)
 	ai := assistant.New(cfg, log)
+	metaConnector := meta.New(cfg, pool, codes.Box, log)
+	linkedInConnector := linkedin.New(cfg, pool, codes.Box, log)
 
 	r := web.NewRouter()
 	routes := web.NewRoutes(r, cfg.ServiceKey, sessions, web.NewLimiter(counter))
@@ -60,6 +62,8 @@ func runAPI(ctx context.Context, log *slog.Logger, cfg config.Config, pool *pgxp
 	(&media.Handler{Pool: pool, Store: store, PublicURL: cfg.MediaPublicURL, Now: time.Now}).Routes(routes)
 	(&content.Handler{Pool: pool, Queue: tasks, MediaPublicURL: cfg.MediaPublicURL, Now: time.Now}).Routes(routes)
 	(&assistant.Handler{Pool: pool, Client: ai}).Routes(routes)
+	(&meta.Handler{Connector: metaConnector, Now: time.Now}).Routes(routes)
+	(&linkedin.Handler{Connector: linkedInConnector, Now: time.Now}).Routes(routes)
 
 	// Routes not yet moved to Gin fall through to the generated router.
 	r.NoRoute(gin.WrapH(httpapi.NewRouter(httpapi.Deps{
@@ -79,8 +83,8 @@ func runAPI(ctx context.Context, log *slog.Logger, cfg config.Config, pool *pgxp
 		Hub:            hub,
 		Media:          store,
 		MediaPublicURL: cfg.MediaPublicURL,
-		Meta:           meta.New(cfg, pool, codes.Box, log),
-		LinkedIn:       linkedin.New(cfg, pool, codes.Box, log),
+		Meta:           metaConnector,
+		LinkedIn:       linkedInConnector,
 		Assistant:      ai,
 		Now:            time.Now,
 	})))
