@@ -138,7 +138,7 @@ func TestHTTP_AvailabilityBlockListsConflicts(t *testing.T) {
 	a := bookingAPI(t)
 	token := webtest.SignIn(t, "booking_admin")
 	appt, _ := booked(t, booking.Pending)
-	day := appt.StartsAt.Format(time.DateOnly)
+	day := appt.StartsAt.In(sydney).Format(time.DateOnly) // the list takes practice-local dates
 	body := `{"startsAt": "` + appt.StartsAt.Add(-time.Hour).UTC().Format(time.RFC3339) + `", "endsAt": "` +
 		appt.StartsAt.Add(2*time.Hour).UTC().Format(time.RFC3339) + `", "allDay": true, "reason": "Private family matter"}`
 
