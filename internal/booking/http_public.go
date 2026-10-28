@@ -8,9 +8,7 @@ import (
 	"time"
 
 	"github.com/gin-gonic/gin"
-	"github.com/google/uuid"
 
-	"github.com/VetMiMi/vetmimi-api/internal/apperr"
 	"github.com/VetMiMi/vetmimi-api/internal/db"
 	"github.com/VetMiMi/vetmimi-api/internal/web"
 )
@@ -102,10 +100,8 @@ type requestInput struct {
 // requestAppointment stores a visitor's request, then queues its emails and hold expiry.
 // The receipt never carries the id or the management token.
 func (h *Handler) requestAppointment(c *gin.Context) {
-	key, err := uuid.Parse(c.GetHeader("Idempotency-Key"))
-	if err != nil {
-		web.Error(c, apperr.Invalid("Idempotency-Key must be a UUID.",
-			apperr.FieldError{Field: "Idempotency-Key", Message: "must be a valid uuid"}))
+	key, ok := web.ParseUUID(c, "Idempotency-Key", c.GetHeader("Idempotency-Key"))
+	if !ok {
 		return
 	}
 	var in requestInput

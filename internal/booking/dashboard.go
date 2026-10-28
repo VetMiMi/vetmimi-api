@@ -35,11 +35,11 @@ type DashboardData struct {
 
 // AttentionItem is one thing waiting on Daw Mi; Detail never names the visitor.
 type AttentionItem struct {
-	Kind          string
-	AppointmentID pgtype.UUID
-	Reference     string
-	StartsAt      time.Time
-	Detail        string
+	Kind          string      `json:"kind"`
+	AppointmentID pgtype.UUID `json:"appointmentId"`
+	Reference     string      `json:"reference"`
+	StartsAt      time.Time   `json:"startsAt"`
+	Detail        string      `json:"detail"`
 }
 
 func Dashboard(ctx context.Context, q db.Querier, now time.Time) (DashboardData, error) {
@@ -99,7 +99,7 @@ func attention(ctx context.Context, q db.Querier, now time.Time) ([]AttentionIte
 	}
 	items := make([]AttentionItem, len(rows))
 	for i, r := range rows {
-		items[i] = AttentionItem{Kind: r.Kind, AppointmentID: r.ID, Reference: r.Reference, StartsAt: r.StartsAt,
+		items[i] = AttentionItem{Kind: r.Kind, AppointmentID: r.ID, Reference: r.Reference, StartsAt: r.StartsAt.UTC(),
 			Detail: attentionDetail(r, now)}
 	}
 	return items, nil
