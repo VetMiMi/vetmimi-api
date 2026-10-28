@@ -30,7 +30,7 @@ func init() {
 	v.RegisterTagNameFunc(func(f reflect.StructField) string {
 		name, _, _ := strings.Cut(f.Tag.Get("json"), ",")
 		if name == "" {
-			name = f.Tag.Get("form")
+			name, _, _ = strings.Cut(f.Tag.Get("form"), ",")
 		}
 		return name
 	})
@@ -64,11 +64,42 @@ func BindJSON(c *gin.Context, v any) bool {
 
 // BindQuery decodes and checks the query string into v. When it returns false it has answered 400.
 func BindQuery(c *gin.Context, v any) bool {
-	if err := c.ShouldBindQuery(v); err != nil {
-		Error(c, invalid(err, ""))
-		return false
+	err := c.ShouldBindQuery(v)
+	if err == nil {
+		return true
 	}
-	return true
+	// gin's number errors carry the value but not the field, so find the key that holds it.
+	var num *strconv.NumError
+	if errors.As(err, &num) {
+		err = apperr.Invalid("The request is not valid.",
+			apperr.FieldError{Field: queryKey(c, num.Num), Message: "must be of type " + numType(num.Func)})
+	} else {
+		err = invalid(err, "")
+	}
+	Error(c, err)
+	return false
+}
+
+func queryKey(c *gin.Context, value string) string {
+	query := c.Request.URL.Query()
+	for _, key := range slices.Sorted(maps.Keys(query)) {
+		for _, v := range query[key] {
+			if strings.TrimSpace(v) == value {
+				return key
+			}
+		}
+	}
+	return ""
+}
+
+func numType(parse string) string {
+	switch parse {
+	case "ParseBool":
+		return "boolean"
+	case "ParseFloat":
+		return "number"
+	}
+	return "integer"
 }
 
 // PathUUID reads the path parameter name as a UUID. When it returns false it has answered 400.

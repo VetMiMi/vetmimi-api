@@ -77,6 +77,26 @@ func TestBindJSONNamesEachFieldAsAPointer(t *testing.T) {
 		http.StatusRequestEntityTooLarge, "payload_too_large")
 }
 
+type query struct {
+	Limit int `form:"limit,default=50" binding:"min=1,max=100"`
+}
+
+func TestBindQueryNamesEachField(t *testing.T) {
+	r := web.NewRouter()
+	r.GET("/things", func(c *gin.Context) {
+		var q query
+		if web.BindQuery(c, &q) {
+			c.JSON(http.StatusOK, q.Limit)
+		}
+	})
+
+	require.Equal(t, "50", send(r, http.MethodGet, "/things", "").Body.String())
+	p := problem(t, send(r, http.MethodGet, "/things?limit=0", ""), http.StatusBadRequest, "invalid_request")
+	require.Equal(t, []any{map[string]any{"field": "limit", "message": "must be at least 1"}}, p["errors"])
+	p = problem(t, send(r, http.MethodGet, "/things?limit=abc", ""), http.StatusBadRequest, "invalid_request")
+	require.Equal(t, []any{map[string]any{"field": "limit", "message": "must be of type integer"}}, p["errors"])
+}
+
 func TestErrorHidesUntypedErrors(t *testing.T) {
 	r := web.NewRouter()
 	r.GET("/typed", func(c *gin.Context) {
