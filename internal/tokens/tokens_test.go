@@ -10,7 +10,7 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-// The SessionCreated.token pattern in openapi.yaml.
+// The session token shape the site relies on.
 var sessionTokenPattern = regexp.MustCompile(`^vms_[A-Za-z0-9_-]{43}$`)
 
 func TestSessionTokensMatchTheContract(t *testing.T) {

@@ -246,7 +246,7 @@ func JSONName(key string) string {
 }
 
 // key is one settings key: who may change it and the rule its value must
-// meet, with the same bounds as openapi.yaml.
+// meet.
 type key struct {
 	name  string
 	group Group

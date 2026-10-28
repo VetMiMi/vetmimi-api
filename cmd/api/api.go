@@ -8,7 +8,6 @@ import (
 	"strconv"
 	"time"
 
-	"github.com/gin-gonic/gin"
 	"github.com/jackc/pgx/v5/pgxpool"
 	"github.com/redis/go-redis/v9"
 
@@ -18,7 +17,6 @@ import (
 	"github.com/VetMiMi/vetmimi-api/internal/comms"
 	"github.com/VetMiMi/vetmimi-api/internal/config"
 	"github.com/VetMiMi/vetmimi-api/internal/content"
-	"github.com/VetMiMi/vetmimi-api/internal/httpapi"
 	"github.com/VetMiMi/vetmimi-api/internal/linkedin"
 	"github.com/VetMiMi/vetmimi-api/internal/media"
 	"github.com/VetMiMi/vetmimi-api/internal/meta"
@@ -41,17 +39,12 @@ func runAPI(ctx context.Context, log *slog.Logger, cfg config.Config, pool *pgxp
 	}
 	hub := video.NewHub(pool, log, time.Now)
 	tasks := queue.New(rdb, log)
-	counter := ratelimit.New(rdb, "", time.Now)
-	store := media.NewStore(cfg)
-	ai := assistant.New(cfg, log)
-	metaConnector := meta.New(cfg, pool, codes.Box, log)
-	linkedInConnector := linkedin.New(cfg, pool, codes.Box, log)
 
 	r := web.NewRouter()
-	routes := web.NewRoutes(r, cfg.ServiceKey, sessions, web.NewLimiter(counter))
-	pingRedis := func(ctx context.Context) error { return rdb.Ping(ctx).Err() }
 	r.GET("/healthz", healthz)
-	r.GET("/readyz", readyz(pool.Ping, pingRedis))
+	r.GET("/readyz", readyz(pool.Ping, func(ctx context.Context) error { return rdb.Ping(ctx).Err() }))
+
+	routes := web.NewRoutes(r, cfg.ServiceKey, sessions, web.NewLimiter(ratelimit.New(rdb, "", time.Now)))
 	(&authHandler{Sessions: sessions}).Routes(routes)
 	(&settings.Handler{Pool: pool, Queue: tasks, Now: time.Now}).Routes(routes)
 	(&booking.Handler{Pool: pool, Secret: cfg.SigningSecret, Queue: tasks, Hub: hub, Now: time.Now}).Routes(routes)
@@ -59,35 +52,12 @@ func runAPI(ctx context.Context, log *slog.Logger, cfg config.Config, pool *pgxp
 	(&video.Handler{Pool: pool, Hub: hub, SiteURL: cfg.SiteURL, Now: time.Now, Issuer: video.Issuer{
 		Secret: cfg.SigningSecret, PublicAPIURL: cfg.PublicAPIURL, TURNHost: cfg.TURNHost, TURNSecret: cfg.TURNSecret,
 	}}).Routes(routes)
-	(&media.Handler{Pool: pool, Store: store, PublicURL: cfg.MediaPublicURL, Now: time.Now}).Routes(routes)
+	(&media.Handler{Pool: pool, Store: media.NewStore(cfg), PublicURL: cfg.MediaPublicURL, Now: time.Now}).Routes(routes)
 	(&content.Handler{Pool: pool, Queue: tasks, MediaPublicURL: cfg.MediaPublicURL, Now: time.Now}).Routes(routes)
-	(&assistant.Handler{Pool: pool, Client: ai}).Routes(routes)
-	(&meta.Handler{Connector: metaConnector}).Routes(routes)
-	(&linkedin.Handler{Connector: linkedInConnector}).Routes(routes)
+	(&assistant.Handler{Pool: pool, Client: assistant.New(cfg, log)}).Routes(routes)
+	(&meta.Handler{Connector: meta.New(cfg, pool, codes.Box, log)}).Routes(routes)
+	(&linkedin.Handler{Connector: linkedin.New(cfg, pool, codes.Box, log)}).Routes(routes)
 
-	// Routes not yet moved to Gin fall through to the generated router.
-	r.NoRoute(gin.WrapH(httpapi.NewRouter(httpapi.Deps{
-		PingPostgres:   pool.Ping,
-		PingRedis:      pingRedis,
-		Log:            log,
-		ServiceKey:     cfg.ServiceKey,
-		RateLimits:     httpapi.NewRateLimits(counter, log, time.Now),
-		Sessions:       sessions,
-		Pool:           pool,
-		Queue:          tasks,
-		SigningSecret:  cfg.SigningSecret,
-		PublicAPIURL:   cfg.PublicAPIURL,
-		TURNHost:       cfg.TURNHost,
-		TURNSecret:     cfg.TURNSecret,
-		SiteURL:        cfg.SiteURL,
-		Hub:            hub,
-		Media:          store,
-		MediaPublicURL: cfg.MediaPublicURL,
-		Meta:           metaConnector,
-		LinkedIn:       linkedInConnector,
-		Assistant:      ai,
-		Now:            time.Now,
-	})))
 	srv := newServer(cfg.Port, r)
 	if cfg.TURNHost == "" {
 		// Development only: production refuses to start without TURN.

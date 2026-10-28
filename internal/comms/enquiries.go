@@ -34,7 +34,7 @@ type Enquiry struct {
 	PrivacyAcknowledged bool
 }
 
-// EnquiryReceipt's JSON is replayed as stored, so it must match openapi.yaml.
+// EnquiryReceipt's JSON is replayed as stored, so its shape must not change.
 type EnquiryReceipt struct {
 	Reference string    `json:"reference"`
 	CreatedAt time.Time `json:"createdAt"`
