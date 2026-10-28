@@ -1,7 +1,6 @@
 package content
 
 import (
-	"context"
 	"database/sql"
 	"log/slog"
 	"net/http"
@@ -17,13 +16,21 @@ import (
 )
 
 type postURI struct {
-	PostID  string `uri:"postId" binding:"required,uuid"`
-	Channel string `uri:"channel" binding:"omitempty,oneof=facebook instagram linkedin"`
+	PostID string `uri:"postId" binding:"required,uuid"`
 }
 
 // id is safe to parse: BindURI has checked it is a uuid.
 func (u postURI) id() pgtype.UUID {
 	return pgtype.UUID{Bytes: uuid.MustParse(u.PostID), Valid: true}
+}
+
+type channelURI struct {
+	PostID  string `uri:"postId" binding:"required,uuid"`
+	Channel string `uri:"channel" binding:"required,oneof=facebook instagram linkedin"`
+}
+
+func (u channelURI) id() pgtype.UUID {
+	return postURI{u.PostID}.id()
 }
 
 type postListQuery struct {
@@ -181,13 +188,10 @@ func (h *Handler) deletePost(c *gin.Context) {
 
 // sendPost logs ids and status only: a post's text may tell a person's story.
 func sendPost(c *gin.Context, status int, event string, p Post, attrs ...any) {
-	logPost(c.Request.Context(), event, p, attrs...)
-	c.JSON(status, postView(p))
-}
-
-func logPost(ctx context.Context, event string, p Post, attrs ...any) {
+	ctx := c.Request.Context()
 	slog.InfoContext(ctx, event, append([]any{"request_id", web.RequestID(ctx), "post_id", p.ID.String(),
 		"status", p.Status, "version", p.Version}, attrs...)...)
+	c.JSON(status, postView(p))
 }
 
 func actor(c *gin.Context) pgtype.UUID {

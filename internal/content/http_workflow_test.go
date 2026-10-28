@@ -33,6 +33,8 @@ func TestHTTP_Workflow(t *testing.T) {
 
 	webtest.Refused(t, http.StatusBadRequest, "invalid_request",
 		a.Admin(http.MethodPost, path+"/channels/website/mark-posted", editor, `{}`))
+	webtest.Refused(t, http.StatusBadRequest, "invalid_request",
+		a.Admin(http.MethodPost, path+"/channels//retry", editor, ``))
 	posted := webtest.JSON(t, http.StatusOK, a.Admin(http.MethodPost, path+"/channels/facebook/mark-posted", editor,
 		`{"permalink": "https://facebook.com/p/1"}`))
 	require.Equal(t, "published", posted["status"])

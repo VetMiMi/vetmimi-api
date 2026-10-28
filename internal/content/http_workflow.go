@@ -134,7 +134,7 @@ type markPostedInput struct {
 
 // markPosted records a channel Daw Mi posted to herself.
 func (h *Handler) markPosted(c *gin.Context) {
-	var u postURI
+	var u channelURI
 	var in markPostedInput
 	if !web.BindURI(c, &u) || !web.BindJSON(c, &in) {
 		return
@@ -148,7 +148,7 @@ func (h *Handler) markPosted(c *gin.Context) {
 }
 
 func (h *Handler) retryChannel(c *gin.Context) {
-	var u postURI
+	var u channelURI
 	if !web.BindURI(c, &u) {
 		return
 	}

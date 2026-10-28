@@ -77,6 +77,41 @@ func TestBindJSONNamesEachFieldAsAPointer(t *testing.T) {
 		http.StatusRequestEntityTooLarge, "payload_too_large")
 }
 
+func TestBindNamesAValueThatFailsToDecode(t *testing.T) {
+	r := web.NewRouter()
+	r.POST("/things", func(c *gin.Context) {
+		var in struct {
+			At    time.Time `json:"at" binding:"required"`
+			Inner *struct {
+				Times []time.Time `json:"times"`
+			} `json:"inner"`
+		}
+		if web.BindJSON(c, &in) {
+			c.Status(http.StatusOK)
+		}
+	})
+	r.GET("/things", func(c *gin.Context) {
+		var q struct {
+			Limit *int      `form:"limit"`
+			From  time.Time `form:"from" time_format:"2006-01-02"`
+		}
+		if web.BindQuery(c, &q) {
+			c.Status(http.StatusOK)
+		}
+	})
+
+	p := problem(t, send(r, http.MethodPost, "/things", `{"at": "tomorrow"}`), http.StatusBadRequest, "invalid_request")
+	require.Equal(t, []any{map[string]any{"field": "/at", "message": "must be a valid date-time"}}, p["errors"])
+	p = problem(t, send(r, http.MethodPost, "/things", `{"at": "2026-10-28T09:00:00Z", "inner": {"times": ["soon"]}}`),
+		http.StatusBadRequest, "invalid_request")
+	require.Equal(t, []any{map[string]any{"field": "/inner/times", "message": "must be a valid date-time"}}, p["errors"])
+
+	p = problem(t, send(r, http.MethodGet, "/things?limit=abc", ""), http.StatusBadRequest, "invalid_request")
+	require.Equal(t, []any{map[string]any{"field": "limit", "message": "must be of type integer"}}, p["errors"])
+	p = problem(t, send(r, http.MethodGet, "/things?from=monday", ""), http.StatusBadRequest, "invalid_request")
+	require.Equal(t, []any{map[string]any{"field": "from", "message": "must be a valid date"}}, p["errors"])
+}
+
 func TestErrorHidesUntypedErrors(t *testing.T) {
 	r := web.NewRouter()
 	r.GET("/typed", func(c *gin.Context) {
