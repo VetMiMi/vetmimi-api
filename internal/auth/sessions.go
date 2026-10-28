@@ -28,12 +28,12 @@ const (
 )
 
 type User struct {
-	ID           pgtype.UUID
-	Email        string
-	DisplayName  string
-	Roles        []string
-	Practitioner bool
-	TwoStep      bool // signs in with a TOTP code as well as the password
+	ID           pgtype.UUID `json:"id"`
+	Email        string      `json:"email"`
+	DisplayName  string      `json:"displayName"`
+	Roles        []string    `json:"roles"`
+	Practitioner bool        `json:"isPractitioner"`
+	TwoStep      bool        `json:"twoStepEnabled"` // signs in with a TOTP code as well as the password
 }
 
 type Session struct {

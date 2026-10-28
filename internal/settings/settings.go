@@ -31,8 +31,8 @@ const (
 
 // Localized is text per locale; en is required.
 type Localized struct {
-	En string `json:"en"`
-	My string `json:"my,omitempty"`
+	En string `json:"en" binding:"max=20000"`
+	My string `json:"my,omitempty" binding:"max=20000"`
 }
 
 // Settings holds every key; the JSON names are the table's keys.

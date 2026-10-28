@@ -34,6 +34,7 @@ func init() {
 	_ = v.RegisterValidation("slug", pattern(regexp.MustCompile(`^[a-z0-9]+(-[a-z0-9]+)*$`)))
 	_ = v.RegisterValidation("phone", pattern(regexp.MustCompile(`^[0-9+() -]{6,32}$`)))
 	_ = v.RegisterValidation("hhmm", pattern(regexp.MustCompile(`^([01][0-9]|2[0-3]):[0-5][0-9]$`)))
+	_ = v.RegisterValidation("totp", pattern(regexp.MustCompile(`^[0-9]{6}$`)))
 }
 
 // BindJSON decodes and checks the body into v. When it returns false it has answered 400.
@@ -108,6 +109,8 @@ func rule(fe validator.FieldError) string {
 		return "must be a phone number"
 	case "hhmm":
 		return "must be a time as HH:MM"
+	case "totp":
+		return "must be six digits"
 	case "min":
 		if items {
 			return "must have at least " + fe.Param() + " items"
