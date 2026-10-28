@@ -30,7 +30,7 @@ func init() {
 	v.RegisterTagNameFunc(func(f reflect.StructField) string {
 		name, _, _ := strings.Cut(f.Tag.Get("json"), ",")
 		if name == "" {
-			name = f.Tag.Get("form")
+			name, _, _ = strings.Cut(f.Tag.Get("form"), ",")
 		}
 		return name
 	})

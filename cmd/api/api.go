@@ -41,6 +41,7 @@ func runAPI(ctx context.Context, log *slog.Logger, cfg config.Config, pool *pgxp
 	hub := video.NewHub(pool, log, time.Now)
 	tasks := queue.New(rdb, log)
 	counter := ratelimit.New(rdb, "", time.Now)
+	store := media.NewStore(cfg)
 
 	r := web.NewRouter()
 	routes := web.NewRoutes(r, cfg.ServiceKey, sessions, web.NewLimiter(counter))
@@ -54,6 +55,7 @@ func runAPI(ctx context.Context, log *slog.Logger, cfg config.Config, pool *pgxp
 	(&video.Handler{Pool: pool, Hub: hub, SiteURL: cfg.SiteURL, Now: time.Now, Issuer: video.Issuer{
 		Secret: cfg.SigningSecret, PublicAPIURL: cfg.PublicAPIURL, TURNHost: cfg.TURNHost, TURNSecret: cfg.TURNSecret,
 	}}).Routes(routes)
+	(&media.Handler{Pool: pool, Store: store, PublicURL: cfg.MediaPublicURL, Now: time.Now}).Routes(routes)
 
 	// Routes not yet moved to Gin fall through to the generated router.
 	r.NoRoute(gin.WrapH(httpapi.NewRouter(httpapi.Deps{
@@ -71,7 +73,7 @@ func runAPI(ctx context.Context, log *slog.Logger, cfg config.Config, pool *pgxp
 		TURNSecret:     cfg.TURNSecret,
 		SiteURL:        cfg.SiteURL,
 		Hub:            hub,
-		Media:          media.NewStore(cfg),
+		Media:          store,
 		MediaPublicURL: cfg.MediaPublicURL,
 		Meta:           meta.New(cfg, pool, codes.Box, log),
 		LinkedIn:       linkedin.New(cfg, pool, codes.Box, log),
