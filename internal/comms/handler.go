@@ -22,8 +22,8 @@ var enquiryLimit = web.Rule{Name: "contact", Limit: 5, Window: time.Hour, By: we
 func (h *Handler) Routes(r web.Routes) {
 	r.Public.POST("/public/contact-enquiries", r.Limit(enquiryLimit), h.createEnquiry)
 
-	admin := r.Admin.Group("", web.Role(auth.BookingAdmin))
-	admin.GET("/admin/contact-enquiries", h.listEnquiries)
-	admin.GET("/admin/contact-enquiries/:enquiryId", h.getEnquiry)
-	admin.POST("/admin/contact-enquiries/:enquiryId/mark-handled", h.markEnquiryHandled)
+	bookingAdmin := web.Role(auth.BookingAdmin)
+	r.Admin.GET("/admin/contact-enquiries", bookingAdmin, h.listEnquiries)
+	r.Admin.GET("/admin/contact-enquiries/:enquiryId", bookingAdmin, h.getEnquiry)
+	r.Admin.POST("/admin/contact-enquiries/:enquiryId/mark-handled", bookingAdmin, h.markEnquiryHandled)
 }

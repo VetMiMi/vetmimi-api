@@ -108,7 +108,7 @@ func (h *Handler) listEnquiries(c *gin.Context) {
 }
 
 func (h *Handler) getEnquiry(c *gin.Context) {
-	id, ok := web.PathUUID(c, "enquiryId")
+	id, ok := web.ParseUUID(c, "enquiryId", c.Param("enquiryId"))
 	if !ok {
 		return
 	}
@@ -122,7 +122,7 @@ func (h *Handler) getEnquiry(c *gin.Context) {
 
 // markEnquiryHandled changes nothing the second time.
 func (h *Handler) markEnquiryHandled(c *gin.Context) {
-	id, ok := web.PathUUID(c, "enquiryId")
+	id, ok := web.ParseUUID(c, "enquiryId", c.Param("enquiryId"))
 	if !ok {
 		return
 	}
