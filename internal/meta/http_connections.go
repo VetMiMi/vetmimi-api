@@ -54,7 +54,7 @@ func (h *Handler) getConnection(c *gin.Context) {
 }
 
 func (h *Handler) startConnection(c *gin.Context) {
-	link, err := h.Connector.AuthorizeURL(userID(c), h.Now())
+	link, err := h.Connector.AuthorizeURL(userID(c), h.Connector.Now())
 	if err != nil {
 		web.Error(c, err)
 		return
@@ -68,7 +68,7 @@ func (h *Handler) finishConnection(c *gin.Context) {
 		return
 	}
 	ctx := c.Request.Context()
-	conn, err := h.Connector.Finish(ctx, userID(c), in.Code, in.State, h.Now())
+	conn, err := h.Connector.Finish(ctx, userID(c), in.Code, in.State, h.Connector.Now())
 	if err != nil {
 		web.Error(c, err)
 		return
@@ -83,7 +83,7 @@ func (h *Handler) choosePage(c *gin.Context) {
 		return
 	}
 	ctx := c.Request.Context()
-	conn, err := h.Connector.ChoosePage(ctx, userID(c), in.PageID, h.Now())
+	conn, err := h.Connector.ChoosePage(ctx, userID(c), in.PageID, h.Connector.Now())
 	if err != nil {
 		web.Error(c, err)
 		return

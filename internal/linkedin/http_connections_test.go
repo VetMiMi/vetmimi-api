@@ -14,8 +14,9 @@ import (
 
 func TestHTTP_ConnectLinkedIn(t *testing.T) {
 	c, f := newConnector(t)
+	c.Now = webtest.Clock
 	signIn(f, "openid,profile,w_member_social")
-	a := webtest.New(t, (&linkedin.Handler{Connector: c, Now: webtest.Clock}).Routes)
+	a := webtest.New(t, (&linkedin.Handler{Connector: c}).Routes)
 	admin := webtest.SignIn(t, "site_admin")
 
 	started := webtest.JSON(t, http.StatusOK, a.Admin(http.MethodPost, "/admin/connections/linkedin/authorize", admin, ""))
@@ -36,7 +37,7 @@ func TestHTTP_ConnectLinkedIn(t *testing.T) {
 
 func TestHTTP_ConnectLinkedInRefused(t *testing.T) {
 	c, _ := newConnector(t)
-	a := webtest.New(t, (&linkedin.Handler{Connector: c, Now: webtest.Clock}).Routes)
+	a := webtest.New(t, (&linkedin.Handler{Connector: c}).Routes)
 	webtest.Refused(t, http.StatusForbidden, "forbidden",
 		a.Admin(http.MethodGet, "/admin/connections/linkedin", webtest.SignIn(t, "content_editor"), ""))
 	p := webtest.Refused(t, http.StatusBadRequest, "invalid_request",

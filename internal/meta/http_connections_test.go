@@ -14,9 +14,10 @@ import (
 
 func TestHTTP_ConnectThePage(t *testing.T) {
 	c, g := newConnector(t)
+	c.Now = webtest.Clock
 	login(g)
 	g.on("GET me/accounts", http.StatusOK, onePage)
-	h := &meta.Handler{Connector: c, Now: webtest.Clock}
+	h := &meta.Handler{Connector: c}
 	a := webtest.New(t, h.Routes)
 	admin := webtest.SignIn(t, "site_admin")
 
@@ -38,7 +39,7 @@ func TestHTTP_ConnectThePage(t *testing.T) {
 
 func TestHTTP_ConnectThePageRefused(t *testing.T) {
 	c, _ := newConnector(t)
-	a := webtest.New(t, (&meta.Handler{Connector: c, Now: webtest.Clock}).Routes)
+	a := webtest.New(t, (&meta.Handler{Connector: c}).Routes)
 	webtest.Refused(t, http.StatusForbidden, "forbidden",
 		a.Admin(http.MethodPost, "/admin/connections/meta/authorize", webtest.SignIn(t, "content_editor"), ""))
 	p := webtest.Refused(t, http.StatusBadRequest, "invalid_request",

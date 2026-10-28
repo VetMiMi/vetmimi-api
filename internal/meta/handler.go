@@ -2,13 +2,11 @@ package meta
 
 import (
 	"github.com/VetMiMi/vetmimi-api/internal/auth"
-	"github.com/VetMiMi/vetmimi-api/internal/clock"
 	"github.com/VetMiMi/vetmimi-api/internal/web"
 )
 
 type Handler struct {
 	Connector *Connector
-	Now       clock.Now
 }
 
 func (h *Handler) Routes(r web.Routes) {
