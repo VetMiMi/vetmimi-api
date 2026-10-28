@@ -36,7 +36,6 @@
       "Bash(gofmt:*)",
       "Bash(staticcheck:*)",
       "Bash(sqlc:*)",
-      "Bash(oapi-codegen:*)",
       "Bash(goose:*)",
       "Bash(make:*)",
       "Bash(scripts/gate.sh:*)",

@@ -35,7 +35,7 @@ func (h *Handler) Routes(r web.Routes) {
 	r.Public.POST("/public/manage/:token/cancel", r.Limit(manageLimit), h.cancelManaged)
 	r.Public.POST("/public/manage/:token/reschedule-request", r.Limit(manageLimit), h.requestManagedReschedule)
 
-	admin := r.Admin.Group("", web.Role(auth.BookingAdmin))
+	admin := r.Admin(auth.BookingAdmin)
 	admin.GET("/admin/services", h.listServices)
 	admin.POST("/admin/services", h.createService)
 	admin.GET("/admin/services/:serviceId", h.getService)

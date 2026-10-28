@@ -17,6 +17,6 @@ type Handler struct {
 var suggestionLimit = web.Rule{Name: "ai-suggestions", Limit: 20, Window: time.Hour, By: web.ByUser}
 
 func (h *Handler) Routes(r web.Routes) {
-	r.Admin.GET("/admin/ai/status", web.Role(auth.ContentEditor), h.status)
-	r.Slow.POST("/admin/posts/:postId/suggestions", web.Role(auth.ContentEditor), r.Limit(suggestionLimit), h.suggest)
+	r.Admin(auth.ContentEditor).GET("/admin/ai/status", h.status)
+	r.Slow(auth.ContentEditor).POST("/admin/posts/:postId/suggestions", r.Limit(suggestionLimit), h.suggest)
 }

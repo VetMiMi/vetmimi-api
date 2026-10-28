@@ -16,7 +16,6 @@ type Handler struct {
 }
 
 func (h *Handler) Routes(r web.Routes) {
-	r.Admin.GET("/admin/settings",
-		web.Role(auth.ContentEditor, auth.BookingAdmin, auth.SiteAdmin), h.getSettings)
-	r.Admin.PATCH("/admin/settings", web.Role(auth.BookingAdmin), h.updateSettings)
+	r.Admin(auth.ContentEditor, auth.BookingAdmin, auth.SiteAdmin).GET("/admin/settings", h.getSettings)
+	r.Admin(auth.BookingAdmin).PATCH("/admin/settings", h.updateSettings)
 }

@@ -22,9 +22,9 @@ var signInLimit = web.Rule{Name: "sign-in", Limit: 5, Window: time.Minute, By: w
 
 func (h *authHandler) Routes(r web.Routes) {
 	r.Public.POST("/auth/sessions", r.Limit(signInLimit), h.signIn)
-	everyRole := web.Role(auth.ContentEditor, auth.BookingAdmin, auth.SiteAdmin)
-	r.Admin.DELETE("/auth/sessions/current", everyRole, h.signOut)
-	r.Admin.GET("/auth/me", everyRole, h.currentUser)
+	anyone := r.Admin(auth.ContentEditor, auth.BookingAdmin, auth.SiteAdmin)
+	anyone.DELETE("/auth/sessions/current", h.signOut)
+	anyone.GET("/auth/me", h.currentUser)
 }
 
 type signInInput struct {

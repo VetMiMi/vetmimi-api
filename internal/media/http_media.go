@@ -22,7 +22,7 @@ import (
 	"github.com/VetMiMi/vetmimi-api/internal/web"
 )
 
-const maxDescription = 300 // the longest alt text or credit, as in openapi.yaml
+const maxDescription = 300 // the longest alt text or credit
 
 type altText struct {
 	En *string `json:"en,omitempty" binding:"omitnil,max=300"`

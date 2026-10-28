@@ -59,7 +59,8 @@ func (h *Handler) listPublicServices(c *gin.Context) {
   `web.Error` turns any error into the problem JSON the site reads. Never write
   error JSON by hand.
 - **Who may call**: the route says it, in `Routes()`:
-  `r.Admin.POST("/admin/services", bookingAdmin, h.createService)`.
+  `r.Admin(auth.BookingAdmin).POST("/admin/services", h.createService)`.
+  `r.Admin` and `r.Slow` take the roles, so no admin route can forget them.
 - **Rate limits**: also in `Routes()`: `r.Public.POST(path, r.Limit(rule), h.fn)`.
 
 ## Rules for every file

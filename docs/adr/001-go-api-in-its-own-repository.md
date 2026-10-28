@@ -1,6 +1,7 @@
 # 001 — Go API in its own repository
 
-**Status:** Accepted · 2026-10-04
+**Status:** Accepted · 2026-10-04, amended 2026-10-28 (Gin replaces chi and
+oapi-codegen, ADR-011)
 
 ## Context
 
@@ -42,11 +43,10 @@ Approved dependencies, each with the job it does:
 
 | Package | Job |
 |---|---|
-| `github.com/go-chi/chi/v5` | router and middleware |
+| `github.com/gin-gonic/gin` | router, middleware, request binding and validation (with `github.com/go-playground/validator/v10`) |
 | `github.com/jackc/pgx/v5` | PostgreSQL driver and pool |
 | `github.com/sqlc-dev/sqlc` (tool) | typed Go from SQL in `internal/db/queries` |
 | `github.com/pressly/goose/v3` | SQL migrations, run at startup and by `make migrate` |
-| `github.com/oapi-codegen/oapi-codegen/v2` (tool) + `github.com/oapi-codegen/runtime` | server interface and types from `openapi.yaml`; request validation via `github.com/oapi-codegen/nethttp-middleware` |
 | `github.com/hibiken/asynq` | Redis-backed scheduled jobs: reminders, hold expiry, email delivery |
 | `github.com/redis/go-redis/v9` | Redis client for asynq and rate limiting |
 | `github.com/coder/websocket` | WebSocket signaling for video sessions |
@@ -67,8 +67,9 @@ The parent `AGENTS.md` is updated: `vetmimi-api/` replaces `backend-java/`.
 
 - The site keeps deploying to Vercel untouched; the API deploys separately
   (ADR-005). Two repositories, one project board.
-- TypeScript types for the site are generated from `openapi.yaml` (ADR-003)
-  rather than imported; the spec becomes a file both repositories must respect.
+- TypeScript types for the site are written by hand in `vetmimi-next`
+  (ADR-011) rather than imported; a change to a JSON shape updates both
+  repositories together.
 - Local development needs Go, PostgreSQL 17 and Redis from Homebrew; no Docker
   on the laptop.
 - The owner's résumé entry for VetMiMi changes from NestJS to Go, PostgreSQL

@@ -6,7 +6,7 @@ Closes #
 
 ## Contract
 
-<!-- Paths/schemas added or changed in openapi.yaml, or "none". Migrations added, or "none". -->
+<!-- Routes or JSON shapes added or changed, or "none". Migrations added, or "none". -->
 
 ## Checks
 

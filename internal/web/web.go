@@ -24,10 +24,20 @@ import (
 // Routes are the groups each feature registers its routes on.
 type Routes struct {
 	Public  *gin.RouterGroup // called by the website's server with the service key
-	Admin   *gin.RouterGroup // a signed-in user; each route adds the role it needs
-	Slow    *gin.RouterGroup // signed in, with a long deadline and a large body: uploads and the AI assistant
 	Root    *gin.Engine      // no deadline, body cap or sign-in: the video WebSocket checks its own
+	admin   *gin.RouterGroup
+	slow    *gin.RouterGroup
 	limiter *Limiter
+}
+
+// Admin is for a signed-in user holding one of roles. Taking the roles here means no admin route can forget them.
+func (r Routes) Admin(roles ...auth.Role) *gin.RouterGroup {
+	return r.admin.Group("", Role(roles...))
+}
+
+// Slow is Admin with a long deadline and a large body: uploads and the AI assistant.
+func (r Routes) Slow(roles ...auth.Role) *gin.RouterGroup {
+	return r.slow.Group("", Role(roles...))
 }
 
 // NewRouter returns a router with the middleware every request gets.
@@ -48,9 +58,9 @@ func NewRoutes(r *gin.Engine, serviceKey string, sessions *auth.Sessions, limite
 	return Routes{
 		Public: r.Group("", Timeout(30*time.Second), MaxBody(64<<10),
 			ServiceKey(serviceKey), limiter.Limit(perServiceKey)),
-		Admin: r.Group("", Timeout(30*time.Second), MaxBody(512<<10),
+		admin: r.Group("", Timeout(30*time.Second), MaxBody(512<<10),
 			signedIn, limiter.Limit(perSession)),
-		Slow: r.Group("", Timeout(2*time.Minute), MaxBody(21<<20),
+		slow: r.Group("", Timeout(2*time.Minute), MaxBody(21<<20),
 			signedIn, limiter.Limit(perSession)),
 		Root:    r,
 		limiter: limiter,

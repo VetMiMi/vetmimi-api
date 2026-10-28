@@ -14,7 +14,7 @@ worker: ## run the background worker with the local .env
 	go run ./cmd/api --mode worker
 
 lint:
-	test -z "$$(gofmt -l . | grep -v '/gen/')" || (gofmt -l . | grep -v '/gen/'; exit 1)
+	test -z "$$(gofmt -l .)" || (gofmt -l .; exit 1)
 	go vet ./...
 	staticcheck ./...
 
@@ -27,12 +27,11 @@ test-pkg: ## one package: make test-pkg PKG=./internal/booking
 build:
 	$(GATE) go build -o bin/api ./cmd/api
 
-generate: ## regenerate the HTTP server from openapi.yaml and sqlc from internal/db/queries
-	oapi-codegen -config oapi-codegen.yaml openapi.yaml
+generate: ## regenerate the Go for internal/db/queries/*.sql
 	sqlc generate
 
 generate-check: generate
-	git diff --exit-code -- internal/httpapi/gen internal/db
+	git diff --exit-code -- internal/db
 
 migrate: ## apply migrations to DATABASE_URL
 	goose -dir migrations postgres "$$DATABASE_URL" up
@@ -45,6 +44,5 @@ gate: ## the full local gate; identical to CI
 
 tools: ## install the pinned code generators and linters; CI and laptops must match or generate-check drifts
 	go install honnef.co/go/tools/cmd/staticcheck@v0.8.1
-	go install github.com/oapi-codegen/oapi-codegen/v2/cmd/oapi-codegen@v2.8.0
 	go install github.com/sqlc-dev/sqlc/cmd/sqlc@v1.31.1
 	go install github.com/pressly/goose/v3/cmd/goose@v3.28.0
