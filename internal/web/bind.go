@@ -110,12 +110,14 @@ func invalid(err error, prefix string) error {
 	return apperr.Invalid("The request is not valid.", fields...)
 }
 
-// fieldPath turns "input.periods[0].startTime" into "/periods/0/startTime", or "startTime" in a query.
+// fieldPath turns "input.periods[0].startTime" into "/periods/0/startTime", or "status[0]" in a query into "status".
 func fieldPath(namespace, prefix string) string {
 	_, path, _ := strings.Cut(namespace, ".")
 	path = strings.NewReplacer("[", ".", "]", "").Replace(path)
 	if prefix == "" {
-		return path
+		// A query parameter is never nested, so a repeated one is named without its index.
+		name, _, _ := strings.Cut(path, ".")
+		return name
 	}
 	return prefix + strings.ReplaceAll(path, ".", "/")
 }
