@@ -3,10 +3,8 @@ package comms_test
 import (
 	"context"
 	"encoding/json"
-	"slices"
 	"testing"
 
-	"github.com/getkin/kin-openapi/openapi3"
 	"github.com/jackc/pgx/v5/pgconn"
 	"github.com/jackc/pgx/v5/pgtype"
 	"github.com/stretchr/testify/require"
@@ -109,29 +107,4 @@ func TestCanTransition(t *testing.T) {
 			require.False(t, comms.CanTransition(from, to), "%s → %s", from, to)
 		}
 	}
-}
-
-// The Go lists and the contract's enums cannot drift apart.
-func TestKindsAndStatusesMatchTheContract(t *testing.T) {
-	spec, err := openapi3.NewLoader().LoadFromFile("../../openapi.yaml")
-	require.NoError(t, err)
-	enum := func(name string) []string {
-		var out []string
-		for _, v := range spec.Components.Schemas[name].Value.Enum {
-			out = append(out, v.(string))
-		}
-		slices.Sort(out)
-		return out
-	}
-	var kinds, statuses []string
-	for _, k := range comms.Kinds {
-		kinds = append(kinds, string(k))
-	}
-	for _, s := range comms.Statuses {
-		statuses = append(statuses, string(s))
-	}
-	slices.Sort(kinds)
-	slices.Sort(statuses)
-	require.Equal(t, enum("CommunicationKind"), kinds)
-	require.Equal(t, enum("CommunicationStatus"), statuses)
 }

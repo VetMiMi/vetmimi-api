@@ -1,5 +1,5 @@
-// Package apperr holds the typed errors domain packages return. httpapi maps
-// each one to an RFC 9457 Problem, using the status its Code carries.
+// Package apperr holds the typed errors domain packages return. web.Error
+// writes each one as an RFC 9457 problem, using the status its Code carries.
 package apperr
 
 import "time"

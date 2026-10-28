@@ -13,14 +13,18 @@ import (
 
 	"github.com/VetMiMi/vetmimi-api/internal/assistant"
 	"github.com/VetMiMi/vetmimi-api/internal/auth"
+	"github.com/VetMiMi/vetmimi-api/internal/booking"
+	"github.com/VetMiMi/vetmimi-api/internal/comms"
 	"github.com/VetMiMi/vetmimi-api/internal/config"
-	"github.com/VetMiMi/vetmimi-api/internal/httpapi"
+	"github.com/VetMiMi/vetmimi-api/internal/content"
 	"github.com/VetMiMi/vetmimi-api/internal/linkedin"
 	"github.com/VetMiMi/vetmimi-api/internal/media"
 	"github.com/VetMiMi/vetmimi-api/internal/meta"
 	"github.com/VetMiMi/vetmimi-api/internal/queue"
 	"github.com/VetMiMi/vetmimi-api/internal/ratelimit"
+	"github.com/VetMiMi/vetmimi-api/internal/settings"
 	"github.com/VetMiMi/vetmimi-api/internal/video"
+	"github.com/VetMiMi/vetmimi-api/internal/web"
 )
 
 // runAPI serves HTTP until ctx is done.
@@ -34,28 +38,27 @@ func runAPI(ctx context.Context, log *slog.Logger, cfg config.Config, pool *pgxp
 		return err
 	}
 	hub := video.NewHub(pool, log, time.Now)
-	srv := newServer(cfg.Port, httpapi.NewRouter(httpapi.Deps{
-		PingPostgres:   pool.Ping,
-		PingRedis:      func(ctx context.Context) error { return rdb.Ping(ctx).Err() },
-		Log:            log,
-		ServiceKey:     cfg.ServiceKey,
-		RateLimits:     httpapi.NewRateLimits(ratelimit.New(rdb, "", time.Now), log, time.Now),
-		Sessions:       sessions,
-		Pool:           pool,
-		Queue:          queue.New(rdb, log),
-		SigningSecret:  cfg.SigningSecret,
-		PublicAPIURL:   cfg.PublicAPIURL,
-		TURNHost:       cfg.TURNHost,
-		TURNSecret:     cfg.TURNSecret,
-		SiteURL:        cfg.SiteURL,
-		Hub:            hub,
-		Media:          media.NewStore(cfg),
-		MediaPublicURL: cfg.MediaPublicURL,
-		Meta:           meta.New(cfg, pool, codes.Box, log),
-		LinkedIn:       linkedin.New(cfg, pool, codes.Box, log),
-		Assistant:      assistant.New(cfg, log),
-		Now:            time.Now,
-	}))
+	tasks := queue.New(rdb, log)
+
+	r := web.NewRouter()
+	r.GET("/healthz", healthz)
+	r.GET("/readyz", readyz(pool.Ping, func(ctx context.Context) error { return rdb.Ping(ctx).Err() }))
+
+	routes := web.NewRoutes(r, cfg.ServiceKey, sessions, web.NewLimiter(ratelimit.New(rdb, "", time.Now)))
+	(&authHandler{Sessions: sessions}).Routes(routes)
+	(&settings.Handler{Pool: pool, Queue: tasks, Now: time.Now}).Routes(routes)
+	(&booking.Handler{Pool: pool, Secret: cfg.SigningSecret, Queue: tasks, Hub: hub, Now: time.Now}).Routes(routes)
+	(&comms.Handler{Pool: pool, Queue: tasks, Now: time.Now}).Routes(routes)
+	(&video.Handler{Pool: pool, Hub: hub, SiteURL: cfg.SiteURL, Now: time.Now, Issuer: video.Issuer{
+		Secret: cfg.SigningSecret, PublicAPIURL: cfg.PublicAPIURL, TURNHost: cfg.TURNHost, TURNSecret: cfg.TURNSecret,
+	}}).Routes(routes)
+	(&media.Handler{Pool: pool, Store: media.NewStore(cfg), PublicURL: cfg.MediaPublicURL, Now: time.Now}).Routes(routes)
+	(&content.Handler{Pool: pool, Queue: tasks, MediaPublicURL: cfg.MediaPublicURL, Now: time.Now}).Routes(routes)
+	(&assistant.Handler{Pool: pool, Client: assistant.New(cfg, log)}).Routes(routes)
+	(&meta.Handler{Connector: meta.New(cfg, pool, codes.Box, log)}).Routes(routes)
+	(&linkedin.Handler{Connector: linkedin.New(cfg, pool, codes.Box, log)}).Routes(routes)
+
+	srv := newServer(cfg.Port, r)
 	if cfg.TURNHost == "" {
 		// Development only: production refuses to start without TURN.
 		log.Warn("turn_disabled", "detail", "TURN_HOST is empty; room tickets offer STUN only")

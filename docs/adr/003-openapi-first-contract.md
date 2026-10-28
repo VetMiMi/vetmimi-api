@@ -1,6 +1,6 @@
 # 003 — OpenAPI-first contract shared by generation
 
-**Status:** Accepted · 2026-10-04
+**Status:** Superseded by ADR-011 · 2026-10-28 (accepted 2026-10-04)
 
 ## Context
 

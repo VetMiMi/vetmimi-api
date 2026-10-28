@@ -23,7 +23,7 @@ import (
 	"github.com/VetMiMi/vetmimi-api/internal/config"
 )
 
-// The same bounds as openapi.yaml, so every account created can sign in.
+// The same bounds as sign-in, so every account created can sign in.
 const (
 	minPasswordChars = 12
 	maxPasswordChars = 200

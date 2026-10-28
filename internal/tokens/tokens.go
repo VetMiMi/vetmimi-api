@@ -10,9 +10,8 @@ import (
 	"strings"
 )
 
-// A session token is "vms_" and 32 random bytes in unpadded base64url, the
-// SessionCreated.token pattern in openapi.yaml. The prefix makes a leaked
-// token recognisable.
+// A session token is "vms_" and 32 random bytes in unpadded base64url. The
+// prefix makes a leaked token recognisable.
 const (
 	sessionPrefix = "vms_"
 	sessionBytes  = 32

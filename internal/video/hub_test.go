@@ -49,7 +49,7 @@ type hubTest struct {
 }
 
 // newHubTest serves a fresh room's hub behind a bare WebSocket endpoint;
-// the ticket and room checks in front of it are httpapi's, tested there.
+// the ticket and room checks in front of it are tested in http_room_test.go.
 func newHubTest(t *testing.T) *hubTest {
 	t.Helper()
 	appt, _ := withRoom(t)

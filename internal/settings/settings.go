@@ -10,6 +10,7 @@ import (
 	"maps"
 	"net/mail"
 	"slices"
+	"strconv"
 	"strings"
 	"time"
 	_ "time/tzdata" // so LoadLocation never depends on the host's files
@@ -17,6 +18,7 @@ import (
 	"github.com/VetMiMi/vetmimi-api/internal/apperr"
 	"github.com/VetMiMi/vetmimi-api/internal/auth"
 	"github.com/VetMiMi/vetmimi-api/internal/db"
+	"github.com/VetMiMi/vetmimi-api/internal/queue"
 )
 
 // Group is who may change a key: booking keys need booking_admin, site keys
@@ -31,8 +33,8 @@ const (
 
 // Localized is text per locale; en is required.
 type Localized struct {
-	En string `json:"en"`
-	My string `json:"my,omitempty"`
+	En string `json:"en" binding:"max=20000"`
+	My string `json:"my,omitempty" binding:"max=20000"`
 }
 
 // Settings holds every key; the JSON names are the table's keys.
@@ -105,6 +107,18 @@ func Load(ctx context.Context, q db.Querier) (Settings, error) {
 
 // Patch is the keys to change, by table key, each with its new JSON value.
 type Patch map[string]json.RawMessage
+
+// TaskRescheduleReminders is run by comms, which imports this package.
+const TaskRescheduleReminders = "comms:reschedule-reminders"
+
+// RescheduleTasks moves queued reminders when patch changes reminder_hours.
+// The task reads the stored setting, so a repeat is harmless.
+func RescheduleTasks(patch Patch, now time.Time) []queue.Task {
+	if _, ok := patch["reminder_hours"]; !ok {
+		return nil
+	}
+	return []queue.Task{{Type: TaskRescheduleReminders, ID: "reminders:" + strconv.FormatInt(now.UnixNano(), 10)}}
+}
 
 // Update applies patch for user by and returns the settings after it. The
 // patch lands whole or not at all: a key by may not change answers forbidden,
@@ -232,7 +246,7 @@ func JSONName(key string) string {
 }
 
 // key is one settings key: who may change it and the rule its value must
-// meet, with the same bounds as openapi.yaml.
+// meet.
 type key struct {
 	name  string
 	group Group

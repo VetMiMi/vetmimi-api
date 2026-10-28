@@ -32,8 +32,9 @@ Then `git status`, open issues and open pull requests.
   document, each one testable.
 - **Approach** — the mechanism in a few sentences. Prefer the boring option;
   simplicity is the owner's top priority.
-- **Contract** — exact `openapi.yaml` paths, operations and schemas to add or
-  change, and the `Problem` codes each can return.
+- **Routes** — exact methods and paths to add or change, each with its group,
+  role and rate limit, the JSON request and response shapes, and the `Problem`
+  codes each can return.
 - **Data** — migrations (table, columns, constraints, indexes) and sqlc
   queries, by file name.
 - **Files to touch** — actual paths under `cmd/`, `internal/`, `migrations/`,

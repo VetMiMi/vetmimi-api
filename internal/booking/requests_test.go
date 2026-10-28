@@ -142,7 +142,7 @@ func TestRequest_StoresPendingWithHold(t *testing.T) {
 
 	require.Equal(t, booking.Pending, got.Receipt.Status)
 	require.Regexp(t, referencePattern, got.Receipt.Reference)
-	require.Equal(t, booking.ReceiptService{Slug: "individual-art-therapy", Name: "တစ်ဦးချင်း အနုပညာကုထုံး"},
+	require.Equal(t, booking.ServiceRef{Slug: "individual-art-therapy", Name: "တစ်ဦးချင်း အနုပညာကုထုံး"},
 		got.Receipt.Service)
 	require.True(t, start.Equal(got.Receipt.StartsAt))
 	require.Equal(t, 60, got.Receipt.DurationMinutes)

@@ -42,19 +42,19 @@ type ticketPayload struct {
 
 // Ticket is what a participant needs to open the room's WebSocket.
 type Ticket struct {
-	RoomID       pgtype.UUID
-	Role         string
-	Value        string
-	ExpiresAt    time.Time
-	WebSocketURL string
-	ICEServers   []ICEServer
+	RoomID       pgtype.UUID `json:"roomId"`
+	Role         string      `json:"role"`
+	Value        string      `json:"ticket"`
+	ExpiresAt    time.Time   `json:"ticketExpiresAt"`
+	WebSocketURL string      `json:"websocketUrl"`
+	ICEServers   []ICEServer `json:"iceServers"`
 }
 
 // ICEServer is one entry of RTCPeerConnection's iceServers.
 type ICEServer struct {
-	URLs       []string
-	Username   string
-	Credential string
+	URLs       []string `json:"urls"`
+	Username   string   `json:"username,omitempty"`
+	Credential string   `json:"credential,omitempty"`
 }
 
 // Issuer signs room tickets. TURNHost is empty in development.
