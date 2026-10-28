@@ -8,11 +8,13 @@ import (
 	"strconv"
 	"time"
 
+	"github.com/gin-gonic/gin"
 	"github.com/jackc/pgx/v5/pgxpool"
 	"github.com/redis/go-redis/v9"
 
 	"github.com/VetMiMi/vetmimi-api/internal/assistant"
 	"github.com/VetMiMi/vetmimi-api/internal/auth"
+	"github.com/VetMiMi/vetmimi-api/internal/booking"
 	"github.com/VetMiMi/vetmimi-api/internal/config"
 	"github.com/VetMiMi/vetmimi-api/internal/httpapi"
 	"github.com/VetMiMi/vetmimi-api/internal/linkedin"
@@ -21,6 +23,7 @@ import (
 	"github.com/VetMiMi/vetmimi-api/internal/queue"
 	"github.com/VetMiMi/vetmimi-api/internal/ratelimit"
 	"github.com/VetMiMi/vetmimi-api/internal/video"
+	"github.com/VetMiMi/vetmimi-api/internal/web"
 )
 
 // runAPI serves HTTP until ctx is done.
@@ -34,15 +37,23 @@ func runAPI(ctx context.Context, log *slog.Logger, cfg config.Config, pool *pgxp
 		return err
 	}
 	hub := video.NewHub(pool, log, time.Now)
-	srv := newServer(cfg.Port, httpapi.NewRouter(httpapi.Deps{
+	tasks := queue.New(rdb, log)
+	counter := ratelimit.New(rdb, "", time.Now)
+
+	r := web.NewRouter()
+	routes := web.NewRoutes(r, cfg.ServiceKey, sessions, web.NewLimiter(counter))
+	(&booking.Handler{Pool: pool, Secret: cfg.SigningSecret, Queue: tasks, Hub: hub, Now: time.Now}).Routes(routes)
+
+	// Routes not yet moved to Gin fall through to the generated router.
+	r.NoRoute(gin.WrapH(httpapi.NewRouter(httpapi.Deps{
 		PingPostgres:   pool.Ping,
 		PingRedis:      func(ctx context.Context) error { return rdb.Ping(ctx).Err() },
 		Log:            log,
 		ServiceKey:     cfg.ServiceKey,
-		RateLimits:     httpapi.NewRateLimits(ratelimit.New(rdb, "", time.Now), log, time.Now),
+		RateLimits:     httpapi.NewRateLimits(counter, log, time.Now),
 		Sessions:       sessions,
 		Pool:           pool,
-		Queue:          queue.New(rdb, log),
+		Queue:          tasks,
 		SigningSecret:  cfg.SigningSecret,
 		PublicAPIURL:   cfg.PublicAPIURL,
 		TURNHost:       cfg.TURNHost,
@@ -55,7 +66,8 @@ func runAPI(ctx context.Context, log *slog.Logger, cfg config.Config, pool *pgxp
 		LinkedIn:       linkedin.New(cfg, pool, codes.Box, log),
 		Assistant:      assistant.New(cfg, log),
 		Now:            time.Now,
-	}))
+	})))
+	srv := newServer(cfg.Port, r)
 	if cfg.TURNHost == "" {
 		// Development only: production refuses to start without TURN.
 		log.Warn("turn_disabled", "detail", "TURN_HOST is empty; room tickets offer STUN only")

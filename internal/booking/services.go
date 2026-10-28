@@ -128,20 +128,20 @@ func bookable(svc db.Service) bool {
 
 // PublicService is all a visitor sees of a service.
 type PublicService struct {
-	Slug            string
-	Name            string
-	Description     string
-	BookingAction   string
-	DurationMinutes int
-	Formats         []string
-	FeeText         string
+	Slug            string   `json:"slug"`
+	Name            string   `json:"name"`
+	Description     string   `json:"description,omitempty"`
+	BookingAction   string   `json:"bookingAction"`
+	DurationMinutes int      `json:"durationMinutes"`
+	Formats         []string `json:"formats"`
+	FeeText         string   `json:"feeText,omitempty"`
 }
 
 type PublicServices struct {
-	BookingEnabled bool
-	BookingMode    string
-	Timezone       string
-	Items          []PublicService
+	BookingEnabled bool            `json:"bookingEnabled"`
+	BookingMode    string          `json:"bookingMode"`
+	Timezone       string          `json:"timezone"`
+	Items          []PublicService `json:"items"`
 }
 
 // ListPublicServices is empty while public booking is paused.

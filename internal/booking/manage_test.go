@@ -31,7 +31,7 @@ func TestManage_ShowsTheAppointmentWithoutTheVisitor(t *testing.T) {
 	require.NoError(t, err)
 	require.Equal(t, booking.Managed{
 		Reference: appt.Reference, Status: booking.Confirmed,
-		ServiceSlug: "individual-art-therapy", ServiceName: "Individual Art Therapy",
+		Service:  booking.ServiceRef{Slug: "individual-art-therapy", Name: "Individual Art Therapy"},
 		StartsAt: appt.StartsAt.UTC(), EndsAt: appt.EndsAt.UTC(), DurationMinutes: 60,
 		Timezone: "Australia/Sydney", Format: "online",
 		CanCancel: true, CanRequestReschedule: true, CancellationNoticeHours: 48,

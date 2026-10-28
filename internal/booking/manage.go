@@ -20,18 +20,19 @@ import (
 
 // Managed is what a management link shows: never the visitor's details or any note.
 type Managed struct {
-	Reference               string
-	Status                  Status
-	ServiceSlug             string
-	ServiceName             string
-	StartsAt, EndsAt        time.Time
-	DurationMinutes         int
-	Timezone, Format        string
-	CanCancel               bool
-	CanRequestReschedule    bool
-	CancellationNoticeHours int
-	LateIfCancelledNow      bool
-	RescheduleRequested     bool
+	Reference               string     `json:"reference"`
+	Status                  Status     `json:"status"`
+	Service                 ServiceRef `json:"service"`
+	StartsAt                time.Time  `json:"startsAt"`
+	EndsAt                  time.Time  `json:"endsAt"`
+	DurationMinutes         int        `json:"durationMinutes"`
+	Timezone                string     `json:"timezone"`
+	Format                  string     `json:"format"`
+	CanCancel               bool       `json:"canCancel"`
+	CanRequestReschedule    bool       `json:"canRequestReschedule"`
+	CancellationNoticeHours int        `json:"cancellationNoticeHours"`
+	LateIfCancelledNow      bool       `json:"lateIfCancelledNow"`
+	RescheduleRequested     bool       `json:"rescheduleRequested"`
 }
 
 var (
@@ -66,8 +67,7 @@ func GetManaged(ctx context.Context, q db.Querier, token string, now time.Time) 
 	return Managed{
 		Reference:               row.Reference,
 		Status:                  status,
-		ServiceSlug:             row.ServiceSlug,
-		ServiceName:             inLocale(row.ServiceName, row.Locale),
+		Service:                 ServiceRef{Slug: row.ServiceSlug, Name: inLocale(row.ServiceName, row.Locale)},
 		StartsAt:                row.StartsAt.UTC(),
 		EndsAt:                  row.EndsAt.UTC(),
 		DurationMinutes:         int(row.DurationMinutes),
