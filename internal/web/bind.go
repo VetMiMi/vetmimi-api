@@ -71,6 +71,11 @@ func BindQuery(c *gin.Context, v any) bool {
 	return true
 }
 
+// PathUUID reads the path parameter name as a UUID. When it returns false it has answered 400.
+func PathUUID(c *gin.Context, name string) (pgtype.UUID, bool) {
+	return ParseUUID(c, name, c.Param(name))
+}
+
 // ParseUUID reads value, from the request's field, as a UUID. When it returns false it has answered 400.
 func ParseUUID(c *gin.Context, field, value string) (pgtype.UUID, bool) {
 	id, err := uuid.Parse(value)
