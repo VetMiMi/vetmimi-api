@@ -93,8 +93,8 @@ func keys(id pgtype.UUID, widths []int32) []string {
 }
 
 type Size struct {
-	Width int32
-	URL   string
+	Width int32  `json:"width"`
+	URL   string `json:"url"`
 }
 
 // Sizes are an item's web sizes, largest first, served from publicURL (MEDIA_PUBLIC_URL).
