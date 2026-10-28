@@ -4,7 +4,7 @@ description: Run one full vetmimi-api delivery cycle — plan, implement, CI, me
 
 Run one complete delivery cycle for the next ready `vetmimi-api` issue. The
 same command exists in `vetmimi-next`; the orchestrator runs both and
-sequences cross-repository work (API first, tagged; then the site).
+sequences cross-repository work (API first, then the site).
 
 ## Concurrency and the 8 GB rule
 
@@ -14,7 +14,7 @@ their file surfaces are disjoint. Heavy commands already serialise through
 conflicts. Shared surfaces that force serialisation:
 
 - `AGENTS.md`, `CLAUDE.md`, `.claude/`, `.github/`, `.gitignore`
-- `openapi.yaml` and the generated `internal/httpapi/gen/`, `internal/db/`
+- `internal/web/`, `cmd/api/api.go` and the generated `internal/db/`
 - `migrations/` (sequence numbers) and `docs/data-model.md`
 - `docs/adr/` numbers — the orchestrator allocates them
 
@@ -95,9 +95,9 @@ Then `git worktree remove .worktrees/<short-name>`.
 ## 7. Close out
 
 Set the issue's and the PR's board items to **Done** (`1c14b8a1`); close the
-issue if `Closes #` did not. A change to `openapi.yaml` is tagged
-`v<info.version>` by CI on merge; check the tag exists before starting the
-`vetmimi-next` follow-up. Then **read the board back** and confirm the
+issue if `Closes #` did not. A change to a route or JSON shape needs the
+`vetmimi-next` follow-up that updates its handwritten types; start it once
+this one is merged. Then **read the board back** and confirm the
 statuses.
 
 ## Failure handling

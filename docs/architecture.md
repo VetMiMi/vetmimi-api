@@ -1,8 +1,8 @@
 # Architecture
 
 How the VetMiMi API is put together. Decisions and their reasons are in
-`docs/adr/`; tables are in `docs/data-model.md`; the HTTP contract is
-`openapi.yaml`. Where this document and an ADR disagree, the ADR wins.
+`docs/adr/`; tables are in `docs/data-model.md`; how a route and its handler
+are written is in `STYLE.md`. Where this document and an ADR disagree, the ADR wins.
 
 ## Purpose and scale
 
@@ -19,7 +19,7 @@ from database constraints and small transactions, not from clever Go.
 
 | Component | Role |
 |---|---|
-| **api process** | `api --mode api` (the default). chi router, all HTTP routes, the video signaling WebSocket. Stateless apart from the in-memory video room hub. |
+| **api process** | `api --mode api` (the default). Gin router, all HTTP routes, the video signaling WebSocket. Stateless apart from the in-memory video room hub. |
 | **worker process** | The same binary with `--mode worker`. Runs the asynq server: email delivery, hold expiry, scheduled publishing, social channel publishing, site revalidation, sweeps and clean-up. Never serves HTTP. |
 | **PostgreSQL 17** | Every durable fact: settings, users, sessions, services, availability, appointments, communications, posts, media metadata. Enforces "no overlapping appointments" with an exclusion constraint (ADR-004). |
 | **Redis 7 + asynq** | Task queues (`critical`, `default`, `low`) and rate-limit counters. Losing Redis loses only queued tasks; sweepers rebuild them from PostgreSQL (ADR-006). |
@@ -39,8 +39,10 @@ authenticator and saves a password-only account, clearing any existing secret.
 
 One package per purpose under `internal/`, matching `AGENTS.md`. Domain packages
 take `context.Context` and a `*pgxpool.Pool` or `db.Querier` and return typed
-errors from `internal/apperr`. Only `httpapi` and `cmd/api` serve HTTP; `meta`,
-`linkedin`, `assistant` and `content` use `net/http` only as clients of outside APIs.
+errors from `internal/apperr`. Only `internal/web`, each feature's handlers
+(`handler.go` and `http_*.go`) and `cmd/api` serve HTTP; the rest of `meta`,
+`linkedin`, `assistant` and `content` uses `net/http` only as a client of
+outside APIs.
 
 | Package | Owns |
 |---|---|
@@ -56,7 +58,8 @@ errors from `internal/apperr`. Only `httpapi` and `cmd/api` serve HTTP; `meta`,
 | `settings` | Typed read and write of the `settings` table. |
 | `idempotency` | Stored responses under a create's `Idempotency-Key`. |
 | `pgtest`, `redistest` | Test-only: a migrated database per test binary, and Redis clients. |
-| `httpapi` | The generated strict server (`httpapi/gen`, from `openapi.yaml`); `router.go` (the middleware chain); one handler file per API area (`booking_public.go`, `appointments.go`, `posts.go`, ...); the tables `rolesByOperation` (`roles.go`), `limitsByOperation` (`ratelimit.go`) and `bodyCapByOperation` (`middleware.go`); and the single `apperr` → `Problem` mapping (`problem.go`). |
+| `web` | What every route shares: `NewRouter` and the middleware every request gets (`web.go`); the route groups `Public`, `Admin`, `Slow` and `Root` (`NewRoutes`); `ServiceKey`, `SignedIn` and `Role` (`auth.go`); rate-limit rules (`ratelimit.go`); `BindJSON`, `BindQuery`, `BindURI` and `PathUUID` (`bind.go`); and the single `apperr` → problem mapping, `web.Error` (`errors.go`). |
+| `webtest` | Test-only: serves a feature's routes behind the real middleware, on the test database and Redis, for handler tests. |
 | `auth` | Users, password hashing (argon2id), TOTP enrolment and verification, sessions, roles, the sign-in throttle. |
 | `booking` | Services, availability rules, overrides and blocks, slot generation (`slots.go`), appointment requests (`requests.go`), the status transition table (`status.go`), reschedules, the management link (`manage.go`), the admin dashboard (`dashboard.go`), hold expiry, reminders, retention purge, and their tasks (`worker.go`). |
 | `video` | Video rooms, join tokens, room tickets, TURN credentials, the in-memory room hub and the WebSocket signaling loop, room closing. |
@@ -68,46 +71,44 @@ errors from `internal/apperr`. Only `httpapi` and `cmd/api` serve HTTP; `meta`,
 | `comms` | Communication records, templates (`comms/templates/<kind>.<locale>.tmpl`), delivery through Resend or SMTP, the sweeper, contact enquiries. |
 | `db` | sqlc output (generated, committed) and `db/queries/*.sql`. |
 
+Each feature package that serves HTTP has a `Handler` struct and a
+`Routes(r web.Routes)` method in `handler.go`, listing every route with its
+group, role and rate limit, and handlers in `http_*.go` with their request and
+response structs written beside them. `runAPI` in `cmd/api/api.go` builds each
+`Handler` and calls its `Routes`. Sign-in, sign-out, `/auth/me` and the health
+routes live in `cmd/api` (`http_auth.go`, `http_health.go`), because
+`internal/web` imports `internal/auth`.
+
 Domain functions that cause background work return the tasks to enqueue; the
 handler enqueues them **after** the transaction commits. Nothing enqueues from
 inside a transaction.
 
 ## Request lifecycle
 
-chi middleware runs in this order for every HTTP route:
+Middleware runs in this order:
 
-1. **Request id** — reuse a valid incoming `X-Request-Id` or generate one; echo it in the response.
-2. **Real IP** — trust `X-Forwarded-For` from Caddy only (the API port is not exposed elsewhere).
-3. **Logger** — one slog line per request after it completes: request id, method, chi route pattern (never the raw path, so tokens in paths are never logged), status, duration, bytes.
-4. **Recover** — a panic becomes `500 internal_error` and an error log with the stack. Then the security headers (below) are set.
-5. **Timeout** — 30 seconds, and the request context carries it into every query. AI suggestions get 45 seconds (`timeoutByOperation`), media upload 120. The WebSocket route is mounted outside this group.
-6. **Body cap** — `http.MaxBytesReader`: 64 KiB for JSON, 512 KiB for saving a post (`bodyCapByOperation`: Markdown in two languages), 21 MiB for media upload.
-7. **Authentication** — `X-Service-Key` for `/public/*` and `POST /auth/sessions`; `Authorization: Bearer <session>` for `/admin/*` and the other `/auth/*` routes. Then the role check, the rate limit, and the operation's own body cap and timeout (`operationLimits`).
-8. **OpenAPI validation** — `nethttp-middleware` validates path, query, headers and body against the embedded spec. Shape errors become `400 invalid_request` with `errors[]`.
-9. **Handler** — strict-server handler; calls one domain function; maps the result or the `apperr` to a response.
+1. **Request id** — reuse a valid incoming `X-Request-Id` or generate one; echo it in the response. The client IP is the last `X-Forwarded-For` hop, the one Caddy appended.
+2. **Logger** — one slog line per request after it completes: request id, method, route pattern (never the raw path, so tokens in paths are never logged), status, duration, bytes.
+3. **Recover** — a panic becomes `500 internal_error` and an error log with the stack.
+4. **Security headers** (below).
+5. **Group** — each route is registered on one group from `web.NewRoutes`:
 
-Steps 7 and 8 run per operation, through the generated
-`ChiServerOptions.Middlewares`. Step 7 finds the request's operation in an
-index built once from the embedded spec and keyed by method and path
-template, which is exactly the chi route pattern, so a route is guarded by
-the `security` its operation declares, never by its path. Every operation
-declares exactly one of `serviceKey`, `sessionToken` or `security: []`; the
-index refuses anything else at start-up. The generated wrapper wraps each entry around
-the ones before it, so the last entry runs first: validation is
-`Middlewares[0]` and runs last, just before the handler, and the
-authentication, role and rate-limit middlewares are appended after it. The
-validator checks the `email`, `date` and `date-time` formats by parsing the
-value (`net/mail`, `time.Parse`), not by kin-openapi's loose patterns, and
-`uuid` against the RFC 9562 layout. It hands kin-openapi the
-spec as OpenAPI 3.0: for a 3.1 document kin-openapi's JSON Schema 2020-12
-engine reduces each failure to a sentence quoting the value, losing the rule
-and the JSON pointer, and `openapi.yaml` uses only keywords both engines read
-alike. Every message in `errors[]` is built from the rule, never from an error
-text, so a submitted value is never echoed. Parameters bind in the generated
-wrapper before any of these middlewares run; those that fail to bind, and
-bodies the strict server cannot decode, answer
-`is missing or malformed` for the same reason; the log keeps only the error
-types.
+   | Group | Timeout | Body cap | Caller | Group rate limit |
+   |---|---|---|---|---|
+   | `Public` | 30 s | 64 KiB | `X-Service-Key` | 1,200 a minute per service key |
+   | `Admin` | 30 s | 512 KiB | `Authorization: Bearer <session>` | 300 a minute per session |
+   | `Slow` (media upload, AI suggestions) | 2 min | 21 MiB | bearer session | 300 a minute per session |
+   | `Root` (video WebSocket, `/healthz`, `/readyz`) | none | none | none; the WebSocket checks its own ticket | none |
+
+   The timeout travels in the request context into every query; the body cap is `http.MaxBytesReader`.
+6. **Route** — what the route lists in its feature's `Routes()`: the role (`web.Role`), then its own rate limit (`r.Limit`), if any.
+7. **Handler** — binds the path, query and body into its own structs with `web.BindJSON`, `web.BindQuery`, `web.BindURI` or `web.PathUUID`, calls one domain function and writes JSON. A body, query or path that does not bind answers `400 invalid_request` with `errors[]`.
+
+Request structs carry their rules as `binding` tags (`required`, `email`,
+`oneof`, `max`, and the custom `slug`, `phone`, `hhmm` and `totp`). Unknown
+JSON fields are refused. In `errors[]` a body field is named by its JSON
+pointer and a query or path field by its name. Every message is built from
+the rule, never from an error text, so a submitted value is never echoed.
 
 ### Error model
 
@@ -118,7 +119,7 @@ never shows `detail` to visitors. Renaming a code is a breaking change.
 
 | Code | Status | Meaning |
 |---|---|---|
-| `invalid_request` | 400 | Body, query, header or path does not match the spec. |
+| `invalid_request` | 400 | Body, query, header or path is malformed or breaks a field rule. |
 | `unauthenticated` | 401 | Missing or wrong service key, or missing, expired or revoked session. |
 | `invalid_credentials` | 401 | Sign-in failed. Same response for unknown email, wrong password and wrong TOTP code. |
 | `forbidden` | 403 | Signed in, but no role grants this route. No resource data is returned. |
@@ -187,7 +188,7 @@ prefix of the email.
 | `GET /admin/settings` | `site` keys only | yes | yes |
 | `PATCH /admin/settings` | no | `booking` keys | all keys |
 | `/admin/services`, `/admin/availability/*` | no | yes | yes |
-| `/admin/appointments/*` (video session start and end included), `/admin/dashboard`, `/admin/communications` | no | yes | yes |
+| `/admin/appointments/*` (video session start and end, resend and mark as communicated included), `/admin/dashboard` | no | yes | yes |
 | `/admin/contact-enquiries` | no | yes | yes |
 | `/admin/posts`: list, get, create, patch, delete, submit, mark a channel posted | yes | no | yes |
 | `/admin/posts/{id}`: request-changes, approve, schedule, unschedule, publish, archive | no | no | yes |
@@ -195,15 +196,14 @@ prefix of the email.
 | `/admin/connections/meta`: read, Facebook Login, choose the Page, disconnect | no | no | yes |
 | `/admin/connections/linkedin`: read, sign in, disconnect | no | no | yes |
 
-The table is `rolesByOperation` in `internal/httpapi/roles.go`, one row per
-`sessionToken` operation; `TestEverySessionOperationHasRoles` fails when an
-operation has no row or a row names no such operation. The role check runs
-right after the session check and before the rate limit and validation, so a
-caller without the role is not counted and learns nothing about the contract.
-Every refusal is the same `403 forbidden` body, naming no operation or
-resource, and an operation missing from the table is refused to everyone.
-Rules finer than an operation, the settings key groups, are the domain's: it
-reads the roles with `auth.FromContext`.
+Each admin route names its roles with `web.Role` in its feature's
+`Routes()`, so the table above can be read off the `handler.go` files. A
+route on `Admin` or `Slow` without `web.Role` would be open to any signed-in
+user, so every new admin route names one. The role check runs after the
+session check and the session's rate limit, and before the route's own limit
+and binding. Every refusal is the same `403 forbidden` body, naming no route or
+resource. Rules finer than a route, the settings key groups, are the domain's:
+it reads the roles with `auth.FromContext`.
 
 Content editors never see booking data; booking administrators never edit
 content. Daw Mi holds all three roles.
@@ -260,8 +260,7 @@ content. Daw Mi holds all three roles.
 5. If the format is `online` and `meeting_link_mode = vetmimi_room`, a
    `video_rooms` row is inserted with a join-token seed and hash, `opens_at` =
    start − 15 minutes, `closes_at` = end + 60 minutes. `manual_link` mode is not
-   served yet: confirm ignores `meetingLink`, and its own operation is excluded
-   from generation.
+   served yet: confirm accepts `meetingLink` and ignores it.
 6. Events row `confirmed`; communications `booking_confirmed` (visitor) and
    `reminder` (visitor, `scheduled_for` = start − `reminder_hours`, only if that
    is still in the future).
@@ -272,8 +271,8 @@ content. Daw Mi holds all three roles.
    join link from the room's seed, sends through Resend (idempotency key = row
    id) and records `sent`, or retries 5 times and records `failed`. A failed
    email never reverts the confirmation; the dashboard lists it under
-   attention as `failed_communication`. Resend and Mark as communicated are in
-   the contract but not served yet.
+   attention as `failed_communication`, where Daw Mi can resend it or mark it
+   as communicated.
 
 ### 3. Reminder firing
 
@@ -309,7 +308,7 @@ content. Daw Mi holds all three roles.
    credentials follow coturn's REST convention: username `<expiry>:<room>:<role>`,
    credential `base64(HMAC-SHA1(TURN_SECRET, username))`, valid to `closes_at`.
 5. The browser opens `wss://<api host>/video/rooms/{roomId}/ws?ticket=…`. The
-   handler (outside the timeout and OpenAPI middleware) requires `Origin` =
+   handler (on the `Root` group: no timeout, body cap or sign-in) requires `Origin` =
    `SITE_URL`, a valid ticket for this room and an open room, then upgrades.
 6. The hub keeps one connection per role per room; a new one closes the old
    with code 4000 (`replaced`), which is how reconnects work.
@@ -471,10 +470,11 @@ values for secrets.
 | `/admin/*`, `/auth/*` | session | 300 per minute |
 | WebSocket upgrade | room id | 20 per minute |
 
-The table is `internal/httpapi/ratelimit.go`, chosen by operation id; the
-per-email sign-in limit is applied by the auth domain, because the email is in
-the body, and the WebSocket handler calls `AllowRoomUpgrade` itself. Windows
-start on a multiple of their length. Keys are
+Each rule is a `web.Rule` beside the routes that use it, in their feature's
+`handler.go` (sign-in's in `cmd/api/http_auth.go`); the two group limits are
+in `internal/web/ratelimit.go`. The per-email sign-in limit is applied by
+the auth domain, because the email is in the body. The WebSocket route counts
+by room id after checking the request (`checkRoomRequest`). Windows start on a multiple of their length. Keys are
 `rl:<group>:<first 32 hex of SHA-256(subject)>:<window start>`, so no address,
 token or email is stored in Redis; the lockout keeps
 `lockout:failures:<hash>` (a sorted set of failure times) and

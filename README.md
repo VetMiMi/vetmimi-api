@@ -10,7 +10,7 @@
 ![Go](https://img.shields.io/badge/Go-1.27-00ADD8?style=flat-square&logo=go&logoColor=white)
 ![PostgreSQL 17](https://img.shields.io/badge/PostgreSQL-17-4169E1?style=flat-square&logo=postgresql&logoColor=white)
 ![Redis](https://img.shields.io/badge/Redis-asynq-DC382D?style=flat-square&logo=redis&logoColor=white)
-![OpenAPI 3.1](https://img.shields.io/badge/OpenAPI-3.1-6BA539?style=flat-square&logo=openapiinitiative&logoColor=white)
+![Gin](https://img.shields.io/badge/Gin-HTTP-008ECF?style=flat-square&logo=gin&logoColor=white)
 ![WebRTC](https://img.shields.io/badge/WebRTC-signaling-333333?style=flat-square&logo=webrtc&logoColor=white)
 
 <br>
@@ -45,8 +45,8 @@ It is designed for its real scale: one practitioner, tens of appointments a mont
 
 | Path | What it holds |
 |---|---|
-| `cmd/api/` | `main`: one binary with four modes (`api`, `worker`, `create-user`, `healthcheck`) |
-| `internal/httpapi/` | Routes, middleware and handlers, one file per API area; `gen/` is generated from `openapi.yaml` |
+| `cmd/api/` | `main`: one binary with four modes (`api`, `worker`, `create-user`, `healthcheck`); `api.go` wires every feature's routes; sign-in and health routes |
+| `internal/web/` | What every route shares: the router, route groups, service key, sign-in and role checks, rate limits, binding and error responses |
 | `internal/booking/` | Services, availability, slots, appointments and their background tasks |
 | `internal/video/` | Video rooms, room tickets and the WebSocket signalling hub |
 | `internal/content/` | The publishing portal: posts, channel versions, workflow, publishing |
@@ -67,29 +67,30 @@ It is designed for its real scale: one practitioner, tens of appointments a mont
 | `internal/listing/` | Keyset cursors and search for the admin lists |
 | `internal/apperr/` | Typed errors with a stable code |
 | `internal/clock/` | The current time, fixed in tests |
+| `internal/webtest/` | Handler tests: a feature's routes behind the real middleware |
 | `internal/pgtest/`, `internal/redistest/` | A test database per test binary, and Redis for tests |
 | `migrations/` | goose SQL migrations, embedded in the binary |
-| `openapi.yaml` | The HTTP contract |
 | `deploy/` | Dockerfile, Compose, Caddy, coturn and Terraform for the live host |
-| `scripts/` | `gate.sh` (the machine-wide lock) and the contract-version check |
+| `scripts/` | `gate.sh`, the machine-wide lock |
 | `docs/` | Architecture, data model, social setup guides, ADRs |
+
+Each feature folder holds its routes, handlers and rules together: `handler.go` lists every route with its role and rate limit, `http_*.go` holds the handlers with their request and response structs, and the other files hold the rules. [`STYLE.md`](STYLE.md) shows the pattern.
 
 ### How a request flows
 
 A visitor asks for an appointment: `POST /public/appointments`.
 
-1. **Contract.** `openapi.yaml` declares the operation `createPublicAppointment`, secured by `serviceKey`, with a required `Idempotency-Key` header.
-2. **Generated interface.** `make generate` adds `CreatePublicAppointment` to `gen.StrictServerInterface` in `internal/httpapi/gen/api.gen.go`. `NewRouter` in `internal/httpapi/router.go` mounts it.
-3. **Middleware**, in the order `router.go` runs it:
-   - every route: `requestID`, `realIP`, `logRequests`, `recoverPanics`, `setSecurityHeaders`
-   - then `WithTimeout` (30 s) and `WithBodyCap` (64 KiB)
-   - then per operation (`mountAPI`): `requireServiceKey`, `requireSession`, `requireRoles`, the rate limit (`limitsByOperation`: 5 per 10 minutes per visitor IP), `operationLimits`, `validateRequests`. Each check acts only when the operation's `security` asks for it.
-4. **Handler.** `server.CreatePublicAppointment` in `internal/httpapi/booking_public.go` turns the body into a `booking.Request`.
-5. **Domain.** `booking.RequestAppointment` in `internal/booking/requests.go` opens one transaction (`inSchedule`, which takes the schedule lock). It checks the idempotency key, the settings, the service, the booking window and the slot, then calls `InsertAppointment` and `AppendEvent`.
-6. **SQL.** `InsertAppointment` and `LockSchedule` live in `internal/db/queries/appointments.sql`; sqlc generates `internal/db/appointments.sql.go`. If the exclusion constraint rejects an overlap, `refusal` in `internal/booking/booking.go` turns it into `409 slot_unavailable`.
-7. **Email row.** `notifyRequested` calls `comms.Queue` (`internal/comms/comms.go`), which inserts a `communications` row in the same transaction and returns a `comms:deliver` task. Booking adds a `booking:expire-hold` task.
-8. **After commit.** The handler calls `s.enqueue`, which puts the tasks on Redis, and answers `201` with the receipt. Any error becomes a Problem body in `responseError` (`internal/httpapi/problem.go`).
-9. **Worker.** `comms.Tasks.Deliver` (`internal/comms/deliver.go`, registered in `cmd/api/worker.go`) locks the row, renders `templates/request_received.<locale>.tmpl`, sends it through Resend with the row id as the idempotency key, and marks it `sent`. If Redis lost the task, `comms:sweep` finds the row within 5 minutes.
+1. **Route.** `Routes` in `internal/booking/handler.go` registers `r.Public.POST("/public/appointments", r.Limit(requestLimit), h.requestAppointment)`. `runAPI` in `cmd/api/api.go` builds the router and calls each feature's `Routes`.
+2. **Middleware**, in order:
+   - every route (`web.NewRouter`): `requestID`, `logRequests`, `recoverPanics`, `securityHeaders`
+   - the `Public` group (`web.NewRoutes`): `Timeout` (30 s), `MaxBody` (64 KiB), `ServiceKey`, then 1,200 requests a minute per service key
+   - the route: `requestLimit`, 5 per 10 minutes per visitor IP
+3. **Handler.** `requestAppointment` in `internal/booking/http_public.go` reads the `Idempotency-Key` header, binds the body into `requestInput` with `web.BindJSON` (a bad field answers `400` and names the field), and builds a `booking.Request`.
+4. **Domain.** `booking.RequestAppointment` in `internal/booking/requests.go` opens one transaction (`inSchedule`, which takes the schedule lock). It checks the idempotency key, the settings, the service, the booking window and the slot, then calls `InsertAppointment` and `AppendEvent`.
+5. **SQL.** `InsertAppointment` and `LockSchedule` live in `internal/db/queries/appointments.sql`; sqlc generates `internal/db/appointments.sql.go`. If the exclusion constraint rejects an overlap, `refusal` in `internal/booking/booking.go` turns it into `409 slot_unavailable`.
+6. **Email row.** `notifyRequested` calls `comms.Queue` (`internal/comms/comms.go`), which inserts a `communications` row in the same transaction and returns a `comms:deliver` task. Booking adds a `booking:expire-hold` task.
+7. **After commit.** The handler calls `h.afterCommit`, which puts the tasks on Redis, and answers `201` with the receipt. Any error goes through `web.Error` (`internal/web/errors.go`), which writes an `application/problem+json` body.
+8. **Worker.** `comms.Tasks.Deliver` (`internal/comms/deliver.go`, registered in `cmd/api/worker.go`) locks the row, renders `templates/request_received.<locale>.tmpl`, sends it through Resend with the row id as the idempotency key, and marks it `sent`. If Redis lost the task, `comms:sweep` finds the row within 5 minutes.
 
 ### Coming from Spring?
 
@@ -97,11 +98,11 @@ The layers are the same; they are grouped by feature instead of by kind.
 
 | Spring | Here | For `POST /public/appointments` |
 |---|---|---|
-| Controller | `internal/httpapi/` | `CreatePublicAppointment` in `booking_public.go` |
-| Service | `internal/<feature>/` | `booking.RequestAppointment` in `requests.go` |
+| Controller | `internal/<feature>/http_*.go`, routes in `handler.go` | `requestAppointment` in `http_public.go` |
+| Service | `internal/<feature>/` | `RequestAppointment` in `requests.go` |
 | Repository | `internal/db/`, generated by sqlc from `queries/*.sql` | `InsertAppointment` in `queries/appointments.sql` |
 | Entity | `internal/db/models.go`, generated | `db.Appointment` |
-| DTO | `internal/httpapi/gen/`, generated from `openapi.yaml` | `gen.CreatePublicAppointmentRequestObject` |
+| DTO | Structs written beside the handler | `requestInput` in `http_public.go` |
 
 A Go folder is one package, and every file in it sees the others, so file names
 only help the reader: `internal/booking/reschedule.go` holds everything about
@@ -109,22 +110,13 @@ rescheduling, and `reschedule_test.go` sits beside it. Go discourages
 `controllers/`, `services/` and `models/` folders because two packages may not
 import each other, and working around that needs interfaces nobody else uses.
 
-### Add an endpoint in 6 steps
+### Add an endpoint in 5 steps
 
-1. **Contract.** Add the operation to `openapi.yaml`: an `operationId`, a tag and one `security` entry. Raise `info.version`. A new tag also goes in `include-tags` in `oapi-codegen.yaml`.
-2. **Generate.** Run `make generate`. The build now fails until the new method on `gen.StrictServerInterface` exists.
-3. **Handler.** Write the method in `internal/httpapi/<area>.go`: parse, call one domain function, map the result.
-4. **Domain.** Write the function in its `internal/<package>`. It takes `context.Context` and a pool or `db.Querier`, and returns `apperr` errors.
-5. **Query.** Add the SQL to `internal/db/queries/<table>.sql` and run `make generate` again. A schema change is a new migration (`make migrate-new NAME=...`).
-6. **Tests.** A success and a failure test for the domain function against real PostgreSQL, and a handler test in `internal/httpapi`.
-
-Then fill in the tables in `internal/httpapi`:
-
-| Table | File | When |
-|---|---|---|
-| `rolesByOperation` | `roles.go` | Every `sessionToken` operation. Without a row, nobody may call it, and `TestEverySessionOperationHasRoles` fails. |
-| `limitsByOperation` | `ratelimit.go` | Only if it needs its own limit. Otherwise it shares its scheme's limit (1,200/min per service key, or 300/min per session). |
-| `bodyCapByOperation`, `timeoutByOperation` | `middleware.go` | Only if 64 KiB or 30 s is not enough. |
+1. **Query.** Add the SQL to `internal/db/queries/<table>.sql` and run `make generate`. A schema change is a new migration (`make migrate-new NAME=...`).
+2. **Domain.** Write the function in its `internal/<feature>`. It takes `context.Context` and a pool or `db.Querier`, and returns `apperr` errors.
+3. **Handler.** Write it in the feature's `http_*.go`, with its request and response structs beside it: bind, call the domain function, write JSON.
+4. **Route.** Add one line to `Routes` in the feature's `handler.go`, on the right group (`Public`, `Admin` or `Slow`), with its role (`web.Role`) and, if it needs its own, a rate limit (`r.Limit`).
+5. **Tests.** A success and a failure test for the domain function against real PostgreSQL, and a handler test through `internal/webtest`. If the JSON changed, update the site's types in `vetmimi-next` in the same change set.
 
 ## Features
 
@@ -171,17 +163,17 @@ Then fill in the tables in `internal/httpapi`:
 - **A pending request *is* the hold.** Its expiry time is stored on the row, and a CHECK constraint ties it to the pending status. The worker expires it on time, and a 5-minute sweep catches anything missed. A reschedule is a single `UPDATE`, so the new time is secured before the old one is released.
 - **Emails are durable records** ([ADR-006](docs/adr/006-communications-as-durable-records.md)). Email rows are written in the same transaction as the change that caused them, and only the row id is queued. A sweep rebuilds anything Redis lost, the row id is Resend's idempotency key, and reminders are re-checked at the moment they are sent.
 - **Links are safe even if the database leaks.** Manage and join links are derived with HMAC-SHA256 from a stored seed. The database keeps only the seed and a hash of each link, so a database dump contains no working links.
-- **The OpenAPI contract drives security.** Each of the contract's 89 operations must declare how callers authenticate, or the server refuses to start. Access rules follow each operation's declaration, not its URL path. An admin operation without a roles row is refused to everyone. Requests are validated against the spec, and errors are `application/problem+json` with stable codes.
+- **Every route says who may call it.** A feature's `handler.go` lists its routes in one place, each on a group (service key or signed in) with the role it needs and its rate limit. Request structs carry their validation rules as tags, unknown fields are refused, and errors are `application/problem+json` with stable codes.
 - **Signaling** ([ADR-007](docs/adr/007-one-to-one-webrtc-with-go-signaling.md)): one connection per role per room, a reconnect replaces the old socket, frames are capped at 16 KiB, and the hub re-reads room state every 30 s so the worker can end sessions.
 - **Privacy-preserving rate limits.** Requests are counted in fixed windows in Redis under hashed keys, so no IP address or email address is stored. Sign-in fails closed when Redis is down; other requests fail open.
-- **The contract is versioned across repos** ([ADR-003](docs/adr/003-openapi-first-contract.md)). CI rejects a change to `openapi.yaml` that doesn't raise its version, and merging tags the new version. The web app pins that tag and regenerates its client types from it.
+- **Plain, readable HTTP code** ([ADR-011](docs/adr/011-gin-with-handwritten-structs.md)). Handlers and their JSON structs are written by hand with Gin; the web app keeps matching TypeScript types by hand, and a change to a JSON shape updates both in the same change set.
 
 ## Tech stack
 
 | Layer | Technology |
 |---|---|
 | Language | Go 1.27, one binary with `api`, `worker`, `create-user` and `healthcheck` modes |
-| HTTP | chi, oapi-codegen (strict server from `openapi.yaml`), kin-openapi request validation, coder/websocket |
+| HTTP | Gin (routing, binding, validation through go-playground/validator), coder/websocket |
 | Data | PostgreSQL 17 (pgx, sqlc, goose migrations embedded in the binary), `btree_gist` exclusion constraints |
 | Jobs | Redis + asynq (email, reminders, hold expiry, publishing, sweeps, retention) |
 | Integrations | Resend or SMTP (email), S3-compatible storage, coturn (TURN), Meta Graph API, LinkedIn API, Anthropic Messages API |
@@ -192,7 +184,7 @@ Then fill in the tables in `internal/httpapi`:
 
 ```mermaid
 flowchart LR
-  next["vetmimi-next<br/>(server side)"] -->|"X-Service-Key or<br/>Bearer session"| api["api mode<br/>chi + strict OpenAPI server"]
+  next["vetmimi-next<br/>(server side)"] -->|"X-Service-Key or<br/>Bearer session"| api["api mode<br/>Gin"]
   browser["Browser"] -.->|"video WebSocket<br/>5-min ticket"| api
   api --> pg[("PostgreSQL 17")]
   api -->|"enqueue after commit"| redis[("Redis")]
@@ -224,7 +216,7 @@ set -a; . ./.env; set +a
 make dev
 ```
 
-- `make tools` installs the pinned sqlc, oapi-codegen, goose and staticcheck.
+- `make tools` installs the pinned sqlc, goose and staticcheck.
 - Fill in `.env`. Nothing loads it for you, so `set -a; . ./.env; set +a` exports it into your shell.
 - `make dev` runs the API on `:8080` and migrates on start. Check it with `curl localhost:8080/healthz`.
 - Run `make worker` in a second terminal for background jobs.
@@ -267,10 +259,10 @@ go test ./internal/comms -update
 
 What the tests promise:
 
-- **About 470 tests in 84 files.** Integration tests run against **real PostgreSQL**, with no mocks: each test binary gets its own migrated database, which is dropped afterwards. If the test databases aren't configured, the run fails rather than skipping.
+- **About 380 tests in 86 files.** Integration tests run against **real PostgreSQL**, with no mocks: each test binary gets its own migrated database, which is dropped afterwards. If the test databases aren't configured, the run fails rather than skipping.
 - **Every external API is tested against a fake HTTP server:** Resend, Meta, LinkedIn and Anthropic.
 - **Each behaviour gets a success test and a failure test**, and anything touching scheduling gets a concurrency test.
-- **CI** (`.github/workflows/ci.yml`) also runs the deployment checks (shellcheck, the deploy and compose tests, `caddy validate`, an image build, `terraform validate`), the contract-version check and the Conventional Commits check. `contract-tag.yml` tags each new contract version on `main`.
+- **CI** (`.github/workflows/ci.yml`) also runs the deployment checks (shellcheck, the deploy and compose tests, `caddy validate`, an image build, `terraform validate`) and the Conventional Commits check.
 
 ## Deployment
 
@@ -299,11 +291,12 @@ From the Fargate session on 2026-10-11. Screenshots have the account id replaced
 
 The foundation, booking and contact, video, and the publishing portal milestones are complete. Launch work is in progress: deployment and backups, a runbook and handover guide, and Daw Mi's review of the English and Burmese emails.
 
-Four operations are already in the contract but not served yet: manual meeting links, and the communications list, resend and mark-as-sent. See the [project board](https://github.com/orgs/VetMiMi/projects/1) and [open issues](https://github.com/VetMiMi/vetmimi-api/issues).
+Manual meeting links are not served yet: confirming an appointment accepts `meetingLink` and ignores it. See the [project board](https://github.com/orgs/VetMiMi/projects/1) and [open issues](https://github.com/VetMiMi/vetmimi-api/issues).
 
 ## Documentation
 
 - [`docs/architecture.md`](docs/architecture.md): components, request lifecycle, error codes, roles, background jobs
 - [`docs/data-model.md`](docs/data-model.md): tables and constraints
-- [`docs/adr/`](docs/adr): decision records 001–010
+- [`docs/adr/`](docs/adr): decision records 001–011
+- [`STYLE.md`](STYLE.md): how a feature's routes, handlers and rules are written
 - [`AGENTS.md`](AGENTS.md): the working agreement and code style

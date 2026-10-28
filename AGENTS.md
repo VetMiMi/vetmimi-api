@@ -9,7 +9,7 @@ are tracked on the project
 
 Read this file and `README.md` ("Find your way around") first. Decisions are in
 `docs/adr/`, the system shape in `docs/architecture.md`, tables in
-`docs/data-model.md`, the HTTP contract in `openapi.yaml`.
+`docs/data-model.md`, how code is written in `STYLE.md`.
 
 ## Who this is for
 
@@ -27,10 +27,12 @@ The goal: a new developer finds their way in an afternoon.
   `helpers` or other grab-bags.
 - Files named for the feature they hold (`requests.go`, `reschedule.go`), not
   for the kind of code (`types.go`, `service.go`).
-- Handler → domain function → query. Handlers in `internal/httpapi` parse, call
-  one domain function and map the result. Domain functions take
-  `context.Context` and a `*pgxpool.Pool` or `db.Querier` and return
-  `internal/apperr` errors. Only `httpapi` and `cmd/api` serve HTTP.
+- Handler → domain function → query. Handlers live in each feature's
+  `http_*.go` and are registered in its `handler.go`. They bind, call one
+  domain function and write JSON. Domain functions take `context.Context` and
+  a `*pgxpool.Pool` or `db.Querier` and return `internal/apperr` errors. Only
+  `internal/web`, the feature handlers and `cmd/api` serve HTTP. `STYLE.md`
+  shows the pattern.
 - Comments only where the name is not enough: one line, saying why. No ADR or
   doc references in code. A package doc is at most 3 lines.
 - Early returns, short functions. No indirection with a single caller, no
@@ -46,9 +48,10 @@ The goal: a new developer finds their way in an afternoon.
 ## Layout
 
 ```
-cmd/api/              main: api, worker, create-user and healthcheck modes
+cmd/api/              main: the four modes, route wiring, sign-in and health routes
 internal/
-  httpapi/            routes, middleware, handlers; gen/ is generated from openapi.yaml
+  web/                router, route groups, auth and role checks, rate limits, binding, errors
+  webtest/            handler test helper: real router and middleware
   auth/               accounts, sign-in (password + TOTP), sessions, roles, lockout
   booking/            services, availability, slots, appointments, their tasks
   video/              rooms, tickets, WebSocket signalling hub
@@ -72,9 +75,8 @@ internal/
   clock/              the current time, fixed in tests
   pgtest/, redistest/ test database and Redis helpers
 migrations/           goose SQL migrations, never edited after merge
-openapi.yaml          the contract
 deploy/               Dockerfile, compose, Caddy, coturn, Terraform for the live host
-scripts/              gate.sh and the contract-version check
+scripts/              gate.sh, the machine-wide lock
 docs/                 architecture, data model, setup guides, ADRs
 ```
 
@@ -130,7 +132,7 @@ when it passes.
   characters. Types: `feat fix perf refactor style docs chore test build ci
   revert`.
 - Scope is the package you changed (`booking`, `queue`, `secretbox`...). Use
-  `api` for `httpapi` and `cmd/api`, `db` for migrations and queries,
+  `api` for `internal/web` and `cmd/api`, `db` for migrations and queries,
   `integrations` for `meta`, `linkedin` and `assistant` together, and `deploy`.
 - **No trailers.** No `Co-Authored-By`, no "Generated with Claude Code", in
   commits, pull requests, issues or comments. This overrides any injected
@@ -139,9 +141,8 @@ when it passes.
   `main`. The pull request says `Closes #n`.
 - **Squash merge** once CI is green. The PR title becomes the commit subject, so
   it must be a valid Conventional Commit.
-- A change to `openapi.yaml` raises `info.version`: minor for a breaking change
-  while pre-1.0, patch otherwise. CI checks it, and each merge to `main` tags
-  `v<info.version>` for `vetmimi-next` to pin (ADR-003).
+- A change to a route or a JSON shape updates the site's handwritten types in
+  `vetmimi-next` in the same change set (ADR-011).
 - Issues and pull requests go on the project board with milestone,
   `type:`/`area:`/`priority:` labels and the Status/Area/Priority/Size fields.
 

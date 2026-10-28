@@ -30,7 +30,7 @@ What becomes easier, what becomes harder, what we must now watch.
 |---|---|
 | [001](001-go-api-in-its-own-repository.md) | Go API in its own repository |
 | [002](002-custom-admin-in-the-next-app.md) | Custom admin inside the Next.js app, Next as the browser's only origin |
-| [003](003-openapi-first-contract.md) | OpenAPI-first contract shared by generation |
+| [003](003-openapi-first-contract.md) | OpenAPI-first contract shared by generation (superseded by 011) |
 | [004](004-postgresql-owns-scheduling.md) | PostgreSQL owns scheduling correctness |
 | [005](005-cheap-live-host-and-fargate-target.md) | One cheap live host; ECS Fargate kept as a validated Terraform target |
 | [006](006-communications-as-durable-records.md) | Communications as durable records, delivered by asynq workers |
@@ -38,3 +38,4 @@ What becomes easier, what becomes harder, what we must now watch.
 | [008](008-content-in-postgres-served-through-the-api.md) | Content in PostgreSQL, served through the API, revalidated by tag |
 | [009](009-publishing-portal.md) | A publishing portal for posts, replacing the website CMS |
 | [010](010-live-host-on-ec2-with-the-website.md) | The live host is an EC2 instance in Sydney, and it serves the website too |
+| [011](011-gin-with-handwritten-structs.md) | Gin with handwritten structs, routes listed per feature |
