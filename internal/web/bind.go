@@ -11,6 +11,7 @@ import (
 	"slices"
 	"strconv"
 	"strings"
+	"time"
 
 	"github.com/gin-gonic/gin"
 	"github.com/gin-gonic/gin/binding"
@@ -72,9 +73,14 @@ func BindQuery(c *gin.Context, v any) bool {
 
 // PathUUID reads the path parameter name as a UUID. When it returns false it has answered 400.
 func PathUUID(c *gin.Context, name string) (pgtype.UUID, bool) {
-	id, err := uuid.Parse(c.Param(name))
+	return ParseUUID(c, name, c.Param(name))
+}
+
+// ParseUUID reads value, from the request's field, as a UUID. When it returns false it has answered 400.
+func ParseUUID(c *gin.Context, field, value string) (pgtype.UUID, bool) {
+	id, err := uuid.Parse(value)
 	if err != nil {
-		Error(c, apperr.Invalid("The request is not valid.", apperr.FieldError{Field: name, Message: "must be a valid uuid"}))
+		Error(c, apperr.Invalid("The request is not valid.", apperr.FieldError{Field: field, Message: "must be a valid uuid"}))
 		return pgtype.UUID{}, false
 	}
 	return pgtype.UUID{Bytes: id, Valid: true}, true
@@ -121,8 +127,13 @@ func rule(fe validator.FieldError) string {
 		return "is required"
 	case "email":
 		return "must be a valid email"
-	case "uuid", "uuid_rfc4122":
+	case "uuid":
 		return "must be a valid uuid"
+	case "datetime":
+		if fe.Param() == time.DateOnly {
+			return "must be a valid date"
+		}
+		return "must be a valid date-time"
 	case "oneof":
 		return "must be one of: " + strings.ReplaceAll(fe.Param(), " ", ", ")
 	case "slug":

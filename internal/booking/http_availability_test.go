@@ -2,6 +2,7 @@ package booking_test
 
 import (
 	"net/http"
+	"strings"
 	"testing"
 	"time"
 
@@ -41,6 +42,9 @@ func TestHTTP_AvailabilityRules(t *testing.T) {
 		map[string]any{"field": "/weekday", "message": "must be at most 7"},
 		map[string]any{"field": "/startTime", "message": "must be a time as HH:MM"},
 	}, p["errors"])
+	p = webtest.Refused(t, http.StatusBadRequest, "invalid_request", a.Admin(http.MethodPost, rulesURL, token,
+		`{"weekday": 0, "startTime": "09:00", "endTime": "10:00"}`))
+	require.Equal(t, []any{map[string]any{"field": "/weekday", "message": "must be at least 1"}}, p["errors"])
 
 	path := rulesURL + "/" + afternoon["id"].(string)
 	moved := webtest.JSON(t, http.StatusOK, a.Admin(http.MethodPut, path, token,
@@ -112,12 +116,15 @@ func TestHTTP_AvailabilityOverrides(t *testing.T) {
 	p = webtest.Refused(t, http.StatusBadRequest, "invalid_request", a.Admin(http.MethodPost, "/admin/availability/overrides", token,
 		`{"onDate": "7 May", "kind": "close", "startsAt": "2034-05-07T00:00:00Z", "endsAt": "2034-05-07T02:00:00Z"}`))
 	require.Equal(t, []any{
-		map[string]any{"field": "/onDate", "message": "is not valid"},
+		map[string]any{"field": "/onDate", "message": "must be a valid date"},
 		map[string]any{"field": "/kind", "message": "must be one of: open, replace"},
 	}, p["errors"])
 	p = webtest.Refused(t, http.StatusBadRequest, "invalid_request",
 		a.Admin(http.MethodGet, "/admin/availability/overrides?from=2034-05-08&to=2034-05-07", token, ""))
 	require.Equal(t, []any{map[string]any{"field": "to", "message": "must not be before from"}}, p["errors"])
+	p = webtest.Refused(t, http.StatusBadRequest, "invalid_request",
+		a.Admin(http.MethodGet, "/admin/availability/overrides?from=7-May", token, ""))
+	require.Equal(t, []any{map[string]any{"field": "from", "message": "must be a valid date"}}, p["errors"])
 
 	res := a.Admin(http.MethodDelete, path, token, "")
 	require.Equal(t, http.StatusNoContent, res.Code)
@@ -160,8 +167,11 @@ func TestHTTP_AvailabilityBlockListsConflicts(t *testing.T) {
 	webtest.Refused(t, http.StatusUnprocessableEntity, "action_not_allowed", a.Admin(http.MethodPut, path, token,
 		`{"startsAt": "2034-03-02T02:00:00Z", "endsAt": "2034-03-02T02:00:00Z"}`))
 	p := webtest.Refused(t, http.StatusBadRequest, "invalid_request", a.Admin(http.MethodPost, "/admin/availability/blocks", token,
-		`{"startsAt": "2034-03-02T02:00:00Z"}`))
-	require.Equal(t, []any{map[string]any{"field": "/endsAt", "message": "is required"}}, p["errors"])
+		`{"startsAt": "tomorrow"}`))
+	require.Equal(t, []any{
+		map[string]any{"field": "/startsAt", "message": "must be a valid date-time"},
+		map[string]any{"field": "/endsAt", "message": "is required"},
+	}, p["errors"])
 
 	require.Equal(t, http.StatusNoContent, a.Admin(http.MethodDelete, path, token, "").Code)
 	webtest.Refused(t, http.StatusNotFound, "not_found", a.Admin(http.MethodDelete, path, token, ""))
@@ -181,7 +191,7 @@ func TestHTTP_PreviewAvailability(t *testing.T) {
 	id := therapy(t).ID.String()
 
 	got := webtest.JSON(t, http.StatusOK, a.Admin(http.MethodGet,
-		"/admin/availability/preview?serviceId="+id+"&from=2026-10-01&to=2026-10-14", token, ""))
+		"/admin/availability/preview?serviceId="+strings.ToUpper(id)+"&from=2026-10-01&to=2026-10-14", token, ""))
 	require.Equal(t, []string{"days", "from", "serviceId", "timezone", "to"}, keys(got))
 	require.Equal(t, id, got["serviceId"])
 	require.Equal(t, "2026-10-05", got["from"], "from is moved to today")
@@ -191,11 +201,14 @@ func TestHTTP_PreviewAvailability(t *testing.T) {
 		day["slots"].([]any)[0])
 
 	p := webtest.Refused(t, http.StatusBadRequest, "invalid_request",
-		a.Admin(http.MethodGet, "/admin/availability/preview?serviceId=nope&from=2026-10-01", token, ""))
+		a.Admin(http.MethodGet, "/admin/availability/preview?serviceId="+id+"&from=7-May", token, ""))
 	require.Equal(t, []any{
-		map[string]any{"field": "serviceId", "message": "must be a valid uuid"},
+		map[string]any{"field": "from", "message": "must be a valid date"},
 		map[string]any{"field": "to", "message": "is required"},
 	}, p["errors"])
+	p = webtest.Refused(t, http.StatusBadRequest, "invalid_request",
+		a.Admin(http.MethodGet, "/admin/availability/preview?serviceId=nope&from=2026-10-01&to=2026-10-02", token, ""))
+	require.Equal(t, []any{map[string]any{"field": "serviceId", "message": "must be a valid uuid"}}, p["errors"])
 	webtest.Refused(t, http.StatusNotFound, "not_found", a.Admin(http.MethodGet,
 		"/admin/availability/preview?serviceId=8f14e45f-ceea-4e8a-9b1c-3c1d2a6b7e10&from=2026-10-06&to=2026-10-07", token, ""))
 }

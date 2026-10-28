@@ -8,7 +8,6 @@ import (
 	"time"
 
 	"github.com/gin-gonic/gin"
-	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5/pgtype"
 
 	"github.com/VetMiMi/vetmimi-api/internal/auth"
@@ -17,7 +16,7 @@ import (
 )
 
 type ruleInput struct {
-	Weekday   int16  `json:"weekday" binding:"required,min=1,max=7"`
+	Weekday   *int16 `json:"weekday" binding:"required,min=1,max=7"`
 	StartTime string `json:"startTime" binding:"required,hhmm"`
 	EndTime   string `json:"endTime" binding:"required,hhmm"`
 }
@@ -26,31 +25,32 @@ type weeklyHoursInput struct {
 	Periods []ruleInput `json:"periods" binding:"required,max=70,dive"`
 }
 
+// Dates and times are bound as strings so that a bad one is reported by its field name.
 type overrideInput struct {
-	OnDate   string    `json:"onDate" binding:"required,datetime=2006-01-02"`
-	Kind     string    `json:"kind" binding:"required,oneof=open replace"`
-	StartsAt time.Time `json:"startsAt" binding:"required"`
-	EndsAt   time.Time `json:"endsAt" binding:"required"`
-	Note     *string   `json:"note" binding:"omitnil,max=500"`
+	OnDate   string  `json:"onDate" binding:"required,datetime=2006-01-02"`
+	Kind     string  `json:"kind" binding:"required,oneof=open replace"`
+	StartsAt string  `json:"startsAt" binding:"required,datetime=2006-01-02T15:04:05Z07:00"`
+	EndsAt   string  `json:"endsAt" binding:"required,datetime=2006-01-02T15:04:05Z07:00"`
+	Note     *string `json:"note" binding:"omitnil,max=500"`
 }
 
 type blockInput struct {
-	StartsAt time.Time `json:"startsAt" binding:"required"`
-	EndsAt   time.Time `json:"endsAt" binding:"required"`
-	AllDay   bool      `json:"allDay"`
-	Reason   *string   `json:"reason" binding:"omitnil,max=500"`
+	StartsAt string  `json:"startsAt" binding:"required,datetime=2006-01-02T15:04:05Z07:00"`
+	EndsAt   string  `json:"endsAt" binding:"required,datetime=2006-01-02T15:04:05Z07:00"`
+	AllDay   bool    `json:"allDay"`
+	Reason   *string `json:"reason" binding:"omitnil,max=500"`
 }
 
 // dateRangeQuery is optional local dates; the rules default to the next 62 days.
 type dateRangeQuery struct {
-	From *time.Time `form:"from" time_format:"2006-01-02" time_utc:"1"`
-	To   *time.Time `form:"to" time_format:"2006-01-02" time_utc:"1"`
+	From string `form:"from" binding:"omitempty,datetime=2006-01-02"`
+	To   string `form:"to" binding:"omitempty,datetime=2006-01-02"`
 }
 
 type previewQuery struct {
-	ServiceID string    `form:"serviceId" binding:"required,uuid"`
-	From      time.Time `form:"from" binding:"required" time_format:"2006-01-02" time_utc:"1"`
-	To        time.Time `form:"to" binding:"required" time_format:"2006-01-02" time_utc:"1"`
+	ServiceID string `form:"serviceId" binding:"required"`
+	From      string `form:"from" binding:"required,datetime=2006-01-02"`
+	To        string `form:"to" binding:"required,datetime=2006-01-02"`
 }
 
 type ruleJSON struct {
@@ -216,7 +216,7 @@ func (h *Handler) listOverrides(c *gin.Context) {
 		web.Error(c, err)
 		return
 	}
-	first, last, err := DateWindow(h.Now(), loc, in.From, in.To)
+	first, last, err := DateWindow(h.Now(), loc, dateOf(in.From), dateOf(in.To))
 	if err != nil {
 		web.Error(c, err)
 		return
@@ -293,7 +293,7 @@ func (h *Handler) listBlocks(c *gin.Context) {
 		web.Error(c, err)
 		return
 	}
-	first, last, err := DateWindow(h.Now(), loc, in.From, in.To)
+	first, last, err := DateWindow(h.Now(), loc, dateOf(in.From), dateOf(in.To))
 	if err != nil {
 		web.Error(c, err)
 		return
@@ -365,14 +365,18 @@ func (h *Handler) previewAvailability(c *gin.Context) {
 	if !web.BindQuery(c, &in) {
 		return
 	}
+	id, ok := web.ParseUUID(c, "serviceId", in.ServiceID)
+	if !ok {
+		return
+	}
 	ctx := c.Request.Context()
 	q := db.New(h.Pool)
-	svc, err := GetService(ctx, q, pgtype.UUID{Bytes: uuid.MustParse(in.ServiceID), Valid: true})
+	svc, err := GetService(ctx, q, id)
 	if err != nil {
 		web.Error(c, err)
 		return
 	}
-	a, err := Slots(ctx, q, svc, in.From, in.To, h.Now())
+	a, err := Slots(ctx, q, svc, *dateOf(in.From), *dateOf(in.To), h.Now())
 	if err != nil {
 		web.Error(c, err)
 		return
@@ -398,16 +402,31 @@ func actor(ctx context.Context) pgtype.UUID {
 }
 
 func (in ruleInput) rule() Rule {
-	return Rule{Weekday: in.Weekday, Start: in.StartTime, End: in.EndTime}
+	return Rule{Weekday: *in.Weekday, Start: in.StartTime, End: in.EndTime}
 }
 
 func (in overrideInput) override() Override {
-	onDate, _ := time.Parse(time.DateOnly, in.OnDate) // binding has checked the format
-	return Override{OnDate: onDate, Kind: in.Kind, Period: Period{Start: in.StartsAt, End: in.EndsAt}, Note: textOf(in.Note)}
+	return Override{OnDate: *dateOf(in.OnDate), Kind: in.Kind, Period: periodOf(in.StartsAt, in.EndsAt), Note: textOf(in.Note)}
 }
 
 func (in blockInput) block() Block {
-	return Block{Period: Period{Start: in.StartsAt, End: in.EndsAt}, AllDay: in.AllDay, Reason: textOf(in.Reason)}
+	return Block{Period: periodOf(in.StartsAt, in.EndsAt), AllDay: in.AllDay, Reason: textOf(in.Reason)}
+}
+
+// dateOf reads a date binding has checked, as midnight UTC; an absent one is nil.
+func dateOf(s string) *time.Time {
+	if s == "" {
+		return nil
+	}
+	t, _ := time.Parse(time.DateOnly, s)
+	return &t
+}
+
+// periodOf reads two times binding has checked.
+func periodOf(start, end string) Period {
+	s, _ := time.Parse(time.RFC3339, start)
+	e, _ := time.Parse(time.RFC3339, end)
+	return Period{Start: s, End: e}
 }
 
 func textOf(s *string) pgtype.Text {

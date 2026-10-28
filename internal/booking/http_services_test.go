@@ -78,8 +78,12 @@ func TestHTTP_ServiceRefusals(t *testing.T) {
 		`{"slug": "no-duration", "name": {"en": "No duration"}, "bookingAction": "request"}`))
 	require.Equal(t, []any{map[string]any{"field": "/durationMinutes",
 		"message": "is required when bookingAction is book or request"}}, p["errors"])
-	webtest.Refused(t, http.StatusBadRequest, "invalid_request", a.Admin(http.MethodPost, "/admin/services", token,
+	p = webtest.Refused(t, http.StatusBadRequest, "invalid_request", a.Admin(http.MethodPost, "/admin/services", token,
 		`{"slug": "french", "name": {"en": "French", "fr": "Français"}, "bookingAction": "enquiry_only"}`))
+	require.Equal(t, []any{map[string]any{"field": "/name/fr", "message": "must be one of: en, my"}}, p["errors"])
+	p = webtest.Refused(t, http.StatusBadRequest, "invalid_request", a.Admin(http.MethodPost, "/admin/services", token,
+		`{"slug": "extra", "name": {"en": "Extra"}, "bookingAction": "enquiry_only", "colour": "red"}`))
+	require.Equal(t, []any{map[string]any{"field": "/colour", "message": "is not an allowed property"}}, p["errors"])
 	p = webtest.Refused(t, http.StatusBadRequest, "invalid_request", a.Admin(http.MethodPost, "/admin/services", token,
 		`{"slug": "Not A Slug", "bookingAction": "maybe", "formats": []}`))
 	require.Equal(t, []any{
@@ -96,6 +100,8 @@ func TestHTTP_ServiceRefusals(t *testing.T) {
 		map[string]any{"field": "/state", "message": "must be one of: active, paused, archived"},
 	}, p["errors"])
 	webtest.Refused(t, http.StatusBadRequest, "invalid_request", a.Admin(http.MethodPost, path+"/pause", token, `{}`))
+	p = webtest.Refused(t, http.StatusBadRequest, "invalid_request", a.Admin(http.MethodPost, path+"/pause", token, `{"version": 0}`))
+	require.Equal(t, []any{map[string]any{"field": "/version", "message": "must be at least 1"}}, p["errors"])
 	webtest.Refused(t, http.StatusNotFound, "not_found",
 		a.Admin(http.MethodGet, "/admin/services/8f14e45f-ceea-4e8a-9b1c-3c1d2a6b7e10", token, ""))
 	webtest.Refused(t, http.StatusNotFound, "not_found",

@@ -14,45 +14,43 @@ import (
 	"github.com/VetMiMi/vetmimi-api/internal/web"
 )
 
-// localizedInput is text per locale; English is checked by the rules, not here.
-type localizedInput struct {
-	En *string `json:"en,omitempty" binding:"omitnil,max=20000"`
-	My *string `json:"my,omitempty" binding:"omitnil,max=20000"`
-}
+// localized is text per locale, en or my; English is checked by the rules, not here.
+// A map, not a struct, so a wrong locale is reported at its own path, such as /name/fr.
+type localized map[string]string
 
 type serviceInput struct {
-	Slug                string          `json:"slug" binding:"required,slug,max=120"`
-	Name                *localizedInput `json:"name" binding:"required"`
-	Description         *localizedInput `json:"description"`
-	BookingAction       string          `json:"bookingAction" binding:"required,oneof=book request enquiry_only not_bookable"`
-	DurationMinutes     *int32          `json:"durationMinutes" binding:"omitnil,min=5,max=480"`
-	BufferBeforeMinutes int32           `json:"bufferBeforeMinutes" binding:"min=0,max=240"`
-	BufferAfterMinutes  int32           `json:"bufferAfterMinutes" binding:"min=0,max=240"`
-	Formats             []string        `json:"formats" binding:"omitnil,min=1,unique,dive,oneof=online in_person"`
-	FeeText             *localizedInput `json:"feeText"`
-	PreparationText     *localizedInput `json:"preparationText"`
-	SortOrder           int32           `json:"sortOrder"`
+	Slug                string    `json:"slug" binding:"required,slug,max=120"`
+	Name                localized `json:"name" binding:"required,dive,keys,oneof=en my,endkeys,max=20000"`
+	Description         localized `json:"description" binding:"omitnil,dive,keys,oneof=en my,endkeys,max=20000"`
+	BookingAction       string    `json:"bookingAction" binding:"required,oneof=book request enquiry_only not_bookable"`
+	DurationMinutes     *int32    `json:"durationMinutes" binding:"omitnil,min=5,max=480"`
+	BufferBeforeMinutes int32     `json:"bufferBeforeMinutes" binding:"min=0,max=240"`
+	BufferAfterMinutes  int32     `json:"bufferAfterMinutes" binding:"min=0,max=240"`
+	Formats             []string  `json:"formats" binding:"omitnil,min=1,unique,dive,oneof=online in_person"`
+	FeeText             localized `json:"feeText" binding:"omitnil,dive,keys,oneof=en my,endkeys,max=20000"`
+	PreparationText     localized `json:"preparationText" binding:"omitnil,dive,keys,oneof=en my,endkeys,max=20000"`
+	SortOrder           int32     `json:"sortOrder"`
 }
 
 // servicePatch changes only the fields it names.
 type servicePatch struct {
-	Version             int32           `json:"version" binding:"required,min=1"`
-	Slug                *string         `json:"slug" binding:"omitnil,slug,max=120"`
-	Name                *localizedInput `json:"name"`
-	Description         *localizedInput `json:"description"`
-	BookingAction       *string         `json:"bookingAction" binding:"omitnil,oneof=book request enquiry_only not_bookable"`
-	DurationMinutes     *int32          `json:"durationMinutes" binding:"omitnil,min=5,max=480"`
-	BufferBeforeMinutes *int32          `json:"bufferBeforeMinutes" binding:"omitnil,min=0,max=240"`
-	BufferAfterMinutes  *int32          `json:"bufferAfterMinutes" binding:"omitnil,min=0,max=240"`
-	Formats             []string        `json:"formats" binding:"omitnil,min=1,unique,dive,oneof=online in_person"`
-	FeeText             *localizedInput `json:"feeText"`
-	PreparationText     *localizedInput `json:"preparationText"`
-	SortOrder           *int32          `json:"sortOrder"`
-	State               *string         `json:"state" binding:"omitnil,oneof=active paused archived"`
+	Version             *int32    `json:"version" binding:"required,min=1"`
+	Slug                *string   `json:"slug" binding:"omitnil,slug,max=120"`
+	Name                localized `json:"name" binding:"omitnil,dive,keys,oneof=en my,endkeys,max=20000"`
+	Description         localized `json:"description" binding:"omitnil,dive,keys,oneof=en my,endkeys,max=20000"`
+	BookingAction       *string   `json:"bookingAction" binding:"omitnil,oneof=book request enquiry_only not_bookable"`
+	DurationMinutes     *int32    `json:"durationMinutes" binding:"omitnil,min=5,max=480"`
+	BufferBeforeMinutes *int32    `json:"bufferBeforeMinutes" binding:"omitnil,min=0,max=240"`
+	BufferAfterMinutes  *int32    `json:"bufferAfterMinutes" binding:"omitnil,min=0,max=240"`
+	Formats             []string  `json:"formats" binding:"omitnil,min=1,unique,dive,oneof=online in_person"`
+	FeeText             localized `json:"feeText" binding:"omitnil,dive,keys,oneof=en my,endkeys,max=20000"`
+	PreparationText     localized `json:"preparationText" binding:"omitnil,dive,keys,oneof=en my,endkeys,max=20000"`
+	SortOrder           *int32    `json:"sortOrder"`
+	State               *string   `json:"state" binding:"omitnil,oneof=active paused archived"`
 }
 
 type versionInput struct {
-	Version int32 `json:"version" binding:"required,min=1"`
+	Version *int32 `json:"version" binding:"required,min=1"`
 }
 
 type serviceJSON struct {
@@ -137,7 +135,7 @@ func (h *Handler) updateService(c *gin.Context) {
 		return
 	}
 	ctx := c.Request.Context()
-	updated, err := UpdateService(ctx, db.New(h.Pool), id, in.Version, h.Now(), in.apply)
+	updated, err := UpdateService(ctx, db.New(h.Pool), id, *in.Version, h.Now(), in.apply)
 	if err != nil {
 		web.Error(c, err)
 		return
@@ -218,7 +216,7 @@ func (h *Handler) setServiceState(c *gin.Context, state, event string) {
 		return
 	}
 	ctx := c.Request.Context()
-	svc, err := SetServiceState(ctx, db.New(h.Pool), id, in.Version, h.Now(), state)
+	svc, err := SetServiceState(ctx, db.New(h.Pool), id, *in.Version, h.Now(), state)
 	if err != nil {
 		web.Error(c, err)
 		return
@@ -257,11 +255,11 @@ func serviceOf(r db.Service) serviceJSON {
 }
 
 // localizedJSON stores text per locale; nil stays NULL.
-func localizedJSON(t *localizedInput) json.RawMessage {
+func localizedJSON(t localized) json.RawMessage {
 	if t == nil {
 		return nil
 	}
-	b, _ := json.Marshal(t) // two optional strings always marshal
+	b, _ := json.Marshal(t) // a map of strings always marshals
 	return b
 }
 
