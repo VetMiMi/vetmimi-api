@@ -38,6 +38,8 @@ func TestHTTP_AdminAppointments(t *testing.T) {
 	p := webtest.Refused(t, http.StatusBadRequest, "invalid_request",
 		a.Admin(http.MethodGet, "/admin/appointments?status=pending&status=lost", token, ""))
 	require.Equal(t, "status", p["errors"].([]any)[0].(map[string]any)["field"])
+	p = webtest.Refused(t, http.StatusBadRequest, "invalid_request", a.Admin(http.MethodGet, "/admin/appointments?limit=abc", token, ""))
+	require.Equal(t, "limit", p["errors"].([]any)[0].(map[string]any)["field"])
 	p = webtest.Refused(t, http.StatusBadRequest, "invalid_request", a.Admin(http.MethodGet, "/admin/appointments/42", token, ""))
 	require.Equal(t, "appointmentId", p["errors"].([]any)[0].(map[string]any)["field"])
 	webtest.Refused(t, http.StatusForbidden, "forbidden",

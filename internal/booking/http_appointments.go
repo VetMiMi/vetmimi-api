@@ -7,6 +7,7 @@ import (
 	"encoding/json"
 	"log/slog"
 	"net/http"
+	"strconv"
 	"time"
 
 	"github.com/gin-gonic/gin"
@@ -29,7 +30,8 @@ type listQuery struct {
 	Format    string   `form:"format" binding:"omitempty,oneof=online in_person"`
 	Q         string   `form:"q" binding:"max=100"`
 	Cursor    string   `form:"cursor" binding:"max=200"`
-	Limit     *int     `form:"limit" binding:"omitempty,min=1,max=100"`
+	// Limit is read by limitOf: gin's int binding fails without naming the parameter.
+	Limit string `form:"limit"`
 }
 
 type manualInput struct {
@@ -151,7 +153,7 @@ type appointmentListResponse struct {
 type dashboardResponse struct {
 	Timezone          string                   `json:"timezone"`
 	Counts            countsJSON               `json:"counts"`
-	AttentionRequired []attentionJSON          `json:"attentionRequired"`
+	AttentionRequired []AttentionItem          `json:"attentionRequired"`
 	Pending           []appointmentSummaryJSON `json:"pending"`
 	Today             []appointmentSummaryJSON `json:"today"`
 	Upcoming          []appointmentSummaryJSON `json:"upcoming"`
@@ -164,30 +166,17 @@ type countsJSON struct {
 	ThisWeek  int64 `json:"thisWeek"`
 }
 
-type attentionJSON struct {
-	Kind          string      `json:"kind"`
-	AppointmentID pgtype.UUID `json:"appointmentId"`
-	Reference     string      `json:"reference"`
-	StartsAt      time.Time   `json:"startsAt"`
-	Detail        string      `json:"detail"`
-}
-
 func (h *Handler) dashboard(c *gin.Context) {
 	d, err := Dashboard(c.Request.Context(), db.New(h.Pool), h.Now())
 	if err != nil {
 		web.Error(c, err)
 		return
 	}
-	attention := make([]attentionJSON, len(d.Attention))
-	for i, a := range d.Attention {
-		attention[i] = attentionJSON{Kind: a.Kind, AppointmentID: a.AppointmentID, Reference: a.Reference,
-			StartsAt: a.StartsAt.UTC(), Detail: a.Detail}
-	}
 	c.JSON(http.StatusOK, dashboardResponse{
 		Timezone: d.Timezone,
 		Counts: countsJSON{Pending: d.Counts.Pending, Confirmed: d.Counts.Confirmed,
 			Today: d.Counts.Today, ThisWeek: d.Counts.ThisWeek},
-		AttentionRequired: attention,
+		AttentionRequired: d.Attention,
 		Pending:           summariesOf(d.Pending),
 		Today:             summariesOf(d.Today),
 		Upcoming:          summariesOf(d.Upcoming),
@@ -199,6 +188,10 @@ func (h *Handler) listAppointments(c *gin.Context) {
 	if !web.BindQuery(c, &q) {
 		return
 	}
+	limit, ok := limitOf(c, q.Limit)
+	if !ok {
+		return
+	}
 	f := Filter{
 		View:      View(q.View),
 		ServiceID: uuidOf(q.ServiceID),
@@ -207,12 +200,10 @@ func (h *Handler) listAppointments(c *gin.Context) {
 		Format:    q.Format,
 		Search:    q.Q,
 		Cursor:    q.Cursor,
+		Limit:     limit,
 	}
 	for _, s := range q.Status {
 		f.Statuses = append(f.Statuses, Status(s))
-	}
-	if q.Limit != nil {
-		f.Limit = *q.Limit
 	}
 	page, err := ListAppointments(c.Request.Context(), db.New(h.Pool), f, h.Now())
 	if err != nil {
@@ -233,10 +224,8 @@ func (h *Handler) getAppointment(c *gin.Context) {
 
 // createManualAppointment stores an appointment Daw Mi made by hand; a replay answers with the same appointment.
 func (h *Handler) createManualAppointment(c *gin.Context) {
-	key, err := uuid.Parse(c.GetHeader("Idempotency-Key"))
-	if err != nil {
-		web.Error(c, apperr.Invalid("Idempotency-Key must be a UUID.",
-			apperr.FieldError{Field: "Idempotency-Key", Message: "must be a valid uuid"}))
+	key, ok := web.ParseUUID(c, "Idempotency-Key", c.GetHeader("Idempotency-Key"))
+	if !ok {
 		return
 	}
 	var in manualInput
@@ -482,6 +471,27 @@ func utcOrNil(t sql.NullTime) *time.Time {
 func uuidOf(s string) pgtype.UUID {
 	id, err := uuid.Parse(s)
 	return pgtype.UUID{Bytes: id, Valid: err == nil}
+}
+
+// limitOf reads the page size; an absent one is zero, which takes the default.
+func limitOf(c *gin.Context, s string) (int, bool) {
+	if s == "" {
+		return 0, true
+	}
+	n, err := strconv.Atoi(s)
+	var problem string
+	switch {
+	case err != nil:
+		problem = "must be of type integer"
+	case n < 1:
+		problem = "must be at least 1"
+	case n > 100:
+		problem = "must be at most 100"
+	default:
+		return n, true
+	}
+	web.Error(c, apperr.Invalid("The request is not valid.", apperr.FieldError{Field: "limit", Message: problem}))
+	return 0, false
 }
 
 // timeOf reads a time binding has checked; an absent one is zero, which filters nothing.
