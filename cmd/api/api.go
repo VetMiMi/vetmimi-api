@@ -51,6 +51,9 @@ func runAPI(ctx context.Context, log *slog.Logger, cfg config.Config, pool *pgxp
 	(&settings.Handler{Pool: pool, Queue: tasks, Now: time.Now}).Routes(routes)
 	(&booking.Handler{Pool: pool, Secret: cfg.SigningSecret, Queue: tasks, Hub: hub, Now: time.Now}).Routes(routes)
 	(&comms.Handler{Pool: pool, Queue: tasks, Now: time.Now}).Routes(routes)
+	(&video.Handler{Pool: pool, Hub: hub, SiteURL: cfg.SiteURL, Now: time.Now, Issuer: video.Issuer{
+		Secret: cfg.SigningSecret, PublicAPIURL: cfg.PublicAPIURL, TURNHost: cfg.TURNHost, TURNSecret: cfg.TURNSecret,
+	}}).Routes(routes)
 
 	// Routes not yet moved to Gin fall through to the generated router.
 	r.NoRoute(gin.WrapH(httpapi.NewRouter(httpapi.Deps{

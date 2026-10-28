@@ -26,6 +26,7 @@ type Routes struct {
 	Public  *gin.RouterGroup // called by the website's server with the service key
 	Admin   *gin.RouterGroup // a signed-in user; each route adds the role it needs
 	Slow    *gin.RouterGroup // signed in, with a long deadline and a large body: uploads and the AI assistant
+	Root    *gin.Engine      // no deadline, body cap or sign-in: the video WebSocket checks its own
 	limiter *Limiter
 }
 
@@ -51,6 +52,7 @@ func NewRoutes(r *gin.Engine, serviceKey string, sessions *auth.Sessions, limite
 			signedIn, limiter.Limit(perSession)),
 		Slow: r.Group("", Timeout(2*time.Minute), MaxBody(21<<20),
 			signedIn, limiter.Limit(perSession)),
+		Root:    r,
 		limiter: limiter,
 	}
 }
