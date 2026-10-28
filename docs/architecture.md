@@ -101,7 +101,7 @@ Middleware runs in this order:
    | `Root` (video WebSocket, `/healthz`, `/readyz`) | none | none | none; the WebSocket checks its own ticket | none |
 
    The timeout travels in the request context into every query; the body cap is `http.MaxBytesReader`.
-6. **Route** — what the route lists in its feature's `Routes()`: the role (`web.Role`), then its own rate limit (`r.Limit`), if any.
+6. **Route** — what the route lists in its feature's `Routes()`: the roles it was registered under (`r.Admin(roles...)`), then its own rate limit (`r.Limit`), if any.
 7. **Handler** — binds the path, query and body into its own structs with `web.BindJSON`, `web.BindQuery`, `web.BindURI` or `web.PathUUID`, calls one domain function and writes JSON. A body, query or path that does not bind answers `400 invalid_request` with `errors[]`.
 
 Request structs carry their rules as `binding` tags (`required`, `email`,
@@ -196,10 +196,10 @@ prefix of the email.
 | `/admin/connections/meta`: read, Facebook Login, choose the Page, disconnect | no | no | yes |
 | `/admin/connections/linkedin`: read, sign in, disconnect | no | no | yes |
 
-Each admin route names its roles with `web.Role` in its feature's
-`Routes()`, so the table above can be read off the `handler.go` files. A
-route on `Admin` or `Slow` without `web.Role` would be open to any signed-in
-user, so every new admin route names one. The role check runs after the
+Each admin route names its roles in its feature's `Routes()`, as in
+`r.Admin(auth.BookingAdmin)`, so the table above can be read off the
+`handler.go` files. `Admin` and `Slow` take the roles as arguments, so an admin
+route cannot be registered without them. The role check runs after the
 session check and the session's rate limit, and before the route's own limit
 and binding. Every refusal is the same `403 forbidden` body, naming no route or
 resource. Rules finer than a route, the settings key groups, are the domain's:

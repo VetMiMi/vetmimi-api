@@ -115,7 +115,7 @@ import each other, and working around that needs interfaces nobody else uses.
 1. **Query.** Add the SQL to `internal/db/queries/<table>.sql` and run `make generate`. A schema change is a new migration (`make migrate-new NAME=...`).
 2. **Domain.** Write the function in its `internal/<feature>`. It takes `context.Context` and a pool or `db.Querier`, and returns `apperr` errors.
 3. **Handler.** Write it in the feature's `http_*.go`, with its request and response structs beside it: bind, call the domain function, write JSON.
-4. **Route.** Add one line to `Routes` in the feature's `handler.go`, on the right group (`Public`, `Admin` or `Slow`), with its role (`web.Role`) and, if it needs its own, a rate limit (`r.Limit`).
+4. **Route.** Add one line to `Routes` in the feature's `handler.go`, on the right group (`Public`, `Admin` or `Slow`), under its roles (`r.Admin(auth.BookingAdmin)`) and, if it needs its own, a rate limit (`r.Limit`).
 5. **Tests.** A success and a failure test for the domain function against real PostgreSQL, and a handler test through `internal/webtest`. If the JSON changed, update the site's types in `vetmimi-next` in the same change set.
 
 ## Features

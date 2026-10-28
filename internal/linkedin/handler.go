@@ -10,7 +10,7 @@ type Handler struct {
 }
 
 func (h *Handler) Routes(r web.Routes) {
-	admin := r.Admin.Group("", web.Role(auth.SiteAdmin))
+	admin := r.Admin(auth.SiteAdmin)
 	admin.GET("/admin/connections/linkedin", h.getConnection)
 	admin.DELETE("/admin/connections/linkedin", h.disconnect)
 	admin.POST("/admin/connections/linkedin/authorize", h.startConnection)

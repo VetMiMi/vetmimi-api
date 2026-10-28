@@ -20,7 +20,7 @@ type Handler struct {
 
 // Routes: editors write and submit; only a site administrator reviews and publishes.
 func (h *Handler) Routes(r web.Routes) {
-	editor := r.Admin.Group("", web.Role(auth.ContentEditor))
+	editor := r.Admin(auth.ContentEditor)
 	editor.GET("/admin/posts", h.listPosts)
 	editor.POST("/admin/posts", h.createPost)
 	editor.GET("/admin/posts/:postId", h.getPost)
@@ -30,7 +30,7 @@ func (h *Handler) Routes(r web.Routes) {
 	editor.POST("/admin/posts/:postId/channels/:channel/mark-posted", h.markPosted)
 	editor.POST("/admin/posts/:postId/channels/:channel/retry", h.retryChannel)
 
-	reviewer := r.Admin.Group("", web.Role(auth.SiteAdmin))
+	reviewer := r.Admin(auth.SiteAdmin)
 	reviewer.POST("/admin/posts/:postId/request-changes", h.requestChanges)
 	reviewer.POST("/admin/posts/:postId/approve", h.approvePost)
 	reviewer.POST("/admin/posts/:postId/schedule", h.schedulePost)

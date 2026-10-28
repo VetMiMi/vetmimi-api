@@ -67,5 +67,5 @@ file in two minutes. The generated layer did not meet that bar.
   change to a shape.
 - No machine-readable description of the API is published. If an outside
   client ever needs one, it is a new decision.
-- An admin route without `web.Role` is open to any signed-in user. Review
-  checks that every admin route names its role.
+- `Routes.Admin` and `Routes.Slow` take the roles as arguments, so an admin
+  route cannot be registered without naming who may call it.
