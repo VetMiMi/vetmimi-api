@@ -17,6 +17,7 @@ import (
 	"github.com/VetMiMi/vetmimi-api/internal/booking"
 	"github.com/VetMiMi/vetmimi-api/internal/comms"
 	"github.com/VetMiMi/vetmimi-api/internal/config"
+	"github.com/VetMiMi/vetmimi-api/internal/content"
 	"github.com/VetMiMi/vetmimi-api/internal/httpapi"
 	"github.com/VetMiMi/vetmimi-api/internal/linkedin"
 	"github.com/VetMiMi/vetmimi-api/internal/media"
@@ -42,6 +43,7 @@ func runAPI(ctx context.Context, log *slog.Logger, cfg config.Config, pool *pgxp
 	tasks := queue.New(rdb, log)
 	counter := ratelimit.New(rdb, "", time.Now)
 	store := media.NewStore(cfg)
+	ai := assistant.New(cfg, log)
 
 	r := web.NewRouter()
 	routes := web.NewRoutes(r, cfg.ServiceKey, sessions, web.NewLimiter(counter))
@@ -56,6 +58,8 @@ func runAPI(ctx context.Context, log *slog.Logger, cfg config.Config, pool *pgxp
 		Secret: cfg.SigningSecret, PublicAPIURL: cfg.PublicAPIURL, TURNHost: cfg.TURNHost, TURNSecret: cfg.TURNSecret,
 	}}).Routes(routes)
 	(&media.Handler{Pool: pool, Store: store, PublicURL: cfg.MediaPublicURL, Now: time.Now}).Routes(routes)
+	(&content.Handler{Pool: pool, Queue: tasks, MediaPublicURL: cfg.MediaPublicURL, Now: time.Now}).Routes(routes)
+	(&assistant.Handler{Pool: pool, Client: ai}).Routes(routes)
 
 	// Routes not yet moved to Gin fall through to the generated router.
 	r.NoRoute(gin.WrapH(httpapi.NewRouter(httpapi.Deps{
@@ -77,7 +81,7 @@ func runAPI(ctx context.Context, log *slog.Logger, cfg config.Config, pool *pgxp
 		MediaPublicURL: cfg.MediaPublicURL,
 		Meta:           meta.New(cfg, pool, codes.Box, log),
 		LinkedIn:       linkedin.New(cfg, pool, codes.Box, log),
-		Assistant:      assistant.New(cfg, log),
+		Assistant:      ai,
 		Now:            time.Now,
 	})))
 	srv := newServer(cfg.Port, r)

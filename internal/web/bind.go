@@ -32,6 +32,9 @@ func init() {
 		if name == "" {
 			name, _, _ = strings.Cut(f.Tag.Get("form"), ",")
 		}
+		if name == "" {
+			name = f.Tag.Get("uri")
+		}
 		return name
 	})
 	pattern := func(re *regexp.Regexp) validator.Func {
@@ -50,13 +53,13 @@ func BindJSON(c *gin.Context, v any) bool {
 	if err == nil {
 		return true
 	}
+	body, _ := c.Get(gin.BodyBytesKey)
+	b, _ := body.([]byte)
 	if strings.HasPrefix(err.Error(), "json: unknown field ") {
-		body, _ := c.Get(gin.BodyBytesKey)
-		b, _ := body.([]byte)
 		err = apperr.Invalid("The request is not valid.",
 			apperr.FieldError{Field: unknownField(b, reflect.TypeOf(v)), Message: "is not an allowed property"})
 	} else {
-		err = invalid(err, "/")
+		err = invalid(err, "/", func() (string, reflect.StructField) { return undecodable(b, reflect.TypeOf(v), "") })
 	}
 	Error(c, err)
 	return false
@@ -65,7 +68,7 @@ func BindJSON(c *gin.Context, v any) bool {
 // BindQuery decodes and checks the query string into v. When it returns false it has answered 400.
 func BindQuery(c *gin.Context, v any) bool {
 	if err := c.ShouldBindQuery(v); err != nil {
-		Error(c, invalid(err, ""))
+		Error(c, invalid(err, "", func() (string, reflect.StructField) { return badQueryKey(c.Request.URL.Query(), v) }))
 		return false
 	}
 	return true
@@ -86,9 +89,20 @@ func ParseUUID(c *gin.Context, field, value string) (pgtype.UUID, bool) {
 	return pgtype.UUID{Bytes: id, Valid: true}, true
 }
 
+// BindURI checks the path parameters into v. When it returns false it has answered 400.
+func BindURI(c *gin.Context, v any) bool {
+	if err := c.ShouldBindUri(v); err != nil {
+		Error(c, invalid(err, "", nil))
+		return false
+	}
+	return true
+}
+
 // invalid names each field that failed: as a JSON pointer in a body, by name in a query.
 // Messages come from the rule, never the error text, which can quote the value.
-func invalid(err error, prefix string) error {
+// A value that fails to decode, such as a bad date-time, errs without its key, so find, when given,
+// looks for it and returns it already named for the body or query.
+func invalid(err error, prefix string, find func() (string, reflect.StructField)) error {
 	var tooBig *http.MaxBytesError
 	if errors.As(err, &tooBig) {
 		return apperr.New(apperr.PayloadTooLarge, fmt.Sprintf("The body is over its %d-byte limit.", tooBig.Limit))
@@ -105,7 +119,16 @@ func invalid(err error, prefix string) error {
 		fields = append(fields, apperr.FieldError{Field: prefix + strings.ReplaceAll(wrongType.Field, ".", "/"),
 			Message: "must be of type " + jsonType(wrongType.Type)})
 	default:
-		fields = append(fields, apperr.FieldError{Message: "is missing or malformed"})
+		var key string
+		var f reflect.StructField
+		if find != nil {
+			key, f = find()
+		}
+		if key != "" {
+			fields = append(fields, apperr.FieldError{Field: key, Message: mustBe(f)})
+		} else {
+			fields = append(fields, apperr.FieldError{Message: "is missing or malformed"})
+		}
 	}
 	return apperr.Invalid("The request is not valid.", fields...)
 }
@@ -166,6 +189,59 @@ func rule(fe validator.FieldError) string {
 		return "must not repeat an item"
 	}
 	return "is not valid"
+}
+
+func mustBe(f reflect.StructField) string {
+	t := f.Type
+	for t.Kind() == reflect.Pointer || t.Kind() == reflect.Slice {
+		t = t.Elem()
+	}
+	switch {
+	case t != reflect.TypeFor[time.Time]():
+		return "must be of type " + jsonType(t)
+	case f.Tag.Get("time_format") == time.DateOnly:
+		return "must be a valid date"
+	}
+	return "must be a valid date-time"
+}
+
+// badQueryKey is the first query key whose value v cannot hold, such as limit=abc.
+func badQueryKey(query map[string][]string, v any) (string, reflect.StructField) {
+	t := reflect.TypeOf(v).Elem()
+	for i := range t.NumField() {
+		f := t.Field(i)
+		name, _, _ := strings.Cut(f.Tag.Get("form"), ",")
+		values, ok := query[name]
+		if ok && binding.MapFormWithTag(reflect.New(t).Interface(), map[string][]string{name: values}, "form") != nil {
+			return name, f
+		}
+	}
+	return "", reflect.StructField{}
+}
+
+// undecodable is the JSON pointer of the first value in doc that its field cannot hold, such as a bad date-time.
+func undecodable(doc []byte, t reflect.Type, path string) (string, reflect.StructField) {
+	for t.Kind() == reflect.Pointer {
+		t = t.Elem()
+	}
+	if t.Kind() != reflect.Struct || t == reflect.TypeFor[time.Time]() {
+		return "", reflect.StructField{}
+	}
+	var object map[string]json.RawMessage
+	if json.Unmarshal(doc, &object) != nil {
+		return "", reflect.StructField{}
+	}
+	for _, key := range slices.Sorted(maps.Keys(object)) {
+		f, ok := fieldNamed(t, key)
+		if !ok || json.Unmarshal(object[key], reflect.New(f.Type).Interface()) == nil {
+			continue
+		}
+		if p, inner := undecodable(object[key], f.Type, path+"/"+key); p != "" {
+			return p, inner
+		}
+		return path + "/" + key, f
+	}
+	return "", reflect.StructField{}
 }
 
 func jsonType(t reflect.Type) string {
