@@ -36,7 +36,8 @@ var (
 func Run(m *testing.M) int {
 	running = true
 	code := m.Run()
-	if err := teardown(); err != nil {
+	err := teardown()
+	if err != nil {
 		fmt.Fprintln(os.Stderr, "pgtest:", err)
 		if code == 0 {
 			code = 1
@@ -57,9 +58,10 @@ func Pool(t testing.TB) *pgxpool.Pool {
 		}
 		ctx := context.Background()
 		shared, setupErr = postgres.Open(ctx, sharedDB)
-		if setupErr == nil {
-			setupErr = postgres.Migrate(ctx, shared)
+		if setupErr != nil {
+			return
 		}
+		setupErr = postgres.Migrate(ctx, shared)
 	})
 	if setupErr != nil {
 		t.Fatal("pgtest: ", setupErr)
@@ -76,7 +78,8 @@ func EmptyDatabase(t testing.TB) string {
 		t.Fatal("pgtest: ", err)
 	}
 	t.Cleanup(func() {
-		if err := dropDatabase(dbURL); err != nil {
+		err := dropDatabase(dbURL)
+		if err != nil {
 			t.Error("pgtest: ", err)
 		}
 	})
@@ -99,28 +102,30 @@ func serverURL(t testing.TB) string {
 }
 
 func createDatabase(server string) (string, error) {
-	u, err := url.Parse(server)
-	if err != nil || u.Scheme == "" {
+	parsed, err := url.Parse(server)
+	if err != nil || parsed.Scheme == "" {
 		return "", errors.New(envURL + " must be a postgres:// URL")
 	}
 	random := make([]byte, 6)
-	if _, err := rand.Read(random); err != nil {
+	_, err = rand.Read(random)
+	if err != nil {
 		return "", err
 	}
 	name := "vetmimi_test_" + hex.EncodeToString(random)
-	if err := admin(server, "CREATE DATABASE "+pgx.Identifier{name}.Sanitize()); err != nil {
+	err = admin(server, "CREATE DATABASE "+pgx.Identifier{name}.Sanitize())
+	if err != nil {
 		return "", err
 	}
-	u.Path = "/" + name
-	return u.String(), nil
+	parsed.Path = "/" + name
+	return parsed.String(), nil
 }
 
 func dropDatabase(dbURL string) error {
-	u, err := url.Parse(dbURL)
+	parsed, err := url.Parse(dbURL)
 	if err != nil {
 		return err
 	}
-	name := pgx.Identifier{u.Path[1:]}.Sanitize()
+	name := pgx.Identifier{parsed.Path[1:]}.Sanitize()
 	// FORCE ends connections a test left open, such as a pool it never closed.
 	return admin(dbURL, "DROP DATABASE IF EXISTS "+name+" WITH (FORCE)")
 }
@@ -137,18 +142,18 @@ func teardown() error {
 
 // admin runs one statement on the server's maintenance database, because a
 // database cannot be created or dropped from a connection to itself.
-func admin(server, sql string) error {
-	cfg, err := pgx.ParseConfig(server)
+func admin(server, statement string) error {
+	config, err := pgx.ParseConfig(server)
 	if err != nil {
 		return errors.New(envURL + " is not a valid connection URL")
 	}
-	cfg.Database = "postgres"
+	config.Database = "postgres"
 	ctx := context.Background()
-	conn, err := pgx.ConnectConfig(ctx, cfg)
+	conn, err := pgx.ConnectConfig(ctx, config)
 	if err != nil {
 		return err
 	}
 	defer conn.Close(ctx)
-	_, err = conn.Exec(ctx, sql)
+	_, err = conn.Exec(ctx, statement)
 	return err
 }
