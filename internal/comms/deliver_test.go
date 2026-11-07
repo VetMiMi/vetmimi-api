@@ -196,3 +196,27 @@ func TestReminder_NotSentBeforeItsTime(t *testing.T) {
 	require.Empty(t, resend.sent())
 	require.Equal(t, "queued", row(t, r.ID).Status)
 }
+
+// An email that cannot be built counts its attempts and ends as failed, so the
+// sweep stops picking it up.
+func TestDeliver_EmailThatCannotBeBuiltEndsAsFailed(t *testing.T) {
+	appt := newAppointment(t, freeStart())
+	r, task := queue(t, comms.Message{AppointmentID: appt.ID, Kind: comms.BookingConfirmed, Recipient: visitorEmail, Locale: "en"})
+	exec(t, "UPDATE appointments SET timezone = 'Not/AZone' WHERE id = $1", appt.ID)
+	resend := newFakeResend(t, http.StatusOK)
+	tasks, logs := newTasks(t, resend, time.Now())
+
+	for range 4 {
+		require.Error(t, deliver(t, tasks, task), "retried like a send failure")
+		require.Equal(t, "queued", row(t, r.ID).Status)
+	}
+	require.NoError(t, deliver(t, tasks, task))
+
+	got := row(t, r.ID)
+	require.Equal(t, "failed", got.Status)
+	require.EqualValues(t, 5, got.Attempts)
+	require.Equal(t, "compose_failed", got.Error.String)
+	require.Empty(t, resend.sent())
+	require.Contains(t, logs.String(), `"msg":"email compose failed"`)
+	require.NotContains(t, logs.String(), visitorEmail)
+}

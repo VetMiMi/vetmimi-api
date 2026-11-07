@@ -8,6 +8,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"log/slog"
 	"time"
 
 	"github.com/jackc/pgx/v5"
@@ -91,6 +92,7 @@ func Upload(ctx context.Context, pool *pgxpool.Pool, store *Store, data []byte, 
 
 	err = tx.Commit(ctx)
 	if err != nil {
+		removeIfNotSaved(ctx, pool, store, item.ID, image.widths)
 		return db.Media{}, err
 	}
 	return item, nil
@@ -176,16 +178,18 @@ func Delete(ctx context.Context, pool *pgxpool.Pool, store *Store, id pgtype.UUI
 	if err != nil {
 		return err
 	}
-	if store != nil {
-		err = store.remove(ctx, keys(item.ID, item.Widths))
-		if err != nil {
-			return err
-		}
-	}
-
 	err = tx.Commit(ctx)
 	if err != nil {
 		return err
+	}
+
+	// Removed only after the commit: a failure leaves unused files behind, never
+	// an item whose files are gone.
+	if store != nil {
+		err = store.remove(ctx, keys(item.ID, item.Widths))
+		if err != nil {
+			slog.WarnContext(ctx, "media_files_left", "media_id", item.ID.String(), "err", err)
+		}
 	}
 	return nil
 }
@@ -206,4 +210,15 @@ func putAll(ctx context.Context, store *Store, id pgtype.UUID, image encoded) er
 
 func optionalText(value string) pgtype.Text {
 	return pgtype.Text{String: value, Valid: value != ""}
+}
+
+// removeIfNotSaved removes an upload's files after a failed commit. A commit can
+// fail after the row was saved; then the files are in use and stay.
+func removeIfNotSaved(ctx context.Context, pool *pgxpool.Pool, store *Store, id pgtype.UUID, widths []int32) {
+	ctx = context.WithoutCancel(ctx)
+	_, err := Get(ctx, db.New(pool), id)
+	if !errors.Is(err, errNotFound) {
+		return
+	}
+	_ = store.remove(ctx, keys(id, widths))
 }

@@ -91,24 +91,33 @@ func (t *Tasks) sendOrSkip(ctx context.Context, q *db.Queries, row db.Communicat
 
 	email, err := t.compose(ctx, q, row, current)
 	if err != nil {
-		return attempt{}, err
+		// Counted as an attempt, so an email that can never be built ends as failed
+		// instead of being swept back into the queue for ever.
+		t.Log.WarnContext(ctx, "email compose failed", "kind", row.Kind, "communication_id", row.ID.String(), "err", err)
+		return failedAttempt(row, "compose_failed"), nil
 	}
 	providerID, sendErr := t.send(ctx, row, email, now)
-	row.Attempts++
-	if sendErr == nil {
-		row.SentAt = sql.NullTime{Time: now, Valid: true}
-		row.ProviderMessageID = pgtype.Text{String: providerID, Valid: true}
-		return attempt{row: row, status: StatusSent}, nil
+	if sendErr != nil {
+		return failedAttempt(row, errorCode(sendErr)), nil
 	}
+	row.Attempts++
+	row.SentAt = sql.NullTime{Time: now, Valid: true}
+	row.ProviderMessageID = pgtype.Text{String: providerID, Valid: true}
+	return attempt{row: row, status: StatusSent}, nil
+}
+
+// failedAttempt keeps the row queued for another try until it has had maxAttempts.
+func failedAttempt(row db.Communication, code string) attempt {
+	row.Attempts++
 	result := attempt{
 		row:    row,
 		status: StatusFailed,
-		code:   errorCode(sendErr),
+		code:   code,
 	}
 	if row.Attempts < maxAttempts {
 		result.status = StatusQueued
 	}
-	return result, nil
+	return result
 }
 
 // recordAttempt writes the attempt to its locked, queued row, so setStatus cannot refuse it.
