@@ -10,13 +10,14 @@ const crockford = "0123456789ABCDEFGHJKMNPQRSTVWXYZ"
 // enquiry (EN-): prefix and six random characters. A collision is caught by
 // the table's unique index and retried.
 func NewReference(prefix string) (string, error) {
-	b := make([]byte, 6)
-	if _, err := rand.Read(b); err != nil {
+	random := make([]byte, 6)
+	_, err := rand.Read(random)
+	if err != nil {
 		return "", err
 	}
-	ref := []byte(prefix)
-	for _, c := range b {
-		ref = append(ref, crockford[c&31])
+	reference := []byte(prefix)
+	for _, value := range random {
+		reference = append(reference, crockford[value&31])
 	}
-	return string(ref), nil
+	return string(reference), nil
 }

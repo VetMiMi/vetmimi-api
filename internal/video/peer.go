@@ -16,51 +16,51 @@ type peer struct {
 	send chan []byte
 }
 
-// queue hands frame to p's writer, dropping a participant too slow to keep up.
-func (p *peer) queue(frame []byte) {
+// queue hands frame to the participant's writer, dropping a participant too slow to keep up.
+func (participant *peer) queue(frame []byte) {
 	select {
-	case p.send <- frame:
+	case participant.send <- frame:
 	default:
-		go p.conn.CloseNow()
+		go participant.conn.CloseNow()
 	}
 }
 
-// closeInBackground closes p without waiting for the close handshake.
-func (p *peer) closeInBackground(code websocket.StatusCode, reason string) {
-	go func() { _ = p.conn.Close(code, reason) }()
+// closeInBackground closes the connection without waiting for the close handshake.
+func (participant *peer) closeInBackground(code websocket.StatusCode, reason string) {
+	go func() { _ = participant.conn.Close(code, reason) }()
 }
 
-func (p *peer) write(ctx context.Context) {
+func (participant *peer) write(ctx context.Context) {
 	for {
 		select {
 		case <-ctx.Done():
 			return
-		case frame := <-p.send:
-			wctx, cancel := context.WithTimeout(ctx, writeLimit)
-			err := p.conn.Write(wctx, websocket.MessageText, frame)
+		case frame := <-participant.send:
+			writeCtx, cancel := context.WithTimeout(ctx, writeLimit)
+			err := participant.conn.Write(writeCtx, websocket.MessageText, frame)
 			cancel()
 			if err != nil {
-				_ = p.conn.CloseNow()
+				_ = participant.conn.CloseNow()
 				return
 			}
 		}
 	}
 }
 
-// keepAlive closes p when a ping goes unanswered.
-func (p *peer) keepAlive(ctx context.Context, every, within time.Duration) {
-	t := time.NewTicker(every)
-	defer t.Stop()
+// keepAlive closes the connection when a ping goes unanswered.
+func (participant *peer) keepAlive(ctx context.Context, every, within time.Duration) {
+	ticker := time.NewTicker(every)
+	defer ticker.Stop()
 	for {
 		select {
 		case <-ctx.Done():
 			return
-		case <-t.C:
-			pctx, cancel := context.WithTimeout(ctx, within)
-			err := p.conn.Ping(pctx)
+		case <-ticker.C:
+			pingCtx, cancel := context.WithTimeout(ctx, within)
+			err := participant.conn.Ping(pingCtx)
 			cancel()
 			if err != nil {
-				_ = p.conn.CloseNow()
+				_ = participant.conn.CloseNow()
 				return
 			}
 		}

@@ -22,20 +22,28 @@ type oauthState struct {
 func SignOAuthState(secret []byte, label, user string, exp time.Time) string {
 	payload, _ := json.Marshal(oauthState{User: user, Exp: exp.Unix()}) // two plain fields always marshal
 	body := base64.RawURLEncoding.EncodeToString(payload)
-	return body + "." + base64.RawURLEncoding.EncodeToString(signState(secret, label, body))
+	signature := signState(secret, label, body)
+	return body + "." + base64.RawURLEncoding.EncodeToString(signature)
 }
 
-// CheckOAuthState reports whether s is a state SignOAuthState signed under
+// CheckOAuthState reports whether signed is a state SignOAuthState signed under
 // label for user that has not expired at now.
-func CheckOAuthState(secret []byte, label, s, user string, now time.Time) bool {
-	body, sig, _ := strings.Cut(s, ".")
-	got, err := base64.RawURLEncoding.DecodeString(sig)
+func CheckOAuthState(secret []byte, label, signed, user string, now time.Time) bool {
+	body, signature, _ := strings.Cut(signed, ".")
+	got, err := base64.RawURLEncoding.DecodeString(signature)
 	if err != nil || !hmac.Equal(got, signState(secret, label, body)) {
 		return false
 	}
 	raw, err := base64.RawURLEncoding.DecodeString(body)
-	var st oauthState
-	return err == nil && json.Unmarshal(raw, &st) == nil && st.User == user && now.Unix() < st.Exp
+	if err != nil {
+		return false
+	}
+	var state oauthState
+	err = json.Unmarshal(raw, &state)
+	if err != nil {
+		return false
+	}
+	return state.User == user && now.Unix() < state.Exp
 }
 
 func signState(secret []byte, label, body string) []byte {

@@ -9,108 +9,156 @@ import (
 	"github.com/VetMiMi/vetmimi-api/internal/web"
 )
 
-type versionInput struct {
+type channelPath struct {
+	Channel string `uri:"channel" binding:"required,oneof=facebook instagram linkedin"`
+}
+
+type versionBody struct {
 	Version int32 `json:"version" binding:"required,min=1"`
 }
 
-type scheduleInput struct {
+type scheduleBody struct {
 	Version     int32     `json:"version" binding:"required,min=1"`
 	ScheduledAt time.Time `json:"scheduledAt" binding:"required"`
 }
 
-func (h *Handler) schedulePost(c *gin.Context) {
-	var u postURI
-	var in scheduleInput
-	if !web.BindURI(c, &u) || !web.BindJSON(c, &in) {
-		return
-	}
-	ctx := c.Request.Context()
-	p, err := Schedule(ctx, h.Pool, u.id(), in.Version, in.ScheduledAt, actor(c), h.Now())
-	if err != nil {
-		web.Error(c, err)
-		return
-	}
-	h.enqueue(ctx, ScheduledTask(p)...)
-	sendPost(c, http.StatusOK, "post_scheduled", p)
-}
-
-func (h *Handler) unschedulePost(c *gin.Context) {
-	var u postURI
-	var in versionInput
-	if !web.BindURI(c, &u) || !web.BindJSON(c, &in) {
-		return
-	}
-	p, err := Unschedule(c.Request.Context(), h.Pool, u.id(), in.Version, h.Now())
-	if err != nil {
-		web.Error(c, err)
-		return
-	}
-	sendPost(c, http.StatusOK, "post_unscheduled", p)
-}
-
-// publishPost puts the website article live at once and leaves each social channel to the worker.
-func (h *Handler) publishPost(c *gin.Context) {
-	var u postURI
-	var in versionInput
-	if !web.BindURI(c, &u) || !web.BindJSON(c, &in) {
-		return
-	}
-	ctx := c.Request.Context()
-	p, err := PublishNow(ctx, h.Pool, u.id(), in.Version, actor(c), h.Now())
-	if err != nil {
-		web.Error(c, err)
-		return
-	}
-	h.enqueue(ctx, append(PublishTasks(p), RevalidateTasks(p)...)...)
-	sendPost(c, http.StatusOK, "post_publishing", p)
-}
-
-func (h *Handler) archivePost(c *gin.Context) {
-	var u postURI
-	var in versionInput
-	if !web.BindURI(c, &u) || !web.BindJSON(c, &in) {
-		return
-	}
-	ctx := c.Request.Context()
-	p, err := Archive(ctx, h.Pool, u.id(), in.Version, h.Now())
-	if err != nil {
-		web.Error(c, err)
-		return
-	}
-	h.enqueue(ctx, RevalidateTasks(p)...)
-	sendPost(c, http.StatusOK, "post_archived", p)
-}
-
-type markPostedInput struct {
+type markPostedBody struct {
 	Permalink string `json:"permalink" binding:"max=2000"`
 }
 
 // markPosted records a channel Daw Mi posted to herself.
 func (h *Handler) markPosted(c *gin.Context) {
-	var u channelURI
-	var in markPostedInput
-	if !web.BindURI(c, &u) || !web.BindJSON(c, &in) {
+	postID, ok := web.PathUUID(c, "postId")
+	if !ok {
 		return
 	}
-	p, err := MarkPosted(c.Request.Context(), h.Pool, u.id(), u.Channel, in.Permalink, h.Now())
-	if err != nil {
-		web.Error(c, err)
+	var path channelPath
+	if !web.BindURI(c, &path) {
 		return
 	}
-	sendPost(c, http.StatusOK, "post_channel_marked_posted", p, "channel", u.Channel)
-}
-
-func (h *Handler) retryChannel(c *gin.Context) {
-	var u channelURI
-	if !web.BindURI(c, &u) {
+	var body markPostedBody
+	if !web.BindJSON(c, &body) {
 		return
 	}
 	ctx := c.Request.Context()
-	p, err := Retry(ctx, h.Pool, u.id(), u.Channel, h.Now())
+
+	post, err := MarkPosted(ctx, h.Pool, postID, path.Channel, body.Permalink, h.Now())
 	if err != nil {
 		web.Error(c, err)
 		return
 	}
-	h.enqueue(ctx, PublishTasks(p)...)
-	sendPost(c, http.StatusOK, "post_channel_retried", p, "channel", u.Channel)
+
+	logPost(ctx, "post_channel_marked_posted", post, "channel", path.Channel)
+	c.JSON(http.StatusOK, newPostResponse(post))
+}
+
+func (h *Handler) retryChannel(c *gin.Context) {
+	postID, ok := web.PathUUID(c, "postId")
+	if !ok {
+		return
+	}
+	var path channelPath
+	if !web.BindURI(c, &path) {
+		return
+	}
+	ctx := c.Request.Context()
+
+	post, err := Retry(ctx, h.Pool, postID, path.Channel, h.Now())
+	if err != nil {
+		web.Error(c, err)
+		return
+	}
+
+	h.Queue.Enqueue(ctx, PublishTasks(post)...)
+	logPost(ctx, "post_channel_retried", post, "channel", path.Channel)
+	c.JSON(http.StatusOK, newPostResponse(post))
+}
+
+func (h *Handler) schedulePost(c *gin.Context) {
+	postID, ok := web.PathUUID(c, "postId")
+	if !ok {
+		return
+	}
+	var body scheduleBody
+	if !web.BindJSON(c, &body) {
+		return
+	}
+	ctx := c.Request.Context()
+
+	post, err := Schedule(ctx, h.Pool, postID, body.Version, body.ScheduledAt, currentUserID(c), h.Now())
+	if err != nil {
+		web.Error(c, err)
+		return
+	}
+
+	h.Queue.Enqueue(ctx, ScheduledTask(post)...)
+	logPost(ctx, "post_scheduled", post)
+	c.JSON(http.StatusOK, newPostResponse(post))
+}
+
+func (h *Handler) unschedulePost(c *gin.Context) {
+	postID, ok := web.PathUUID(c, "postId")
+	if !ok {
+		return
+	}
+	var body versionBody
+	if !web.BindJSON(c, &body) {
+		return
+	}
+	ctx := c.Request.Context()
+
+	post, err := Unschedule(ctx, h.Pool, postID, body.Version, h.Now())
+	if err != nil {
+		web.Error(c, err)
+		return
+	}
+
+	logPost(ctx, "post_unscheduled", post)
+	c.JSON(http.StatusOK, newPostResponse(post))
+}
+
+// publishPost puts the website article live at once and leaves each social channel to the worker.
+func (h *Handler) publishPost(c *gin.Context) {
+	postID, ok := web.PathUUID(c, "postId")
+	if !ok {
+		return
+	}
+	var body versionBody
+	if !web.BindJSON(c, &body) {
+		return
+	}
+	ctx := c.Request.Context()
+
+	post, err := PublishNow(ctx, h.Pool, postID, body.Version, currentUserID(c), h.Now())
+	if err != nil {
+		web.Error(c, err)
+		return
+	}
+
+	h.Queue.Enqueue(ctx, PublishTasks(post)...)
+	h.Queue.Enqueue(ctx, RevalidateTasks(post)...)
+	logPost(ctx, "post_publishing", post)
+	c.JSON(http.StatusOK, newPostResponse(post))
+}
+
+func (h *Handler) archivePost(c *gin.Context) {
+	postID, ok := web.PathUUID(c, "postId")
+	if !ok {
+		return
+	}
+	var body versionBody
+	if !web.BindJSON(c, &body) {
+		return
+	}
+	ctx := c.Request.Context()
+
+	post, err := Archive(ctx, h.Pool, postID, body.Version, h.Now())
+	if err != nil {
+		web.Error(c, err)
+		return
+	}
+
+	h.Queue.Enqueue(ctx, RevalidateTasks(post)...)
+	logPost(ctx, "post_archived", post)
+	c.JSON(http.StatusOK, newPostResponse(post))
 }

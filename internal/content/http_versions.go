@@ -9,120 +9,53 @@ import (
 	"github.com/VetMiMi/vetmimi-api/internal/db"
 )
 
-// versionsInput is one version per channel; a channel left out keeps its version.
-type versionsInput struct {
-	Website   *websiteInput   `json:"website"`
-	Facebook  *facebookInput  `json:"facebook"`
-	Instagram *instagramInput `json:"instagram"`
-	LinkedIn  *linkedInInput  `json:"linkedin"`
+// versionsBody is one version per channel; a channel left out keeps its version.
+type versionsBody struct {
+	Website   *websiteBody   `json:"website"`
+	Facebook  *facebookBody  `json:"facebook"`
+	Instagram *instagramBody `json:"instagram"`
+	LinkedIn  *linkedInBody  `json:"linkedin"`
 }
 
-type localizedInput struct {
+type localizedBody struct {
 	En *string `json:"en,omitempty" binding:"omitnil,max=20000"`
 	My *string `json:"my,omitempty" binding:"omitnil,max=20000"`
 }
 
-type markdownInput struct {
+type markdownBody struct {
 	En *string `json:"en,omitempty" binding:"omitnil,max=100000"`
 	My *string `json:"my,omitempty" binding:"omitnil,max=100000"`
 }
 
-type websiteInput struct {
-	Enabled        *bool           `json:"enabled" binding:"required"`
-	Slug           *string         `json:"slug" binding:"omitnil,slug,max=120"`
-	Title          *localizedInput `json:"title"`
-	Excerpt        *localizedInput `json:"excerpt"`
-	Body           *markdownInput  `json:"body"`
-	CoverImageID   *string         `json:"coverImageId" binding:"omitnil,uuid"`
-	SeoTitle       *localizedInput `json:"seoTitle"`
-	SeoDescription *localizedInput `json:"seoDescription"`
+type websiteBody struct {
+	Enabled        *bool          `json:"enabled" binding:"required"`
+	Slug           *string        `json:"slug" binding:"omitnil,slug,max=120"`
+	Title          *localizedBody `json:"title"`
+	Excerpt        *localizedBody `json:"excerpt"`
+	Body           *markdownBody  `json:"body"`
+	CoverImageID   *string        `json:"coverImageId" binding:"omitnil,uuid"`
+	SeoTitle       *localizedBody `json:"seoTitle"`
+	SeoDescription *localizedBody `json:"seoDescription"`
 }
 
-type facebookInput struct {
+type facebookBody struct {
 	Enabled  *bool    `json:"enabled" binding:"required"`
 	Text     *string  `json:"text" binding:"omitnil,max=10000"`
 	Link     *string  `json:"link" binding:"omitnil,max=2000"`
 	ImageIDs []string `json:"imageIds" binding:"max=10,dive,uuid"`
 }
 
-type instagramInput struct {
+type instagramBody struct {
 	Enabled  *bool    `json:"enabled" binding:"required"`
 	Caption  *string  `json:"caption" binding:"omitnil,max=10000"`
 	ImageIDs []string `json:"imageIds" binding:"max=10,dive,uuid"`
 }
 
-type linkedInInput struct {
+type linkedInBody struct {
 	Enabled  *bool    `json:"enabled" binding:"required"`
 	Text     *string  `json:"text" binding:"omitnil,max=10000"`
 	Link     *string  `json:"link" binding:"omitnil,max=2000"`
 	ImageIDs []string `json:"imageIds" binding:"max=1,dive,uuid"`
-}
-
-// versionParams is one row per channel the request names; an Instagram caption is stored as its text.
-func versionParams(v *versionsInput) []db.SavePostVersionParams {
-	if v == nil {
-		return nil
-	}
-	var out []db.SavePostVersionParams
-	if w := v.Website; w != nil {
-		out = append(out, db.SavePostVersionParams{Channel: "website", Enabled: *w.Enabled,
-			Slug: textOf(w.Slug), Title: w.Title.raw(), Excerpt: w.Excerpt.raw(), Body: w.Body.raw(),
-			CoverImageID: optionalUUID(w.CoverImageID), SeoTitle: w.SeoTitle.raw(), SeoDescription: w.SeoDescription.raw()})
-	}
-	if f := v.Facebook; f != nil {
-		out = append(out, db.SavePostVersionParams{Channel: "facebook", Enabled: *f.Enabled,
-			Text: textOf(f.Text), LinkUrl: textOf(f.Link), ImageIds: uuids(f.ImageIDs)})
-	}
-	if i := v.Instagram; i != nil {
-		out = append(out, db.SavePostVersionParams{Channel: "instagram", Enabled: *i.Enabled,
-			Text: textOf(i.Caption), ImageIds: uuids(i.ImageIDs)})
-	}
-	if l := v.LinkedIn; l != nil {
-		out = append(out, db.SavePostVersionParams{Channel: "linkedin", Enabled: *l.Enabled,
-			Text: textOf(l.Text), LinkUrl: textOf(l.Link), ImageIds: uuids(l.ImageIDs)})
-	}
-	return out
-}
-
-// raw stores text per locale as written; a missing one stays NULL.
-func (t *localizedInput) raw() json.RawMessage {
-	if t == nil {
-		return nil
-	}
-	b, _ := json.Marshal(t) // two optional strings always marshal
-	return b
-}
-
-func (t *markdownInput) raw() json.RawMessage {
-	if t == nil {
-		return nil
-	}
-	b, _ := json.Marshal(t)
-	return b
-}
-
-// textOf keeps a sent empty string apart from a missing one.
-func textOf(s *string) pgtype.Text {
-	if s == nil {
-		return pgtype.Text{}
-	}
-	return pgtype.Text{String: *s, Valid: true}
-}
-
-// optionalUUID and uuids parse ids the binding has already checked.
-func optionalUUID(s *string) pgtype.UUID {
-	if s == nil {
-		return pgtype.UUID{}
-	}
-	return pgtype.UUID{Bytes: uuid.MustParse(*s), Valid: true}
-}
-
-func uuids(ids []string) []pgtype.UUID {
-	out := make([]pgtype.UUID, len(ids))
-	for i, id := range ids {
-		out[i] = pgtype.UUID{Bytes: uuid.MustParse(id), Valid: true}
-	}
-	return out
 }
 
 type versionsResponse struct {
@@ -158,21 +91,137 @@ type instagramResponse struct {
 	ImageIDs []pgtype.UUID `json:"imageIds"`
 }
 
-func versionsView(rows []db.PostVersion) versionsResponse {
-	var v versionsResponse
-	for _, r := range rows {
-		images := append([]pgtype.UUID{}, r.ImageIds...)
-		switch r.Channel {
+// newVersionParams is one row per channel the request names; an Instagram caption is stored as its text.
+func newVersionParams(body *versionsBody) []db.SavePostVersionParams {
+	if body == nil {
+		return nil
+	}
+	var params []db.SavePostVersionParams
+	if body.Website != nil {
+		website := body.Website
+		params = append(params, db.SavePostVersionParams{
+			Channel:        "website",
+			Enabled:        *website.Enabled,
+			Slug:           textOrNull(website.Slug),
+			Title:          website.Title.json(),
+			Excerpt:        website.Excerpt.json(),
+			Body:           website.Body.json(),
+			CoverImageID:   uuidOrNull(website.CoverImageID),
+			SeoTitle:       website.SeoTitle.json(),
+			SeoDescription: website.SeoDescription.json(),
+		})
+	}
+	if body.Facebook != nil {
+		facebook := body.Facebook
+		params = append(params, db.SavePostVersionParams{
+			Channel:  "facebook",
+			Enabled:  *facebook.Enabled,
+			Text:     textOrNull(facebook.Text),
+			LinkUrl:  textOrNull(facebook.Link),
+			ImageIds: toUUIDs(facebook.ImageIDs),
+		})
+	}
+	if body.Instagram != nil {
+		instagram := body.Instagram
+		params = append(params, db.SavePostVersionParams{
+			Channel:  "instagram",
+			Enabled:  *instagram.Enabled,
+			Text:     textOrNull(instagram.Caption),
+			ImageIds: toUUIDs(instagram.ImageIDs),
+		})
+	}
+	if body.LinkedIn != nil {
+		linkedIn := body.LinkedIn
+		params = append(params, db.SavePostVersionParams{
+			Channel:  "linkedin",
+			Enabled:  *linkedIn.Enabled,
+			Text:     textOrNull(linkedIn.Text),
+			LinkUrl:  textOrNull(linkedIn.Link),
+			ImageIds: toUUIDs(linkedIn.ImageIDs),
+		})
+	}
+	return params
+}
+
+func newVersionsResponse(versions []db.PostVersion) versionsResponse {
+	var response versionsResponse
+	for _, version := range versions {
+		imageIDs := append([]pgtype.UUID{}, version.ImageIds...)
+		switch version.Channel {
 		case "website":
-			v.Website = &websiteResponse{Enabled: r.Enabled, Slug: r.Slug, Title: r.Title, Excerpt: r.Excerpt,
-				Body: r.Body, CoverImageID: r.CoverImageID, SeoTitle: r.SeoTitle, SeoDescription: r.SeoDescription}
+			response.Website = &websiteResponse{
+				Enabled:        version.Enabled,
+				Slug:           version.Slug,
+				Title:          version.Title,
+				Excerpt:        version.Excerpt,
+				Body:           version.Body,
+				CoverImageID:   version.CoverImageID,
+				SeoTitle:       version.SeoTitle,
+				SeoDescription: version.SeoDescription,
+			}
 		case "facebook":
-			v.Facebook = &linkPostResponse{Enabled: r.Enabled, Text: r.Text, Link: r.LinkUrl, ImageIDs: images}
+			response.Facebook = &linkPostResponse{
+				Enabled:  version.Enabled,
+				Text:     version.Text,
+				Link:     version.LinkUrl,
+				ImageIDs: imageIDs,
+			}
 		case "instagram":
-			v.Instagram = &instagramResponse{Enabled: r.Enabled, Caption: r.Text, ImageIDs: images}
+			response.Instagram = &instagramResponse{
+				Enabled:  version.Enabled,
+				Caption:  version.Text,
+				ImageIDs: imageIDs,
+			}
 		case "linkedin":
-			v.LinkedIn = &linkPostResponse{Enabled: r.Enabled, Text: r.Text, Link: r.LinkUrl, ImageIDs: images}
+			response.LinkedIn = &linkPostResponse{
+				Enabled:  version.Enabled,
+				Text:     version.Text,
+				Link:     version.LinkUrl,
+				ImageIDs: imageIDs,
+			}
 		}
 	}
-	return v
+	return response
+}
+
+// json stores the text per locale as written; a missing body stays NULL.
+// Marshalling two optional strings cannot fail, so the error is not checked.
+func (text *localizedBody) json() json.RawMessage {
+	if text == nil {
+		return nil
+	}
+	raw, _ := json.Marshal(text)
+	return raw
+}
+
+func (text *markdownBody) json() json.RawMessage {
+	if text == nil {
+		return nil
+	}
+	raw, _ := json.Marshal(text)
+	return raw
+}
+
+// textOrNull keeps a sent empty string apart from a missing one.
+func textOrNull(s *string) pgtype.Text {
+	if s == nil {
+		return pgtype.Text{}
+	}
+	return pgtype.Text{String: *s, Valid: true}
+}
+
+// uuidOrNull and toUUIDs parse ids the binding has already checked.
+func uuidOrNull(s *string) pgtype.UUID {
+	if s == nil {
+		return pgtype.UUID{}
+	}
+	return pgtype.UUID{Bytes: uuid.MustParse(*s), Valid: true}
+}
+
+func toUUIDs(ids []string) []pgtype.UUID {
+	result := make([]pgtype.UUID, len(ids))
+	for i, id := range ids {
+		result[i] = pgtype.UUID{Bytes: uuid.MustParse(id), Valid: true}
+	}
+	return result
 }

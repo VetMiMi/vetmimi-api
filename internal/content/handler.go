@@ -1,8 +1,6 @@
 package content
 
 import (
-	"context"
-
 	"github.com/jackc/pgx/v5/pgxpool"
 
 	"github.com/VetMiMi/vetmimi-api/internal/auth"
@@ -13,7 +11,7 @@ import (
 
 type Handler struct {
 	Pool           *pgxpool.Pool
-	Queue          *queue.Queue // nil in tests: tasks are dropped
+	Queue          *queue.Queue
 	MediaPublicURL string
 	Now            clock.Now
 }
@@ -37,10 +35,4 @@ func (h *Handler) Routes(r web.Routes) {
 
 	r.Public.GET("/public/articles", h.listArticles)
 	r.Public.GET("/public/articles/:slug", h.getArticle)
-}
-
-func (h *Handler) enqueue(ctx context.Context, tasks ...queue.Task) {
-	if h.Queue != nil {
-		h.Queue.Enqueue(ctx, tasks...)
-	}
 }

@@ -1,4 +1,4 @@
-package main
+package signin
 
 import (
 	"context"
@@ -8,11 +8,13 @@ import (
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
+	"os"
 	"strconv"
 	"strings"
 	"testing"
 
 	"github.com/jackc/pgx/v5/pgtype"
+	"github.com/pquerna/otp"
 	"github.com/pquerna/otp/totp"
 	"github.com/stretchr/testify/require"
 
@@ -22,11 +24,17 @@ import (
 	"github.com/VetMiMi/vetmimi-api/internal/webtest"
 )
 
+func TestMain(m *testing.M) { os.Exit(pgtest.Run(m)) }
+
+const password = "correct horse battery"
+
+var codeOpts = totp.ValidateOpts{Period: 30, Digits: otp.DigitsSix, Algorithm: otp.AlgorithmSHA1}
+
 // passwordHash is password hashed with the production parameters, so tests skip hashing it when they insert a user.
 const passwordHash = "$argon2id$v=19$m=65536,t=3,p=2$c2FsdHNhbHRzYWx0c2FsdA$oLbEshmirStBvAHctylRo6RngkqGfbxRX4w4VwYm24U"
 
 func authAPI(t *testing.T) *webtest.API {
-	h := &authHandler{Sessions: webtest.Sessions(t)}
+	h := &Handler{Sessions: webtest.Sessions(t)}
 	return webtest.New(t, h.Routes)
 }
 

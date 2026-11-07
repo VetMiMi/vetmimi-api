@@ -10,12 +10,11 @@ import (
 	texttemplate "text/template"
 )
 
-//go:embed templates/*.tmpl
-var templateFiles embed.FS
-
 type Email struct {
-	Subject, Text, HTML string
-	ReplyTo             string
+	Subject string
+	Text    string
+	HTML    string
+	ReplyTo string
 }
 
 type parsed struct {
@@ -23,29 +22,60 @@ type parsed struct {
 	html *htmltemplate.Template
 }
 
+//go:embed templates/*.tmpl
+var templateFiles embed.FS
+
 // Parsed at start-up, so a broken template stops the process instead of a send.
 var templates = mustParse(templateFiles)
 
+func Render(kind Kind, locale string, data RenderData) (Email, error) {
+	template, ok := templates[string(kind)+"."+locale]
+	if !ok {
+		return Email{}, fmt.Errorf("comms: no template %s.%s", kind, locale)
+	}
+	var subject bytes.Buffer
+	var text bytes.Buffer
+	var html bytes.Buffer
+	err := template.text.ExecuteTemplate(&subject, "subject", data)
+	if err != nil {
+		return Email{}, err
+	}
+	err = template.text.ExecuteTemplate(&text, "text", data)
+	if err != nil {
+		return Email{}, err
+	}
+	err = template.html.ExecuteTemplate(&html, "html", data)
+	if err != nil {
+		return Email{}, err
+	}
+	email := Email{
+		Subject: strings.Join(strings.Fields(subject.String()), " "),
+		Text:    tidy(text.String()),
+		HTML:    strings.TrimSpace(html.String()) + "\n",
+	}
+	return email, nil
+}
+
 func mustParse(files fs.FS) map[string]parsed {
-	t, err := parseTemplates(files)
+	parsedTemplates, err := parseTemplates(files)
 	if err != nil {
 		panic(err)
 	}
-	return t
+	return parsedTemplates
 }
 
 func parseTemplates(files fs.FS) (map[string]parsed, error) {
-	out := make(map[string]parsed, len(Kinds)*len(Locales))
+	parsedTemplates := make(map[string]parsed, len(Kinds)*len(Locales))
 	for _, locale := range Locales {
 		for _, kind := range Kinds {
-			p, err := parseTemplate(files, kind, locale)
+			template, err := parseTemplate(files, kind, locale)
 			if err != nil {
 				return nil, err
 			}
-			out[string(kind)+"."+locale] = p
+			parsedTemplates[string(kind)+"."+locale] = template
 		}
 	}
-	return out, nil
+	return parsedTemplates, nil
 }
 
 func parseTemplate(files fs.FS, kind Kind, locale string) (parsed, error) {
@@ -70,43 +100,21 @@ func parseTemplate(files fs.FS, kind Kind, locale string) (parsed, error) {
 	return parsed{text, html}, nil
 }
 
-func Render(kind Kind, locale string, data RenderData) (Email, error) {
-	t, ok := templates[string(kind)+"."+locale]
-	if !ok {
-		return Email{}, fmt.Errorf("comms: no template %s.%s", kind, locale)
-	}
-	var subject, text, html bytes.Buffer
-	if err := t.text.ExecuteTemplate(&subject, "subject", data); err != nil {
-		return Email{}, err
-	}
-	if err := t.text.ExecuteTemplate(&text, "text", data); err != nil {
-		return Email{}, err
-	}
-	if err := t.html.ExecuteTemplate(&html, "html", data); err != nil {
-		return Email{}, err
-	}
-	return Email{
-		Subject: strings.Join(strings.Fields(subject.String()), " "),
-		Text:    tidy(text.String()),
-		HTML:    strings.TrimSpace(html.String()) + "\n",
-	}, nil
-}
-
 // tidy trims each line and collapses blank runs, so templates can be indented.
-func tidy(s string) string {
-	var b strings.Builder
+func tidy(text string) string {
+	var builder strings.Builder
 	blank := true
-	for line := range strings.Lines(s) {
+	for line := range strings.Lines(text) {
 		line = strings.TrimSpace(line)
 		if line == "" {
 			if !blank {
-				b.WriteString("\n")
+				builder.WriteString("\n")
 			}
 			blank = true
 			continue
 		}
-		b.WriteString(line + "\n")
+		builder.WriteString(line + "\n")
 		blank = false
 	}
-	return strings.TrimRight(b.String(), "\n") + "\n"
+	return strings.TrimRight(builder.String(), "\n") + "\n"
 }

@@ -29,7 +29,8 @@ type Connector struct {
 	Pool   *pgxpool.Pool
 	Tokens *secretbox.Box
 	// ClientID and ClientSecret are empty when LinkedIn is not set up.
-	ClientID, ClientSecret string
+	ClientID     string
+	ClientSecret string
 	// Version is the LinkedIn-Version header the REST API requires (YYYYMM).
 	Version string
 	AuthURL string
@@ -41,6 +42,18 @@ type Connector struct {
 	HTTP           *http.Client // nil: a client with a 30-second timeout
 	Log            *slog.Logger
 	Now            clock.Now
+}
+
+// apiError is LinkedIn refusing a call. Code is the REST API's
+// serviceErrorCode, OAuth the token endpoint's error name.
+type apiError struct {
+	Status int
+	Code   int
+	OAuth  string
+}
+
+func (failure *apiError) Error() string {
+	return fmt.Sprintf("linkedin: answered %d, code %d %s", failure.Status, failure.Code, failure.OAuth)
 }
 
 func New(cfg config.Config, pool *pgxpool.Pool, tokens *secretbox.Box, log *slog.Logger) *Connector {
@@ -60,34 +73,22 @@ func New(cfg config.Config, pool *pgxpool.Pool, tokens *secretbox.Box, log *slog
 	}
 }
 
-// apiError is LinkedIn refusing a call. Code is the REST API's
-// serviceErrorCode, OAuth the token endpoint's error name.
-type apiError struct {
-	Status int
-	Code   int
-	OAuth  string
-}
-
-func (e *apiError) Error() string {
-	return fmt.Sprintf("linkedin: answered %d, code %d %s", e.Status, e.Code, e.OAuth)
-}
-
-// rest builds a request to the versioned REST API, with body as JSON when it is not nil.
-func (c *Connector) rest(ctx context.Context, method, path, token string, body any) (*http.Request, error) {
-	var r io.Reader
+// restRequest builds a request to the versioned REST API, with body as JSON when it is not nil.
+func (connector *Connector) restRequest(ctx context.Context, method, path, token string, body any) (*http.Request, error) {
+	var reader io.Reader
 	if body != nil {
 		raw, err := json.Marshal(body)
 		if err != nil {
 			return nil, err
 		}
-		r = bytes.NewReader(raw)
+		reader = bytes.NewReader(raw)
 	}
-	req, err := http.NewRequestWithContext(ctx, method, strings.TrimSuffix(c.APIURL, "/")+path, r)
+	req, err := http.NewRequestWithContext(ctx, method, strings.TrimSuffix(connector.APIURL, "/")+path, reader)
 	if err != nil {
 		return nil, err
 	}
 	req.Header.Set("Authorization", "Bearer "+token)
-	req.Header.Set("LinkedIn-Version", c.Version)
+	req.Header.Set("LinkedIn-Version", connector.Version)
 	req.Header.Set("X-Restli-Protocol-Version", "2.0.0")
 	if body != nil {
 		req.Header.Set("Content-Type", "application/json")
@@ -95,23 +96,16 @@ func (c *Connector) rest(ctx context.Context, method, path, token string, body a
 	return req, nil
 }
 
-func (c *Connector) httpClient() *http.Client {
-	if c.HTTP != nil {
-		return c.HTTP
-	}
-	return &http.Client{Timeout: 30 * time.Second}
-}
-
 // do sends req. out, if not nil, receives the JSON answer. The headers are
 // returned because a created post's id comes in X-Restli-Id.
-func (c *Connector) do(req *http.Request, out any) (http.Header, error) {
+func (connector *Connector) do(req *http.Request, out any) (http.Header, error) {
 	what := req.Method + " " + req.URL.Path
-	res, err := c.httpClient().Do(req)
+	res, err := connector.httpClient().Do(req)
 	if err != nil {
 		// An upload URL carries a signed ticket: keep it out of the logged error.
-		var ue *url.Error
-		if errors.As(err, &ue) {
-			err = ue.Err
+		var urlErr *url.Error
+		if errors.As(err, &urlErr) {
+			err = urlErr.Err
 		}
 		return nil, fmt.Errorf("linkedin: %s: %w", what, err)
 	}
@@ -121,21 +115,34 @@ func (c *Connector) do(req *http.Request, out any) (http.Header, error) {
 		return nil, fmt.Errorf("linkedin: %s: %w", what, err)
 	}
 	if res.StatusCode/100 != 2 {
-		var e struct {
+		var answer struct {
 			Code  int    `json:"serviceErrorCode"`
 			OAuth string `json:"error"`
 		}
-		_ = json.Unmarshal(raw, &e)
-		return nil, &apiError{Status: res.StatusCode, Code: e.Code, OAuth: e.OAuth}
+		_ = json.Unmarshal(raw, &answer) // an answer that is not JSON leaves the code empty
+		return nil, &apiError{Status: res.StatusCode, Code: answer.Code, OAuth: answer.OAuth}
 	}
-	if out != nil && len(raw) > 0 {
-		if err := json.Unmarshal(raw, out); err != nil {
-			return nil, fmt.Errorf("linkedin: %s: %w", what, err)
-		}
+	if out == nil || len(raw) == 0 {
+		return res.Header, nil
+	}
+	err = json.Unmarshal(raw, out)
+	if err != nil {
+		return nil, fmt.Errorf("linkedin: %s: %w", what, err)
 	}
 	return res.Header, nil
 }
 
-func expired(at sql.NullTime, now time.Time) bool { return at.Valid && !now.Before(at.Time) }
+func (connector *Connector) httpClient() *http.Client {
+	if connector.HTTP != nil {
+		return connector.HTTP
+	}
+	return &http.Client{Timeout: 30 * time.Second}
+}
 
-func text(s string) pgtype.Text { return pgtype.Text{String: s, Valid: s != ""} }
+func expired(at sql.NullTime, now time.Time) bool {
+	return at.Valid && !now.Before(at.Time)
+}
+
+func text(s string) pgtype.Text {
+	return pgtype.Text{String: s, Valid: s != ""}
+}

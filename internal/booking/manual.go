@@ -39,33 +39,53 @@ type Created struct {
 }
 
 // CreateManual follows a website request's rules, except that pausing public booking does not stop it.
-func CreateManual(ctx context.Context, pool *pgxpool.Pool, secret []byte, m Manual, now time.Time) (Created, error) {
-	var out Created
-	err := inSchedule(ctx, pool, func(q *db.Queries) error {
-		stored, err := idempotency.Begin(ctx, q, idempotency.AdminAppointment, m.IdempotencyKey, m.Body, now)
-		if err != nil {
-			return err
-		}
-		if stored != nil {
-			out = Created{AppointmentID: stored.ResourceID, Replayed: true}
-			return nil
-		}
-		out, err = createManual(ctx, q, secret, m, now)
-		if err != nil {
-			return err
-		}
-		return idempotency.Finish(ctx, q, idempotency.AdminAppointment, m.IdempotencyKey, out.AppointmentID,
-			httpCreated, map[string]string{"id": out.AppointmentID.String()})
-	})
-	return out, countConflict("manual", err)
-}
-
-func createManual(ctx context.Context, q *db.Queries, secret []byte, m Manual, now time.Time) (Created, error) {
-	cur, err := settings.Load(ctx, q)
+func CreateManual(ctx context.Context, pool *pgxpool.Pool, secret []byte, manual Manual, now time.Time) (Created, error) {
+	tx, err := pool.Begin(ctx)
 	if err != nil {
 		return Created{}, err
 	}
-	svc, err := checkManual(ctx, q, cur, m, now)
+	defer tx.Rollback(ctx)
+	q := db.New(tx)
+
+	err = q.LockSchedule(ctx)
+	if err != nil {
+		return Created{}, err
+	}
+	stored, err := idempotency.Begin(ctx, q, idempotency.AdminAppointment, manual.IdempotencyKey, manual.Body, now)
+	if err != nil {
+		return Created{}, err
+	}
+	// A replay wrote nothing, so it has nothing to commit.
+	if stored != nil {
+		replayed := Created{
+			AppointmentID: stored.ResourceID,
+			Replayed:      true,
+		}
+		return replayed, nil
+	}
+	created, err := createManual(ctx, q, secret, manual, now)
+	if err != nil {
+		return Created{}, countConflict("manual", err)
+	}
+	err = idempotency.Finish(ctx, q, idempotency.AdminAppointment, manual.IdempotencyKey, created.AppointmentID,
+		httpCreated, map[string]string{"id": created.AppointmentID.String()})
+	if err != nil {
+		return Created{}, err
+	}
+
+	err = tx.Commit(ctx)
+	if err != nil {
+		return Created{}, err
+	}
+	return created, nil
+}
+
+func createManual(ctx context.Context, q db.Querier, secret []byte, manual Manual, now time.Time) (Created, error) {
+	current, err := settings.Load(ctx, q)
+	if err != nil {
+		return Created{}, err
+	}
+	service, err := checkManual(ctx, q, current, manual, now)
 	if err != nil {
 		return Created{}, err
 	}
@@ -73,70 +93,93 @@ func createManual(ctx context.Context, q *db.Queries, secret []byte, m Manual, n
 	if err != nil {
 		return Created{}, err
 	}
-	a := manualAppointment(practitionerID, svc, cur, m, now)
-	appt, err := InsertAppointment(ctx, q, secret, a)
+	newAppointment := manualAppointment(practitionerID, service, current, manual, now)
+	appointment, err := InsertAppointment(ctx, q, secret, newAppointment)
 	if err != nil {
 		return Created{}, withAlternatives(err)
 	}
-	appointmentsCreated.Add(a.Source, 1)
-	if err := AppendEvent(ctx, q, Event{AppointmentID: appt.ID, Kind: "created", To: m.Status, Actor: "admin",
-		ActorUserID: m.Actor, Detail: EventDetail{Source: "manual"}}); err != nil {
+	appointmentsCreated.Add(newAppointment.Source, 1)
+	event := Event{
+		AppointmentID: appointment.ID,
+		Kind:          "created",
+		To:            manual.Status,
+		Actor:         "admin",
+		ActorUserID:   manual.Actor,
+		Detail:        EventDetail{Source: "manual"},
+	}
+	err = AppendEvent(ctx, q, event)
+	if err != nil {
 		return Created{}, err
 	}
-	tasks, err := notifyManual(ctx, q, secret, appt, cur, m.Notify, now)
-	return Created{AppointmentID: appt.ID, Tasks: tasks}, err
+	tasks, err := notifyManual(ctx, q, secret, appointment, current, manual.Notify, now)
+	if err != nil {
+		return Created{}, err
+	}
+	return Created{AppointmentID: appointment.ID, Tasks: tasks}, nil
 }
 
-func checkManual(ctx context.Context, q db.Querier, cur settings.Settings, m Manual, now time.Time) (db.Service, error) {
-	svc, err := GetService(ctx, q, m.ServiceID)
+func checkManual(ctx context.Context, q db.Querier, current settings.Settings, manual Manual,
+	now time.Time) (db.Service, error) {
+	service, err := GetService(ctx, q, manual.ServiceID)
 	if err != nil {
 		return db.Service{}, err
 	}
-	if err := checkService(svc, m.Format); err != nil {
+	err = checkService(service, manual.Format)
+	if err != nil {
 		return db.Service{}, err
 	}
-	if err := checkWindow(cur, m.StartsAt, now); err != nil {
+	err = checkWindow(current, manual.StartsAt, now)
+	if err != nil {
 		return db.Service{}, err
 	}
-	return svc, checkSlot(ctx, q, cur, slotRequest{Service: svc, Start: m.StartsAt}, now)
+	err = checkSlot(ctx, q, current, slotRequest{Service: service, Start: manual.StartsAt}, now)
+	if err != nil {
+		return db.Service{}, err
+	}
+	return service, nil
 }
 
-func manualAppointment(practitionerID pgtype.UUID, svc db.Service, cur settings.Settings, m Manual,
+func manualAppointment(practitionerID pgtype.UUID, service db.Service, current settings.Settings, manual Manual,
 	now time.Time) NewAppointment {
-	a := NewAppointment{
+	appointment := NewAppointment{
 		PractitionerID: practitionerID,
-		Service:        svc,
-		StartsAt:       m.StartsAt,
-		Duration:       time.Duration(svc.DurationMinutes.Int32) * time.Minute,
-		Status:         m.Status,
-		Timezone:       cur.Timezone,
-		Format:         m.Format,
-		Locale:         m.Locale,
+		Service:        service,
+		StartsAt:       manual.StartsAt,
+		Duration:       time.Duration(service.DurationMinutes.Int32) * time.Minute,
+		Status:         manual.Status,
+		Timezone:       current.Timezone,
+		Format:         manual.Format,
+		Locale:         manual.Locale,
 		Source:         "manual",
-		VisitorName:    strings.TrimSpace(m.VisitorName),
-		VisitorEmail:   strings.ToLower(strings.TrimSpace(m.VisitorEmail)),
-		VisitorPhone:   optionalText(m.VisitorPhone),
-		VisitorNote:    optionalText(m.VisitorNote),
-		AdminNote:      optionalText(m.AdminNote),
-		CreatedBy:      m.Actor,
+		VisitorName:    strings.TrimSpace(manual.VisitorName),
+		VisitorEmail:   strings.ToLower(strings.TrimSpace(manual.VisitorEmail)),
+		VisitorPhone:   optionalText(manual.VisitorPhone),
+		VisitorNote:    optionalText(manual.VisitorNote),
+		AdminNote:      optionalText(manual.AdminNote),
+		CreatedBy:      manual.Actor,
 	}
-	if m.Status == Pending {
-		a.HoldExpiresAt = holdUntil(cur, m.StartsAt, now)
+	if manual.Status == Pending {
+		appointment.HoldExpiresAt = holdUntil(current, manual.StartsAt, now)
 	}
-	return a
+	return appointment
 }
 
-func notifyManual(ctx context.Context, q db.Querier, secret []byte, appt db.Appointment, cur settings.Settings,
-	notify bool, now time.Time) ([]queue.Task, error) {
-	if Status(appt.Status) == Confirmed {
-		return afterConfirm(ctx, q, secret, appt, cur, now, notify)
+func notifyManual(ctx context.Context, q db.Querier, secret []byte, appointment db.Appointment,
+	current settings.Settings, notify bool, now time.Time) ([]queue.Task, error) {
+	if Status(appointment.Status) == Confirmed {
+		return afterConfirm(ctx, q, secret, appointment, current, now, notify)
 	}
-	tasks := []queue.Task{holdTask(appt.ID, appt.HoldExpiresAt.Time)}
+	tasks := []queue.Task{holdTask(appointment.ID, appointment.HoldExpiresAt.Time)}
 	if !notify {
 		return tasks, nil
 	}
-	task, err := comms.Queue(ctx, q, comms.Message{AppointmentID: appt.ID, Kind: comms.RequestReceived,
-		Recipient: appt.VisitorEmail, Locale: appt.Locale})
+	received := comms.Message{
+		AppointmentID: appointment.ID,
+		Kind:          comms.RequestReceived,
+		Recipient:     appointment.VisitorEmail,
+		Locale:        appointment.Locale,
+	}
+	task, err := comms.Queue(ctx, q, received)
 	if err != nil {
 		return nil, err
 	}

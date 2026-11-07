@@ -26,49 +26,52 @@ func init() {
 	// A misspelt field is refused instead of silently ignored.
 	binding.EnableDecoderDisallowUnknownFields = true
 
-	v := binding.Validator.Engine().(*validator.Validate)
-	v.RegisterTagNameFunc(func(f reflect.StructField) string {
-		name, _, _ := strings.Cut(f.Tag.Get("json"), ",")
+	validate := binding.Validator.Engine().(*validator.Validate)
+	validate.RegisterTagNameFunc(func(field reflect.StructField) string {
+		name, _, _ := strings.Cut(field.Tag.Get("json"), ",")
 		if name == "" {
-			name, _, _ = strings.Cut(f.Tag.Get("form"), ",")
+			name, _, _ = strings.Cut(field.Tag.Get("form"), ",")
 		}
 		if name == "" {
-			name = f.Tag.Get("uri")
+			name = field.Tag.Get("uri")
 		}
 		return name
 	})
-	pattern := func(re *regexp.Regexp) validator.Func {
-		return func(fl validator.FieldLevel) bool { return re.MatchString(fl.Field().String()) }
+	pattern := func(expression *regexp.Regexp) validator.Func {
+		return func(field validator.FieldLevel) bool { return expression.MatchString(field.Field().String()) }
 	}
-	_ = v.RegisterValidation("slug", pattern(regexp.MustCompile(`^[a-z0-9]+(-[a-z0-9]+)*$`)))
-	_ = v.RegisterValidation("phone", pattern(regexp.MustCompile(`^[0-9+() -]{6,32}$`)))
-	_ = v.RegisterValidation("hhmm", pattern(regexp.MustCompile(`^([01][0-9]|2[0-3]):[0-5][0-9]$`)))
-	_ = v.RegisterValidation("totp", pattern(regexp.MustCompile(`^[0-9]{6}$`)))
+	// RegisterValidation fails only for an empty tag or a nil function.
+	_ = validate.RegisterValidation("slug", pattern(regexp.MustCompile(`^[a-z0-9]+(-[a-z0-9]+)*$`)))
+	_ = validate.RegisterValidation("phone", pattern(regexp.MustCompile(`^[0-9+() -]{6,32}$`)))
+	_ = validate.RegisterValidation("hhmm", pattern(regexp.MustCompile(`^([01][0-9]|2[0-3]):[0-5][0-9]$`)))
+	_ = validate.RegisterValidation("totp", pattern(regexp.MustCompile(`^[0-9]{6}$`)))
 }
 
-// BindJSON decodes and checks the body into v. When it returns false it has answered 400.
+// BindJSON decodes and checks the body into target. When it returns false it has answered 400.
 // The body is kept, so a handler may bind it again into another shape.
-func BindJSON(c *gin.Context, v any) bool {
-	err := c.ShouldBindBodyWithJSON(v)
+func BindJSON(c *gin.Context, target any) bool {
+	err := c.ShouldBindBodyWithJSON(target)
 	if err == nil {
 		return true
 	}
-	body, _ := c.Get(gin.BodyBytesKey)
-	b, _ := body.([]byte)
+	stored, _ := c.Get(gin.BodyBytesKey)
+	body, _ := stored.([]byte)
 	if strings.HasPrefix(err.Error(), "json: unknown field ") {
-		err = apperr.Invalid("The request is not valid.",
-			apperr.FieldError{Field: unknownField(b, reflect.TypeOf(v)), Message: "is not an allowed property"})
-	} else {
-		err = invalid(err, "/", func() (string, reflect.StructField) { return undecodable(b, reflect.TypeOf(v), "") })
+		field := apperr.FieldError{Field: unknownField(body, reflect.TypeOf(target)), Message: "is not an allowed property"}
+		Error(c, apperr.Invalid("The request is not valid.", field))
+		return false
 	}
-	Error(c, err)
+	find := func() (string, reflect.StructField) { return undecodable(body, reflect.TypeOf(target), "") }
+	Error(c, invalid(err, "/", find))
 	return false
 }
 
-// BindQuery decodes and checks the query string into v. When it returns false it has answered 400.
-func BindQuery(c *gin.Context, v any) bool {
-	if err := c.ShouldBindQuery(v); err != nil {
-		Error(c, invalid(err, "", func() (string, reflect.StructField) { return badQueryKey(c.Request.URL.Query(), v) }))
+// BindQuery decodes and checks the query string into target. When it returns false it has answered 400.
+func BindQuery(c *gin.Context, target any) bool {
+	err := c.ShouldBindQuery(target)
+	if err != nil {
+		find := func() (string, reflect.StructField) { return badQueryKey(c.Request.URL.Query(), target) }
+		Error(c, invalid(err, "", find))
 		return false
 	}
 	return true
@@ -89,9 +92,10 @@ func ParseUUID(c *gin.Context, field, value string) (pgtype.UUID, bool) {
 	return pgtype.UUID{Bytes: id, Valid: true}, true
 }
 
-// BindURI checks the path parameters into v. When it returns false it has answered 400.
-func BindURI(c *gin.Context, v any) bool {
-	if err := c.ShouldBindUri(v); err != nil {
+// BindURI checks the path parameters into target. When it returns false it has answered 400.
+func BindURI(c *gin.Context, target any) bool {
+	err := c.ShouldBindUri(target)
+	if err != nil {
 		Error(c, invalid(err, "", nil))
 		return false
 	}
@@ -112,20 +116,20 @@ func invalid(err error, prefix string, find func() (string, reflect.StructField)
 	var wrongType *json.UnmarshalTypeError
 	switch {
 	case errors.As(err, &failed):
-		for _, fe := range failed {
-			fields = append(fields, apperr.FieldError{Field: fieldPath(fe.Namespace(), prefix), Message: rule(fe)})
+		for _, failure := range failed {
+			fields = append(fields, apperr.FieldError{Field: fieldPath(failure.Namespace(), prefix), Message: rule(failure)})
 		}
 	case errors.As(err, &wrongType):
-		fields = append(fields, apperr.FieldError{Field: prefix + strings.ReplaceAll(wrongType.Field, ".", "/"),
-			Message: "must be of type " + jsonType(wrongType.Type)})
+		field := prefix + strings.ReplaceAll(wrongType.Field, ".", "/")
+		fields = append(fields, apperr.FieldError{Field: field, Message: "must be of type " + jsonType(wrongType.Type)})
 	default:
 		var key string
-		var f reflect.StructField
+		var field reflect.StructField
 		if find != nil {
-			key, f = find()
+			key, field = find()
 		}
 		if key != "" {
-			fields = append(fields, apperr.FieldError{Field: key, Message: mustBe(f)})
+			fields = append(fields, apperr.FieldError{Field: key, Message: mustBe(field)})
 		} else {
 			fields = append(fields, apperr.FieldError{Message: "is missing or malformed"})
 		}
@@ -145,9 +149,9 @@ func fieldPath(namespace, prefix string) string {
 	return prefix + strings.ReplaceAll(path, ".", "/")
 }
 
-func rule(fe validator.FieldError) string {
-	items := fe.Kind() == reflect.Slice
-	switch fe.Tag() {
+func rule(failure validator.FieldError) string {
+	items := failure.Kind() == reflect.Slice
+	switch failure.Tag() {
 	case "required":
 		return "is required"
 	case "email":
@@ -155,12 +159,12 @@ func rule(fe validator.FieldError) string {
 	case "uuid":
 		return "must be a valid uuid"
 	case "datetime":
-		if fe.Param() == time.DateOnly {
+		if failure.Param() == time.DateOnly {
 			return "must be a valid date"
 		}
 		return "must be a valid date-time"
 	case "oneof":
-		return "must be one of: " + strings.ReplaceAll(fe.Param(), " ", ", ")
+		return "must be one of: " + strings.ReplaceAll(failure.Param(), " ", ", ")
 	case "slug":
 		return "must be lowercase words joined by hyphens"
 	case "phone":
@@ -171,81 +175,87 @@ func rule(fe validator.FieldError) string {
 		return "must be six digits"
 	case "min":
 		if items {
-			return "must have at least " + fe.Param() + " items"
+			return "must have at least " + failure.Param() + " items"
 		}
-		if fe.Kind() == reflect.String {
-			return "must be at least " + fe.Param() + " characters"
+		if failure.Kind() == reflect.String {
+			return "must be at least " + failure.Param() + " characters"
 		}
-		return "must be at least " + fe.Param()
+		return "must be at least " + failure.Param()
 	case "max":
 		if items {
-			return "must have at most " + fe.Param() + " items"
+			return "must have at most " + failure.Param() + " items"
 		}
-		if fe.Kind() == reflect.String {
-			return "must be at most " + fe.Param() + " characters"
+		if failure.Kind() == reflect.String {
+			return "must be at most " + failure.Param() + " characters"
 		}
-		return "must be at most " + fe.Param()
+		return "must be at most " + failure.Param()
 	case "unique":
 		return "must not repeat an item"
 	}
 	return "is not valid"
 }
 
-func mustBe(f reflect.StructField) string {
-	t := f.Type
-	for t.Kind() == reflect.Pointer || t.Kind() == reflect.Slice {
-		t = t.Elem()
+func mustBe(field reflect.StructField) string {
+	valueType := field.Type
+	for valueType.Kind() == reflect.Pointer || valueType.Kind() == reflect.Slice {
+		valueType = valueType.Elem()
 	}
 	switch {
-	case t != reflect.TypeFor[time.Time]():
-		return "must be of type " + jsonType(t)
-	case f.Tag.Get("time_format") == time.DateOnly:
+	case valueType != reflect.TypeFor[time.Time]():
+		return "must be of type " + jsonType(valueType)
+	case field.Tag.Get("time_format") == time.DateOnly:
 		return "must be a valid date"
 	}
 	return "must be a valid date-time"
 }
 
-// badQueryKey is the first query key whose value v cannot hold, such as limit=abc.
-func badQueryKey(query map[string][]string, v any) (string, reflect.StructField) {
-	t := reflect.TypeOf(v).Elem()
-	for i := range t.NumField() {
-		f := t.Field(i)
-		name, _, _ := strings.Cut(f.Tag.Get("form"), ",")
+// badQueryKey is the first query key whose value target cannot hold, such as limit=abc.
+func badQueryKey(query map[string][]string, target any) (string, reflect.StructField) {
+	structType := reflect.TypeOf(target).Elem()
+	for i := range structType.NumField() {
+		field := structType.Field(i)
+		name, _, _ := strings.Cut(field.Tag.Get("form"), ",")
 		values, ok := query[name]
-		if ok && binding.MapFormWithTag(reflect.New(t).Interface(), map[string][]string{name: values}, "form") != nil {
-			return name, f
+		if ok && binding.MapFormWithTag(reflect.New(structType).Interface(), map[string][]string{name: values}, "form") != nil {
+			return name, field
 		}
 	}
 	return "", reflect.StructField{}
 }
 
 // undecodable is the JSON pointer of the first value in doc that its field cannot hold, such as a bad date-time.
-func undecodable(doc []byte, t reflect.Type, path string) (string, reflect.StructField) {
-	for t.Kind() == reflect.Pointer {
-		t = t.Elem()
+func undecodable(doc []byte, valueType reflect.Type, path string) (string, reflect.StructField) {
+	for valueType.Kind() == reflect.Pointer {
+		valueType = valueType.Elem()
 	}
-	if t.Kind() != reflect.Struct || t == reflect.TypeFor[time.Time]() {
+	if valueType.Kind() != reflect.Struct || valueType == reflect.TypeFor[time.Time]() {
 		return "", reflect.StructField{}
 	}
 	var object map[string]json.RawMessage
-	if json.Unmarshal(doc, &object) != nil {
+	err := json.Unmarshal(doc, &object)
+	if err != nil {
 		return "", reflect.StructField{}
 	}
 	for _, key := range slices.Sorted(maps.Keys(object)) {
-		f, ok := fieldNamed(t, key)
-		if !ok || json.Unmarshal(object[key], reflect.New(f.Type).Interface()) == nil {
+		field, ok := fieldNamed(valueType, key)
+		if !ok {
 			continue
 		}
-		if p, inner := undecodable(object[key], f.Type, path+"/"+key); p != "" {
-			return p, inner
+		err = json.Unmarshal(object[key], reflect.New(field.Type).Interface())
+		if err == nil {
+			continue
 		}
-		return path + "/" + key, f
+		pointer, inner := undecodable(object[key], field.Type, path+"/"+key)
+		if pointer != "" {
+			return pointer, inner
+		}
+		return path + "/" + key, field
 	}
 	return "", reflect.StructField{}
 }
 
-func jsonType(t reflect.Type) string {
-	switch t.Kind() {
+func jsonType(valueType reflect.Type) string {
+	switch valueType.Kind() {
 	case reflect.Int, reflect.Int8, reflect.Int16, reflect.Int32, reflect.Int64,
 		reflect.Uint, reflect.Uint8, reflect.Uint16, reflect.Uint32, reflect.Uint64:
 		return "integer"
@@ -261,39 +271,44 @@ func jsonType(t reflect.Type) string {
 	return "number"
 }
 
-// unknownField is the JSON pointer of the first key in body that t has no field for:
+// unknownField is the JSON pointer of the first key in body that valueType has no field for:
 // encoding/json names the key but not the object it sits in.
-func unknownField(body []byte, t reflect.Type) string {
+func unknownField(body []byte, valueType reflect.Type) string {
 	var doc any
-	_ = json.Unmarshal(body, &doc)
-	return findUnknown(doc, t, "")
+	err := json.Unmarshal(body, &doc)
+	if err != nil {
+		return ""
+	}
+	return findUnknown(doc, valueType, "")
 }
 
-func findUnknown(doc any, t reflect.Type, path string) string {
-	for t.Kind() == reflect.Pointer {
-		t = t.Elem()
+func findUnknown(doc any, valueType reflect.Type, path string) string {
+	for valueType.Kind() == reflect.Pointer {
+		valueType = valueType.Elem()
 	}
-	switch doc := doc.(type) {
+	switch value := doc.(type) {
 	case map[string]any:
-		if t.Kind() != reflect.Struct {
+		if valueType.Kind() != reflect.Struct {
 			return ""
 		}
-		for _, key := range slices.Sorted(maps.Keys(doc)) {
-			f, ok := fieldNamed(t, key)
+		for _, key := range slices.Sorted(maps.Keys(value)) {
+			field, ok := fieldNamed(valueType, key)
 			if !ok {
 				return path + "/" + key
 			}
-			if p := findUnknown(doc[key], f.Type, path+"/"+key); p != "" {
-				return p
+			pointer := findUnknown(value[key], field.Type, path+"/"+key)
+			if pointer != "" {
+				return pointer
 			}
 		}
 	case []any:
-		if t.Kind() != reflect.Slice && t.Kind() != reflect.Array {
+		if valueType.Kind() != reflect.Slice && valueType.Kind() != reflect.Array {
 			return ""
 		}
-		for i, item := range doc {
-			if p := findUnknown(item, t.Elem(), path+"/"+strconv.Itoa(i)); p != "" {
-				return p
+		for i, item := range value {
+			pointer := findUnknown(item, valueType.Elem(), path+"/"+strconv.Itoa(i))
+			if pointer != "" {
+				return pointer
 			}
 		}
 	}
@@ -301,27 +316,28 @@ func findUnknown(doc any, t reflect.Type, path string) string {
 }
 
 // fieldNamed matches key the way encoding/json does: by tag or field name, ignoring case.
-func fieldNamed(t reflect.Type, key string) (reflect.StructField, bool) {
-	for i := range t.NumField() {
-		f := t.Field(i)
-		name, _, _ := strings.Cut(f.Tag.Get("json"), ",")
-		if f.Anonymous && name == "" {
-			embedded := f.Type
+func fieldNamed(structType reflect.Type, key string) (reflect.StructField, bool) {
+	for i := range structType.NumField() {
+		field := structType.Field(i)
+		name, _, _ := strings.Cut(field.Tag.Get("json"), ",")
+		if field.Anonymous && name == "" {
+			embedded := field.Type
 			if embedded.Kind() == reflect.Pointer {
 				embedded = embedded.Elem()
 			}
 			if embedded.Kind() == reflect.Struct {
-				if inner, ok := fieldNamed(embedded, key); ok {
+				inner, ok := fieldNamed(embedded, key)
+				if ok {
 					return inner, true
 				}
 				continue
 			}
 		}
 		if name == "" {
-			name = f.Name
+			name = field.Name
 		}
-		if name != "-" && f.IsExported() && strings.EqualFold(name, key) {
-			return f, true
+		if name != "-" && field.IsExported() && strings.EqualFold(name, key) {
+			return field, true
 		}
 	}
 	return reflect.StructField{}, false

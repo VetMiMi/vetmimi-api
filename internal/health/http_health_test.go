@@ -1,8 +1,9 @@
-package main
+package health
 
 import (
 	"context"
 	"net/http"
+	"os"
 	"testing"
 
 	"github.com/stretchr/testify/require"
@@ -14,10 +15,12 @@ import (
 	"github.com/VetMiMi/vetmimi-api/internal/webtest"
 )
 
+func TestMain(m *testing.M) { os.Exit(pgtest.Run(m)) }
+
 func healthAPI(pingPostgres, pingRedis func(context.Context) error) *webtest.API {
 	r := web.NewRouter()
-	r.GET("/healthz", healthz)
-	r.GET("/readyz", readyz(pingPostgres, pingRedis))
+	h := &Handler{PingPostgres: pingPostgres, PingRedis: pingRedis}
+	h.Routes(web.Routes{Root: r})
 	return &webtest.API{Router: r}
 }
 

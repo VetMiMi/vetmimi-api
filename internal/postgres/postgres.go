@@ -24,18 +24,19 @@ const (
 // Open opens a pool on url and pings it, so a wrong host or password stops
 // start-up. Errors never quote the URL: it carries the password.
 func Open(ctx context.Context, url string) (*pgxpool.Pool, error) {
-	cfg, err := pgxpool.ParseConfig(url)
+	config, err := pgxpool.ParseConfig(url)
 	if err != nil {
 		return nil, errors.New("open postgres: the connection URL is invalid")
 	}
-	cfg.MaxConns = maxConns
-	cfg.ConnConfig.ConnectTimeout = connectTimeout
+	config.MaxConns = maxConns
+	config.ConnConfig.ConnectTimeout = connectTimeout
 
-	pool, err := pgxpool.NewWithConfig(ctx, cfg)
+	pool, err := pgxpool.NewWithConfig(ctx, config)
 	if err != nil {
 		return nil, fmt.Errorf("open postgres: %w", err)
 	}
-	if err := pool.Ping(ctx); err != nil {
+	err = pool.Ping(ctx)
+	if err != nil {
 		pool.Close()
 		return nil, fmt.Errorf("open postgres: %w", err)
 	}
@@ -51,14 +52,15 @@ func Migrate(ctx context.Context, pool *pgxpool.Pool) error {
 		return fmt.Errorf("migrate: %w", err)
 	}
 	// Closing this *sql.DB leaves the pool open.
-	provider, err := goose.NewProvider(goose.DialectPostgres, stdlib.OpenDBFromPool(pool), migrations.FS,
-		goose.WithSessionLocker(locker))
+	database := stdlib.OpenDBFromPool(pool)
+	provider, err := goose.NewProvider(goose.DialectPostgres, database, migrations.FS, goose.WithSessionLocker(locker))
 	if err != nil {
 		return fmt.Errorf("migrate: %w", err)
 	}
 	defer provider.Close()
 
-	if _, err := provider.Up(ctx); err != nil {
+	_, err = provider.Up(ctx)
+	if err != nil {
 		return fmt.Errorf("migrate: %w", err)
 	}
 	return nil

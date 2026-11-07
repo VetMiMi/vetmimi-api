@@ -53,7 +53,7 @@ func TestSweepRooms_EndsOverdueRooms(t *testing.T) {
 	appt, _ := withRoom(t)
 	room, _, err := video.RoomOf(ctx, db.New(pgtest.Pool(t)), appt.ID)
 	require.NoError(t, err)
-	require.NoError(t, closeTasks(t, room.ClosesAt).SweepRooms(ctx))
+	require.NoError(t, closeTasks(t, room.ClosesAt).SweepRooms(ctx, nil))
 	require.Equal(t, video.EndedByWindowClosing, roomRow(t, room).EndedReason.String)
 }
 

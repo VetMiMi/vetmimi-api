@@ -16,6 +16,16 @@ import (
 	"github.com/VetMiMi/vetmimi-api/internal/apperr"
 )
 
+// encoded is an image re-encoded for storage. Re-encoding drops all
+// metadata, so the camera, time and location of the photo are gone.
+type encoded struct {
+	width    int
+	height   int
+	original []byte
+	sizes    map[int32][]byte
+	widths   []int32 // largest first
+}
+
 const (
 	MaxUploadBytes = 20 << 20
 	// maxPixels keeps one decoded image, and the upright copy a rotated phone
@@ -34,23 +44,15 @@ var webWidths = []int{1600, 800, 400}
 var decoding = make(chan struct{}, 1)
 
 var (
-	errNotAnImage = apperr.New(apperr.UnsupportedMediaType, "Upload a JPEG, PNG or WebP image.")
-	errTooManyPx  = apperr.New(apperr.PayloadTooLarge, "The image is over 16 megapixels.")
+	errNotAnImage    = apperr.New(apperr.UnsupportedMediaType, "Upload a JPEG, PNG or WebP image.")
+	errTooManyPixels = apperr.New(apperr.PayloadTooLarge, "The image is over 16 megapixels.")
 )
-
-// encoded is an image re-encoded for storage. Re-encoding drops all
-// metadata, so the camera, time and location of the photo are gone.
-type encoded struct {
-	width, height int
-	original      []byte
-	sizes         map[int32][]byte
-	widths        []int32 // largest first
-}
 
 // encode turns a JPEG, PNG or WebP upright by its EXIF orientation and
 // re-encodes it as the original and the web sizes.
 func encode(ctx context.Context, data []byte) (encoded, error) {
-	if err := checkImage(data); err != nil {
+	err := checkImage(data)
+	if err != nil {
 		return encoded{}, err
 	}
 	select {
@@ -60,68 +62,74 @@ func encode(ctx context.Context, data []byte) (encoded, error) {
 		return encoded{}, ctx.Err()
 	}
 
-	img, err := imaging.Decode(bytes.NewReader(data), imaging.AutoOrientation(true))
+	decoded, err := imaging.Decode(bytes.NewReader(data), imaging.AutoOrientation(true))
 	if err != nil {
 		return encoded{}, errNotAnImage
 	}
-	img = onWhite(img)
-	out := encoded{width: img.Bounds().Dx(), height: img.Bounds().Dy(), sizes: map[int32][]byte{}}
-	out.original, err = jpegBytes(img, originalQuality)
+	decoded = onWhite(decoded)
+	result := encoded{
+		width:  decoded.Bounds().Dx(),
+		height: decoded.Bounds().Dy(),
+		sizes:  map[int32][]byte{},
+	}
+	result.original, err = jpegBytes(decoded, originalQuality)
 	if err != nil {
 		return encoded{}, err
 	}
-	out.widths = widthsFor(out.width)
-	for _, w := range out.widths {
-		sized := img
-		if int(w) < out.width {
-			sized = imaging.Resize(img, int(w), 0, imaging.Lanczos)
+	result.widths = widthsFor(result.width)
+	for _, width := range result.widths {
+		sized := decoded
+		if int(width) < result.width {
+			sized = imaging.Resize(decoded, int(width), 0, imaging.Lanczos)
 		}
-		out.sizes[w], err = jpegBytes(sized, webQuality)
+		result.sizes[width], err = jpegBytes(sized, webQuality)
 		if err != nil {
 			return encoded{}, err
 		}
 	}
-	return out, nil
+	return result, nil
 }
 
 // checkImage reads only the header, so a bad upload is refused before it is decoded.
 func checkImage(data []byte) error {
-	cfg, format, err := image.DecodeConfig(bytes.NewReader(data))
+	config, format, err := image.DecodeConfig(bytes.NewReader(data))
 	if err != nil || !slices.Contains([]string{"jpeg", "png", "webp"}, format) {
 		return errNotAnImage
 	}
-	if cfg.Width*cfg.Height > maxPixels {
-		return errTooManyPx
+	if config.Width*config.Height > maxPixels {
+		return errTooManyPixels
 	}
 	return nil
 }
 
 // widthsFor returns the web widths for an image this wide, largest first:
 // narrower images are never enlarged.
-func widthsFor(width int) []int32 {
-	var out []int32
+func widthsFor(imageWidth int) []int32 {
+	var widths []int32
 	for _, target := range webWidths {
-		w := int32(min(target, width))
-		if !slices.Contains(out, w) {
-			out = append(out, w)
+		width := int32(min(target, imageWidth))
+		if !slices.Contains(widths, width) {
+			widths = append(widths, width)
 		}
 	}
-	return out
+	return widths
 }
 
 // onWhite flattens transparency onto white; JPEG cannot hold it and would turn it black.
 func onWhite(img image.Image) image.Image {
-	if o, ok := img.(interface{ Opaque() bool }); ok && o.Opaque() {
+	opaque, ok := img.(interface{ Opaque() bool })
+	if ok && opaque.Opaque() {
 		return img
 	}
-	b := img.Bounds()
-	return imaging.Overlay(imaging.New(b.Dx(), b.Dy(), color.White), img, image.Point{}, 1)
+	bounds := img.Bounds()
+	return imaging.Overlay(imaging.New(bounds.Dx(), bounds.Dy(), color.White), img, image.Point{}, 1)
 }
 
 func jpegBytes(img image.Image, quality int) ([]byte, error) {
-	var buf bytes.Buffer
-	if err := jpeg.Encode(&buf, img, &jpeg.Options{Quality: quality}); err != nil {
+	var buffer bytes.Buffer
+	err := jpeg.Encode(&buffer, img, &jpeg.Options{Quality: quality})
+	if err != nil {
 		return nil, fmt.Errorf("media: encode: %w", err)
 	}
-	return buf.Bytes(), nil
+	return buffer.Bytes(), nil
 }

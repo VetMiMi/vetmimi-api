@@ -12,12 +12,12 @@ func healthcheck(port string) int {
 		port = "8080"
 	}
 	client := http.Client{Timeout: 2 * time.Second}
-	resp, err := client.Get("http://127.0.0.1:" + port + "/healthz")
+	response, err := client.Get("http://127.0.0.1:" + port + "/healthz")
 	if err != nil {
 		return 1
 	}
-	resp.Body.Close()
-	if resp.StatusCode != http.StatusOK {
+	defer response.Body.Close()
+	if response.StatusCode != http.StatusOK {
 		return 1
 	}
 	return 0

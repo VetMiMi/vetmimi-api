@@ -27,43 +27,54 @@ var (
 // was. A visitor's copy goes to their current address, in case it was corrected.
 func Resend(ctx context.Context, pool *pgxpool.Pool, appointmentID, id, actor pgtype.UUID,
 	now time.Time) (db.Communication, queue.Task, error) {
-	var row db.Communication
-	err := pgx.BeginFunc(ctx, pool, func(tx pgx.Tx) error {
-		q := db.New(tx)
-		orig, err := q.GetCommunication(ctx, id)
-		if errors.Is(err, pgx.ErrNoRows) || err == nil && orig.AppointmentID != appointmentID {
-			return errMessageNotFound
-		}
-		if err != nil {
-			return err
-		}
-		if orig.Channel != "email" || (Status(orig.Status) != StatusSent && Status(orig.Status) != StatusFailed) {
-			return errNotResendable
-		}
-		appt, err := q.GetAppointmentForMessage(ctx, appointmentID)
-		if err != nil {
-			return err
-		}
-		if Kind(orig.Kind) == Reminder && (appt.Status != "confirmed" || !appt.StartsAt.After(now)) {
-			return errReminderNotDue
-		}
-		recipient := orig.Recipient.String
-		if Audience(orig.Audience) == Visitor {
-			recipient = appt.VisitorEmail
-		}
-		row, err = q.InsertCommunication(ctx, db.InsertCommunicationParams{
-			AppointmentID: orig.AppointmentID,
-			Kind:          orig.Kind,
-			Audience:      orig.Audience,
-			Recipient:     pgtype.Text{String: strings.ToLower(recipient), Valid: true},
-			Locale:        orig.Locale,
-			ScheduledFor:  sql.NullTime{Time: now, Valid: true},
-			Message:       orig.Message,
-			ResendOf:      orig.ID,
-			CreatedBy:     actor,
-		})
-		return err
+	tx, err := pool.Begin(ctx)
+	if err != nil {
+		return db.Communication{}, queue.Task{}, err
+	}
+	defer tx.Rollback(ctx)
+	q := db.New(tx)
+
+	original, err := q.GetCommunication(ctx, id)
+	if errors.Is(err, pgx.ErrNoRows) {
+		return db.Communication{}, queue.Task{}, errMessageNotFound
+	}
+	if err != nil {
+		return db.Communication{}, queue.Task{}, err
+	}
+	if original.AppointmentID != appointmentID {
+		return db.Communication{}, queue.Task{}, errMessageNotFound
+	}
+	status := Status(original.Status)
+	if original.Channel != "email" || (status != StatusSent && status != StatusFailed) {
+		return db.Communication{}, queue.Task{}, errNotResendable
+	}
+	appointment, err := q.GetAppointmentForMessage(ctx, appointmentID)
+	if err != nil {
+		return db.Communication{}, queue.Task{}, err
+	}
+	if Kind(original.Kind) == Reminder && (appointment.Status != "confirmed" || !appointment.StartsAt.After(now)) {
+		return db.Communication{}, queue.Task{}, errReminderNotDue
+	}
+	recipient := original.Recipient.String
+	if Audience(original.Audience) == Visitor {
+		recipient = appointment.VisitorEmail
+	}
+	row, err := q.InsertCommunication(ctx, db.InsertCommunicationParams{
+		AppointmentID: original.AppointmentID,
+		Kind:          original.Kind,
+		Audience:      original.Audience,
+		Recipient:     pgtype.Text{String: strings.ToLower(recipient), Valid: true},
+		Locale:        original.Locale,
+		ScheduledFor:  sql.NullTime{Time: now, Valid: true},
+		Message:       original.Message,
+		ResendOf:      original.ID,
+		CreatedBy:     actor,
 	})
+	if err != nil {
+		return db.Communication{}, queue.Task{}, err
+	}
+
+	err = tx.Commit(ctx)
 	if err != nil {
 		return db.Communication{}, queue.Task{}, err
 	}
@@ -74,7 +85,7 @@ func Resend(ctx context.Context, pool *pgxpool.Pool, appointmentID, id, actor pg
 // phone; it clears a failed email of the same kind from the dashboard.
 func MarkCommunicated(ctx context.Context, q db.Querier, appointmentID pgtype.UUID, kind Kind, note string,
 	actor pgtype.UUID, now time.Time) (db.Communication, error) {
-	appt, err := q.GetAppointmentForMessage(ctx, appointmentID)
+	appointment, err := q.GetAppointmentForMessage(ctx, appointmentID)
 	if errors.Is(err, pgx.ErrNoRows) {
 		return db.Communication{}, errAppointmentNotFound
 	}
@@ -84,7 +95,7 @@ func MarkCommunicated(ctx context.Context, q db.Querier, appointmentID pgtype.UU
 	return q.InsertManualCommunication(ctx, db.InsertManualCommunicationParams{
 		AppointmentID: appointmentID,
 		Kind:          string(kind),
-		Locale:        appt.Locale,
+		Locale:        appointment.Locale,
 		SentAt:        now,
 		CreatedBy:     actor,
 		Note:          pgtype.Text{String: note, Valid: true},

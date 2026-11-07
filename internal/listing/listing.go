@@ -14,18 +14,18 @@ import (
 	"github.com/VetMiMi/vetmimi-api/internal/apperr"
 )
 
-var errCursor = apperr.Invalid("The cursor is not one this list returned.",
-	apperr.FieldError{Field: "cursor", Message: "is malformed"})
+var errCursor = apperr.Invalid("The cursor is not one this list returned.", apperr.FieldError{Field: "cursor", Message: "is malformed"})
 
 // EncodeCursor is the position after a list's last row, by its sort time and
 // id, opaque to the client.
 func EncodeCursor(at time.Time, id pgtype.UUID) string {
-	return base64.RawURLEncoding.EncodeToString(fmt.Appendf(nil, "%d|%s", at.UnixMicro(), id.String()))
+	position := fmt.Appendf(nil, "%d|%s", at.UnixMicro(), id.String())
+	return base64.RawURLEncoding.EncodeToString(position)
 }
 
 // DecodeCursor reads what EncodeCursor wrote, or fails with errCursor.
-func DecodeCursor(c string) (sql.NullTime, pgtype.UUID, error) {
-	raw, err := base64.RawURLEncoding.DecodeString(c)
+func DecodeCursor(cursor string) (sql.NullTime, pgtype.UUID, error) {
+	raw, err := base64.RawURLEncoding.DecodeString(cursor)
 	if err != nil {
 		return sql.NullTime{}, pgtype.UUID{}, errCursor
 	}
@@ -35,19 +35,20 @@ func DecodeCursor(c string) (sql.NullTime, pgtype.UUID, error) {
 	if !ok || id.Scan(rest) != nil {
 		return sql.NullTime{}, pgtype.UUID{}, errCursor
 	}
-	if _, err := fmt.Sscan(at, &micros); err != nil {
+	_, err = fmt.Sscan(at, &micros)
+	if err != nil {
 		return sql.NullTime{}, pgtype.UUID{}, errCursor
 	}
 	return sql.NullTime{Time: time.UnixMicro(micros).UTC(), Valid: true}, id, nil
 }
 
-// LikePattern matches s anywhere, with ILIKE's wildcards in s taken
-// literally; empty s matches nothing to filter by.
-func LikePattern(s string) pgtype.Text {
-	s = strings.TrimSpace(s)
-	if s == "" {
+// LikePattern matches search anywhere, with ILIKE's wildcards in search taken
+// literally; an empty search matches nothing to filter by.
+func LikePattern(search string) pgtype.Text {
+	search = strings.TrimSpace(search)
+	if search == "" {
 		return pgtype.Text{}
 	}
-	s = strings.NewReplacer(`\`, `\\`, `%`, `\%`, `_`, `\_`).Replace(s)
-	return pgtype.Text{String: "%" + s + "%", Valid: true}
+	search = strings.NewReplacer(`\`, `\\`, `%`, `\%`, `_`, `\_`).Replace(search)
+	return pgtype.Text{String: "%" + search + "%", Valid: true}
 }

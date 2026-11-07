@@ -58,48 +58,69 @@ type Policy struct {
 	NoShowFeePercent int
 }
 
+var (
+	myWeekdays = [...]string{"တနင်္ဂနွေနေ့", "တနင်္လာနေ့", "အင်္ဂါနေ့", "ဗုဒ္ဓဟူးနေ့", "ကြာသပတေးနေ့", "သောကြာနေ့", "စနေနေ့"}
+	myMonths   = [...]string{"ဇန်နဝါရီလ", "ဖေဖော်ဝါရီလ", "မတ်လ", "ဧပြီလ", "မေလ", "ဇွန်လ",
+		"ဇူလိုင်လ", "ဩဂုတ်လ", "စက်တင်ဘာလ", "အောက်တိုဘာလ", "နိုဝင်ဘာလ", "ဒီဇင်ဘာလ"}
+)
+
 // DataFor's previous is the start before a reschedule, or zero.
-func DataFor(appt db.GetAppointmentForMessageRow, s settings.Settings, siteURL, locale string, previous time.Time) (RenderData, error) {
-	loc, err := time.LoadLocation(appt.Timezone)
+func DataFor(appointment db.GetAppointmentForMessageRow, current settings.Settings, siteURL, locale string,
+	previous time.Time) (RenderData, error) {
+	location, err := time.LoadLocation(appointment.Timezone)
 	if err != nil {
 		return RenderData{}, err
 	}
-	d := RenderData{
-		Reference:       appt.Reference,
-		ServiceName:     localized(appt.ServiceName, locale),
-		Start:           FormatTime(appt.StartsAt, loc, locale),
-		End:             FormatTime(appt.EndsAt, loc, locale),
-		DurationMinutes: int(appt.DurationMinutes),
-		Format:          appt.Format,
-		Status:          appt.Status,
-		FeeText:         localized(appt.ServiceFeeText, locale),
-		PreparationText: localized(appt.ServicePreparationText, locale),
-		PaymentMethods:  s.PaymentMethods,
-		InvoiceTiming:   s.InvoiceTiming,
+	data := RenderData{
+		Reference:       appointment.Reference,
+		ServiceName:     localized(appointment.ServiceName, locale),
+		Start:           FormatTime(appointment.StartsAt, location, locale),
+		End:             FormatTime(appointment.EndsAt, location, locale),
+		DurationMinutes: int(appointment.DurationMinutes),
+		Format:          appointment.Format,
+		Status:          appointment.Status,
+		FeeText:         localized(appointment.ServiceFeeText, locale),
+		PreparationText: localized(appointment.ServicePreparationText, locale),
+		PaymentMethods:  current.PaymentMethods,
+		InvoiceTiming:   current.InvoiceTiming,
 		Policy: Policy{
-			NoticeHours:      s.CancellationNoticeHours,
-			LateFeePercent:   s.LateCancellationFeePercent,
-			FirstWaived:      s.LateCancellationFirstWaived,
-			NoShowFeePercent: s.NoShowFeePercent,
+			NoticeHours:      current.CancellationNoticeHours,
+			LateFeePercent:   current.LateCancellationFeePercent,
+			FirstWaived:      current.LateCancellationFirstWaived,
+			NoShowFeePercent: current.NoShowFeePercent,
 		},
-		ContactEmail: s.ContactEmail,
-		ResponseTime: pick(s.ResponseTime, locale),
+		ContactEmail: current.ContactEmail,
+		ResponseTime: pick(current.ResponseTime, locale),
 		BookURL:      sitePath(siteURL, locale, "/book"),
-		MeetingLink:  appt.MeetingLink.String,
+		MeetingLink:  appointment.MeetingLink.String,
 
 		JoinOpensMinutesBefore: int(video.OpensBefore / time.Minute),
-		VisitorName:            appt.VisitorName,
-		VisitorEmail:           appt.VisitorEmail,
-		VisitorPhone:           appt.VisitorPhone.String,
-		VisitorNote:            appt.VisitorNote.String,
-		AdminURL:               strings.TrimRight(siteURL, "/") + "/admin/appointments/" + appt.ID.String(),
+		VisitorName:            appointment.VisitorName,
+		VisitorEmail:           appointment.VisitorEmail,
+		VisitorPhone:           appointment.VisitorPhone.String,
+		VisitorNote:            appointment.VisitorNote.String,
+		AdminURL:               strings.TrimRight(siteURL, "/") + "/admin/appointments/" + appointment.ID.String(),
 
-		LateCancellation: appt.LateCancellation,
+		LateCancellation: appointment.LateCancellation,
 	}
 	if !previous.IsZero() {
-		d.PreviousStart = FormatTime(previous, loc, locale)
+		data.PreviousStart = FormatTime(previous, location, locale)
 	}
-	return d, nil
+	return data, nil
+}
+
+// FormatTime matches the site's booking pages, ending in AEST or AEDT.
+func FormatTime(at time.Time, location *time.Location, locale string) string {
+	at = at.In(location)
+	if locale != "my" {
+		return at.Format("Monday 2 January 2006, 3:04 pm MST")
+	}
+	period := "နံနက်"
+	if at.Hour() >= 12 {
+		period = "မွန်းလွဲ"
+	}
+	return fmt.Sprintf("%s၊ %d %s %d ရက်၊ %s %s", myWeekdays[at.Weekday()], at.Year(), myMonths[at.Month()-1],
+		at.Day(), period, at.Format("3:04 MST"))
 }
 
 func sitePath(siteURL, locale, path string) string {
@@ -111,36 +132,16 @@ func sitePath(siteURL, locale, path string) string {
 }
 
 func localized(raw json.RawMessage, locale string) string {
-	var l settings.Localized
-	if len(raw) == 0 || json.Unmarshal(raw, &l) != nil {
+	var text settings.Localized
+	if len(raw) == 0 || json.Unmarshal(raw, &text) != nil {
 		return ""
 	}
-	return pick(l, locale)
+	return pick(text, locale)
 }
 
-func pick(l settings.Localized, locale string) string {
-	if locale == "my" && l.My != "" {
-		return l.My
+func pick(text settings.Localized, locale string) string {
+	if locale == "my" && text.My != "" {
+		return text.My
 	}
-	return l.En
-}
-
-var (
-	myWeekdays = [...]string{"တနင်္ဂနွေနေ့", "တနင်္လာနေ့", "အင်္ဂါနေ့", "ဗုဒ္ဓဟူးနေ့", "ကြာသပတေးနေ့", "သောကြာနေ့", "စနေနေ့"}
-	myMonths   = [...]string{"ဇန်နဝါရီလ", "ဖေဖော်ဝါရီလ", "မတ်လ", "ဧပြီလ", "မေလ", "ဇွန်လ",
-		"ဇူလိုင်လ", "ဩဂုတ်လ", "စက်တင်ဘာလ", "အောက်တိုဘာလ", "နိုဝင်ဘာလ", "ဒီဇင်ဘာလ"}
-)
-
-// FormatTime matches the site's booking pages, ending in AEST or AEDT.
-func FormatTime(t time.Time, loc *time.Location, locale string) string {
-	t = t.In(loc)
-	if locale != "my" {
-		return t.Format("Monday 2 January 2006, 3:04 pm MST")
-	}
-	period := "နံနက်"
-	if t.Hour() >= 12 {
-		period = "မွန်းလွဲ"
-	}
-	return fmt.Sprintf("%s၊ %d %s %d ရက်၊ %s %s", myWeekdays[t.Weekday()], t.Year(), myMonths[t.Month()-1],
-		t.Day(), period, t.Format("3:04 MST"))
+	return text.En
 }

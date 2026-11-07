@@ -61,6 +61,8 @@ outside APIs.
 | `web` | What every route shares: `NewRouter` and the middleware every request gets (`web.go`); the route groups `Public`, `Admin`, `Slow` and `Root` (`NewRoutes`); `ServiceKey`, `SignedIn` and `Role` (`auth.go`); rate-limit rules (`ratelimit.go`); `BindJSON`, `BindQuery`, `BindURI` and `PathUUID` (`bind.go`); and the single `apperr` → problem mapping, `web.Error` (`errors.go`). |
 | `webtest` | Test-only: serves a feature's routes behind the real middleware, on the test database and Redis, for handler tests. |
 | `auth` | Users, password hashing (argon2id), TOTP enrolment and verification, sessions, roles, the sign-in throttle. |
+| `signin` | The sign-in routes: `POST /auth/sessions`, `DELETE /auth/sessions/current`, `GET /auth/me`. |
+| `health` | `/healthz` and `/readyz`. |
 | `booking` | Services, availability rules, overrides and blocks, slot generation (`slots.go`), appointment requests (`requests.go`), the status transition table (`status.go`), reschedules, the management link (`manage.go`), the admin dashboard (`dashboard.go`), hold expiry, reminders, retention purge, and their tasks (`worker.go`). |
 | `video` | Video rooms, join tokens, room tickets, TURN credentials, the in-memory room hub and the WebSocket signaling loop, room closing. |
 | `content` | The publishing portal (ADR-009): posts, their channel versions and publications, the workflow (`workflow.go`), approval checks per platform, public articles. |
@@ -75,9 +77,9 @@ Each feature package that serves HTTP has a `Handler` struct and a
 `Routes(r web.Routes)` method in `handler.go`, listing every route with its
 group, role and rate limit, and handlers in `http_*.go` with their request and
 response structs written beside them. `runAPI` in `cmd/api/api.go` builds each
-`Handler` and calls its `Routes`. Sign-in, sign-out, `/auth/me` and the health
-routes live in `cmd/api` (`http_auth.go`, `http_health.go`), because
-`internal/web` imports `internal/auth`.
+`Handler` and calls its `Routes`. Sign-in, sign-out and `/auth/me` live in
+`internal/signin`, not `internal/auth`, because `internal/web` imports
+`internal/auth`; `/healthz` and `/readyz` live in `internal/health`.
 
 Domain functions that cause background work return the tasks to enqueue; the
 handler enqueues them **after** the transaction commits. Nothing enqueues from
@@ -471,7 +473,7 @@ values for secrets.
 | WebSocket upgrade | room id | 20 per minute |
 
 Each rule is a `web.Rule` beside the routes that use it, in their feature's
-`handler.go` (sign-in's in `cmd/api/http_auth.go`); the two group limits are
+`handler.go` (sign-in's in `internal/signin/handler.go`); the two group limits are
 in `internal/web/ratelimit.go`. The per-email sign-in limit is applied by
 the auth domain, because the email is in the body. The WebSocket route counts
 by room id after checking the request (`checkRoomRequest`). Windows start on a multiple of their length. Keys are

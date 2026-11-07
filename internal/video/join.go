@@ -16,6 +16,21 @@ import (
 	"github.com/VetMiMi/vetmimi-api/internal/tokens"
 )
 
+// Session is a room as the holder of its join link sees it: no private details.
+type Session struct {
+	RoomID      pgtype.UUID
+	State       string
+	OpensAt     time.Time
+	ClosesAt    time.Time
+	StartsAt    time.Time
+	EndsAt      time.Time
+	Timezone    string
+	Locale      string
+	ServiceSlug string
+	ServiceName string
+	confirmed   bool
+}
+
 // What a join page may show.
 const (
 	TooEarly = "too_early"
@@ -30,16 +45,6 @@ var (
 	errNotReady            = apperr.New(apperr.ActionNotAllowed, "This session cannot be joined now.")
 	errAppointmentNotFound = apperr.New(apperr.NotFound, "No appointment has this id.")
 )
-
-// Session is a room as the holder of its join link sees it: no private details.
-type Session struct {
-	RoomID                              pgtype.UUID
-	State                               string
-	OpensAt, ClosesAt, StartsAt, EndsAt time.Time
-	Timezone, Locale                    string
-	ServiceSlug, ServiceName            string
-	confirmed                           bool
-}
 
 // PublicState is what the join page shows; a passed window is Expired even if the room ended.
 func PublicState(roomState string, opens, closes, now time.Time) string {
@@ -63,7 +68,7 @@ func FindSession(ctx context.Context, q db.Querier, token string, now time.Time)
 	if err != nil {
 		return Session{}, err
 	}
-	return Session{
+	session := Session{
 		RoomID:      row.ID,
 		State:       PublicState(row.State, row.OpensAt, row.ClosesAt, now),
 		OpensAt:     row.OpensAt.UTC(),
@@ -75,19 +80,20 @@ func FindSession(ctx context.Context, q db.Querier, token string, now time.Time)
 		ServiceSlug: row.ServiceSlug,
 		ServiceName: inLocale(row.ServiceName, row.Locale),
 		confirmed:   row.AppointmentStatus == "confirmed",
-	}, nil
+	}
+	return session, nil
 }
 
 // JoinAsClient issues the visitor's ticket while the session is ready.
 func JoinAsClient(ctx context.Context, q db.Querier, issuer Issuer, token string, now time.Time) (Ticket, error) {
-	s, err := FindSession(ctx, q, token, now)
+	session, err := FindSession(ctx, q, token, now)
 	if err != nil {
 		return Ticket{}, err
 	}
-	if s.State != Ready || !s.confirmed {
+	if session.State != Ready || !session.confirmed {
 		return Ticket{}, errNotReady
 	}
-	return issuer.Issue(s.RoomID, RoleClient, s.ClosesAt, now)
+	return issuer.Issue(session.RoomID, RoleClient, session.ClosesAt, now)
 }
 
 // JoinAsPractitioner issues Daw Mi's ticket when the admin would offer start_video.
@@ -107,8 +113,8 @@ func JoinAsPractitioner(ctx context.Context, q db.Querier, issuer Issuer, appoin
 	return issuer.Issue(room.ID, RolePractitioner, room.ClosesAt, now)
 }
 
-func appointmentStatus(ctx context.Context, q db.Querier, id pgtype.UUID) (string, error) {
-	status, err := q.GetAppointmentStatus(ctx, id)
+func appointmentStatus(ctx context.Context, q db.Querier, appointmentID pgtype.UUID) (string, error) {
+	status, err := q.GetAppointmentStatus(ctx, appointmentID)
 	if errors.Is(err, pgx.ErrNoRows) {
 		return "", errAppointmentNotFound
 	}
@@ -116,12 +122,12 @@ func appointmentStatus(ctx context.Context, q db.Querier, id pgtype.UUID) (strin
 }
 
 func inLocale(raw json.RawMessage, locale string) string {
-	var l settings.Localized
-	if json.Unmarshal(raw, &l) != nil {
+	var localized settings.Localized
+	if json.Unmarshal(raw, &localized) != nil {
 		return ""
 	}
-	if locale == "my" && l.My != "" {
-		return l.My
+	if locale == "my" && localized.My != "" {
+		return localized.My
 	}
-	return l.En
+	return localized.En
 }

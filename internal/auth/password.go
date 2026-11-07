@@ -11,6 +11,14 @@ import (
 	"golang.org/x/crypto/argon2"
 )
 
+type passwordHash struct {
+	memory  uint32
+	rounds  uint32
+	threads uint8
+	salt    []byte
+	key     []byte
+}
+
 // 64 MiB per hash is the most the 2 GB live host can spare during a sign-in.
 const (
 	argonMemoryKiB = 64 * 1024
@@ -23,65 +31,62 @@ const (
 	argonMinKeyBytes = 16
 )
 
-var errMalformedHash = errors.New("auth: malformed password hash")
-
 // b64 is the PHC string encoding: standard base64 without padding.
 var b64 = base64.RawStdEncoding
+
+var errMalformedHash = errors.New("auth: malformed password hash")
 
 // HashPassword returns an argon2id PHC string,
 // $argon2id$v=19$m=65536,t=3,p=2$<salt>$<key>.
 func HashPassword(password string) (string, error) {
 	salt := make([]byte, argonSaltBytes)
-	if _, err := rand.Read(salt); err != nil {
+	_, err := rand.Read(salt)
+	if err != nil {
 		return "", err
 	}
 	key := argon2.IDKey([]byte(password), salt, argonTime, argonMemoryKiB, argonThreads, argonKeyBytes)
-	return fmt.Sprintf("$argon2id$v=%d$m=%d,t=%d,p=%d$%s$%s",
-		argon2.Version, argonMemoryKiB, argonTime, argonThreads, b64.EncodeToString(salt), b64.EncodeToString(key)), nil
+	encoded := fmt.Sprintf("$argon2id$v=%d$m=%d,t=%d,p=%d$%s$%s",
+		argon2.Version, argonMemoryKiB, argonTime, argonThreads, b64.EncodeToString(salt), b64.EncodeToString(key))
+	return encoded, nil
 }
 
 // VerifyPassword hashes with the parameters stored in encoded, so raising the
 // constants later locks no one out. It errors only when encoded is unreadable.
 func VerifyPassword(password, encoded string) (bool, error) {
-	h, err := parseHash(encoded)
+	hash, err := parseHash(encoded)
 	if err != nil {
 		return false, err
 	}
-	got := argon2.IDKey([]byte(password), h.salt, h.rounds, h.memory, h.threads, uint32(len(h.key)))
-	return subtle.ConstantTimeCompare(got, h.key) == 1, nil
-}
-
-type passwordHash struct {
-	memory, rounds uint32
-	threads        uint8
-	salt, key      []byte
+	got := argon2.IDKey([]byte(password), hash.salt, hash.rounds, hash.memory, hash.threads, uint32(len(hash.key)))
+	return subtle.ConstantTimeCompare(got, hash.key) == 1, nil
 }
 
 func parseHash(encoded string) (passwordHash, error) {
-	var h passwordHash
+	var hash passwordHash
 	parts := strings.Split(encoded, "$")
 	if len(parts) != 6 || parts[0] != "" || parts[1] != "argon2id" {
-		return h, errMalformedHash
+		return hash, errMalformedHash
 	}
 	var version int
-	if _, err := fmt.Sscanf(parts[2], "v=%d", &version); err != nil || version != argon2.Version {
-		return h, errMalformedHash
+	_, err := fmt.Sscanf(parts[2], "v=%d", &version)
+	if err != nil || version != argon2.Version {
+		return hash, errMalformedHash
 	}
-	if _, err := fmt.Sscanf(parts[3], "m=%d,t=%d,p=%d", &h.memory, &h.rounds, &h.threads); err != nil {
-		return h, errMalformedHash
+	_, err = fmt.Sscanf(parts[3], "m=%d,t=%d,p=%d", &hash.memory, &hash.rounds, &hash.threads)
+	if err != nil {
+		return hash, errMalformedHash
 	}
 	// argon2.IDKey panics on zero rounds or zero threads.
-	if h.rounds == 0 || h.threads == 0 {
-		return h, errMalformedHash
+	if hash.rounds == 0 || hash.threads == 0 {
+		return hash, errMalformedHash
 	}
-	var err error
-	h.salt, err = b64.DecodeString(parts[4])
-	if err != nil || len(h.salt) == 0 {
-		return h, errMalformedHash
+	hash.salt, err = b64.DecodeString(parts[4])
+	if err != nil || len(hash.salt) == 0 {
+		return hash, errMalformedHash
 	}
-	h.key, err = b64.DecodeString(parts[5])
-	if err != nil || len(h.key) < argonMinKeyBytes {
-		return h, errMalformedHash
+	hash.key, err = b64.DecodeString(parts[5])
+	if err != nil || len(hash.key) < argonMinKeyBytes {
+		return hash, errMalformedHash
 	}
-	return h, nil
+	return hash, nil
 }

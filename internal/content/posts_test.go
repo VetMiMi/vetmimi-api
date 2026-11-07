@@ -49,3 +49,18 @@ func TestDeleteOnlyIdeasAndDrafts(t *testing.T) {
 	require.NoError(t, f.schedule(f.now.Add(24*time.Hour)))
 	requireCode(t, apperr.InvalidTransition, content.DeletePost(ctx, db.New(pgtest.Pool(t)), f.post.ID))
 }
+
+// A slug moved off a live article is still taken until that article is published again,
+// and the refused publish changes nothing.
+func TestPublishRefusesASlugAnotherLiveArticleHolds(t *testing.T) {
+	first := newPost(t, "insight", website("shared-slug")).published()
+	require.NoError(t, first.edit(content.Edit{Versions: []db.SavePostVersionParams{website("moved-slug")}}))
+
+	second := newPost(t, "insight", website("shared-slug"))
+	requireCode(t, apperr.SlugTaken, second.publish())
+
+	after, err := content.GetPost(ctx, db.New(pgtest.Pool(t)), second.post.ID)
+	require.NoError(t, err)
+	require.Equal(t, "draft", after.Status)
+	require.Empty(t, after.Publications)
+}

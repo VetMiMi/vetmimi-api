@@ -23,32 +23,42 @@ type Purged struct {
 
 // Purge deletes final appointments and contact enquiries older than retention_months.
 func Purge(ctx context.Context, q db.Querier, now time.Time) (Purged, error) {
-	cur, err := settings.Load(ctx, q)
+	current, err := settings.Load(ctx, q)
 	if err != nil {
 		return Purged{}, err
 	}
-	before := now.AddDate(0, -cur.RetentionMonths, 0)
-	var out Purged
-	out.Appointments, err = inBatches(func() (int64, error) {
-		return q.DeleteRetainedAppointments(ctx, db.DeleteRetainedAppointmentsParams{Before: before, MaxRows: purgeBatch})
+	before := now.AddDate(0, -current.RetentionMonths, 0)
+
+	var purged Purged
+	purged.Appointments, err = inBatches(func() (int64, error) {
+		params := db.DeleteRetainedAppointmentsParams{
+			Before:  before,
+			MaxRows: purgeBatch,
+		}
+		return q.DeleteRetainedAppointments(ctx, params)
 	})
-	appointmentsDeleted.Add(out.Appointments)
+	appointmentsDeleted.Add(purged.Appointments)
 	if err != nil {
-		return out, err
+		return purged, err
 	}
-	out.Enquiries, err = inBatches(func() (int64, error) {
-		return q.DeleteRetainedContactEnquiries(ctx, db.DeleteRetainedContactEnquiriesParams{Before: before, MaxRows: purgeBatch})
+	purged.Enquiries, err = inBatches(func() (int64, error) {
+		params := db.DeleteRetainedContactEnquiriesParams{
+			Before:  before,
+			MaxRows: purgeBatch,
+		}
+		return q.DeleteRetainedContactEnquiries(ctx, params)
 	})
-	enquiriesDeleted.Add(out.Enquiries)
-	return out, err
+	enquiriesDeleted.Add(purged.Enquiries)
+	return purged, err
 }
 
-func inBatches(del func() (int64, error)) (int64, error) {
+// inBatches repeats deleteBatch until a batch comes back short, so no single DELETE runs long.
+func inBatches(deleteBatch func() (int64, error)) (int64, error) {
 	var total int64
 	for {
-		n, err := del()
-		total += n
-		if err != nil || n < purgeBatch {
+		deleted, err := deleteBatch()
+		total += deleted
+		if err != nil || deleted < purgeBatch {
 			return total, err
 		}
 	}

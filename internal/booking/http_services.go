@@ -18,7 +18,7 @@ import (
 // A map, not a struct, so a wrong locale is reported at its own path, such as /name/fr.
 type localized map[string]string
 
-type serviceInput struct {
+type createServiceBody struct {
 	Slug                string    `json:"slug" binding:"required,slug,max=120"`
 	Name                localized `json:"name" binding:"required,dive,keys,oneof=en my,endkeys,max=20000"`
 	Description         localized `json:"description" binding:"omitnil,dive,keys,oneof=en my,endkeys,max=20000"`
@@ -32,8 +32,8 @@ type serviceInput struct {
 	SortOrder           int32     `json:"sortOrder"`
 }
 
-// servicePatch changes only the fields it names.
-type servicePatch struct {
+// updateServiceBody changes only the fields it names.
+type updateServiceBody struct {
 	Version             *int32    `json:"version" binding:"required,min=1"`
 	Slug                *string   `json:"slug" binding:"omitnil,slug,max=120"`
 	Name                localized `json:"name" binding:"omitnil,dive,keys,oneof=en my,endkeys,max=20000"`
@@ -49,11 +49,15 @@ type servicePatch struct {
 	State               *string   `json:"state" binding:"omitnil,oneof=active paused archived"`
 }
 
-type versionInput struct {
+type versionBody struct {
 	Version *int32 `json:"version" binding:"required,min=1"`
 }
 
-type serviceJSON struct {
+type serviceListResponse struct {
+	Items []serviceResponse `json:"items"`
+}
+
+type serviceResponse struct {
 	ID                  pgtype.UUID     `json:"id"`
 	Slug                string          `json:"slug"`
 	Name                json.RawMessage `json:"name"`
@@ -73,194 +77,231 @@ type serviceJSON struct {
 }
 
 func (h *Handler) listServices(c *gin.Context) {
-	rows, err := ListServices(c.Request.Context(), db.New(h.Pool))
+	ctx := c.Request.Context()
+
+	services, err := ListServices(ctx, db.New(h.Pool))
 	if err != nil {
 		web.Error(c, err)
 		return
 	}
-	items := make([]serviceJSON, len(rows))
-	for i, r := range rows {
-		items[i] = serviceOf(r)
+
+	response := serviceListResponse{
+		Items: make([]serviceResponse, len(services)),
 	}
-	c.JSON(http.StatusOK, gin.H{"items": items})
+	for i, service := range services {
+		response.Items[i] = newServiceResponse(service)
+	}
+	c.JSON(http.StatusOK, response)
 }
 
 func (h *Handler) createService(c *gin.Context) {
-	var in serviceInput
-	if !web.BindJSON(c, &in) {
+	var body createServiceBody
+	if !web.BindJSON(c, &body) {
 		return
 	}
 	ctx := c.Request.Context()
-	created, err := CreateService(ctx, db.New(h.Pool), db.CreateServiceParams{
-		Slug:                in.Slug,
-		Name:                localizedJSON(in.Name),
-		Description:         localizedJSON(in.Description),
-		BookingAction:       in.BookingAction,
-		DurationMinutes:     optionalInt4(in.DurationMinutes),
-		BufferBeforeMinutes: in.BufferBeforeMinutes,
-		BufferAfterMinutes:  in.BufferAfterMinutes,
-		Formats:             in.Formats,
-		FeeText:             localizedJSON(in.FeeText),
-		PreparationText:     localizedJSON(in.PreparationText),
-		SortOrder:           in.SortOrder,
-	})
+
+	params := db.CreateServiceParams{
+		Slug:                body.Slug,
+		Name:                localizedJSON(body.Name),
+		Description:         localizedJSON(body.Description),
+		BookingAction:       body.BookingAction,
+		DurationMinutes:     optionalInt4(body.DurationMinutes),
+		BufferBeforeMinutes: body.BufferBeforeMinutes,
+		BufferAfterMinutes:  body.BufferAfterMinutes,
+		Formats:             body.Formats,
+		FeeText:             localizedJSON(body.FeeText),
+		PreparationText:     localizedJSON(body.PreparationText),
+		SortOrder:           body.SortOrder,
+	}
+	service, err := CreateService(ctx, db.New(h.Pool), params)
 	if err != nil {
 		web.Error(c, err)
 		return
 	}
-	logService(ctx, "service_created", created)
-	c.JSON(http.StatusCreated, serviceOf(created))
+
+	logService(ctx, "service_created", service)
+	c.JSON(http.StatusCreated, newServiceResponse(service))
 }
 
 func (h *Handler) getService(c *gin.Context) {
-	id, ok := web.PathUUID(c, "serviceId")
+	serviceID, ok := web.PathUUID(c, "serviceId")
 	if !ok {
 		return
 	}
-	svc, err := GetService(c.Request.Context(), db.New(h.Pool), id)
+	ctx := c.Request.Context()
+
+	service, err := GetService(ctx, db.New(h.Pool), serviceID)
 	if err != nil {
 		web.Error(c, err)
 		return
 	}
-	c.JSON(http.StatusOK, serviceOf(svc))
+
+	c.JSON(http.StatusOK, newServiceResponse(service))
 }
 
 func (h *Handler) updateService(c *gin.Context) {
-	id, ok := web.PathUUID(c, "serviceId")
+	serviceID, ok := web.PathUUID(c, "serviceId")
 	if !ok {
 		return
 	}
-	var in servicePatch
-	if !web.BindJSON(c, &in) {
+	var body updateServiceBody
+	if !web.BindJSON(c, &body) {
 		return
 	}
 	ctx := c.Request.Context()
-	updated, err := UpdateService(ctx, db.New(h.Pool), id, *in.Version, h.Now(), in.apply)
+
+	service, err := UpdateService(ctx, db.New(h.Pool), serviceID, *body.Version, h.Now(), body.apply)
 	if err != nil {
 		web.Error(c, err)
 		return
 	}
-	logService(ctx, "service_updated", updated)
-	c.JSON(http.StatusOK, serviceOf(updated))
-}
 
-func (in servicePatch) apply(p *db.UpdateServiceParams) {
-	if in.Slug != nil {
-		p.Slug = *in.Slug
-	}
-	if in.Name != nil {
-		p.Name = localizedJSON(in.Name)
-	}
-	if in.Description != nil {
-		p.Description = localizedJSON(in.Description)
-	}
-	if in.BookingAction != nil {
-		p.BookingAction = *in.BookingAction
-	}
-	if in.State != nil {
-		p.State = *in.State
-	}
-	if in.DurationMinutes != nil {
-		p.DurationMinutes = optionalInt4(in.DurationMinutes)
-	}
-	if in.BufferBeforeMinutes != nil {
-		p.BufferBeforeMinutes = *in.BufferBeforeMinutes
-	}
-	if in.BufferAfterMinutes != nil {
-		p.BufferAfterMinutes = *in.BufferAfterMinutes
-	}
-	if in.Formats != nil {
-		p.Formats = in.Formats
-	}
-	if in.FeeText != nil {
-		p.FeeText = localizedJSON(in.FeeText)
-	}
-	if in.PreparationText != nil {
-		p.PreparationText = localizedJSON(in.PreparationText)
-	}
-	if in.SortOrder != nil {
-		p.SortOrder = *in.SortOrder
-	}
+	logService(ctx, "service_updated", service)
+	c.JSON(http.StatusOK, newServiceResponse(service))
 }
 
 func (h *Handler) deleteService(c *gin.Context) {
-	id, ok := web.PathUUID(c, "serviceId")
+	serviceID, ok := web.PathUUID(c, "serviceId")
 	if !ok {
 		return
 	}
 	ctx := c.Request.Context()
-	if err := DeleteService(ctx, db.New(h.Pool), id); err != nil {
+
+	err := DeleteService(ctx, db.New(h.Pool), serviceID)
+	if err != nil {
 		web.Error(c, err)
 		return
 	}
-	slog.InfoContext(ctx, "service_deleted", "request_id", web.RequestID(ctx), "service_id", id.String())
+
+	slog.InfoContext(ctx, "service_deleted", "request_id", web.RequestID(ctx), "service_id", serviceID.String())
 	c.Status(http.StatusNoContent)
 }
 
 // pauseService stops new bookings; the service page stays published.
 func (h *Handler) pauseService(c *gin.Context) {
-	h.setServiceState(c, "paused", "service_paused")
-}
-
-func (h *Handler) resumeService(c *gin.Context) {
-	h.setServiceState(c, "active", "service_resumed")
-}
-
-func (h *Handler) setServiceState(c *gin.Context, state, event string) {
-	id, ok := web.PathUUID(c, "serviceId")
+	serviceID, ok := web.PathUUID(c, "serviceId")
 	if !ok {
 		return
 	}
-	var in versionInput
-	if !web.BindJSON(c, &in) {
+	var body versionBody
+	if !web.BindJSON(c, &body) {
 		return
 	}
 	ctx := c.Request.Context()
-	svc, err := SetServiceState(ctx, db.New(h.Pool), id, *in.Version, h.Now(), state)
+
+	service, err := SetServiceState(ctx, db.New(h.Pool), serviceID, *body.Version, h.Now(), "paused")
 	if err != nil {
 		web.Error(c, err)
 		return
 	}
-	logService(ctx, event, svc)
-	c.JSON(http.StatusOK, serviceOf(svc))
+
+	logService(ctx, "service_paused", service)
+	c.JSON(http.StatusOK, newServiceResponse(service))
 }
 
-func logService(ctx context.Context, event string, svc db.Service) {
-	slog.InfoContext(ctx, event, "request_id", web.RequestID(ctx), "service_id", svc.ID.String(),
-		"state", svc.State, "version", svc.Version)
+func (h *Handler) resumeService(c *gin.Context) {
+	serviceID, ok := web.PathUUID(c, "serviceId")
+	if !ok {
+		return
+	}
+	var body versionBody
+	if !web.BindJSON(c, &body) {
+		return
+	}
+	ctx := c.Request.Context()
+
+	service, err := SetServiceState(ctx, db.New(h.Pool), serviceID, *body.Version, h.Now(), "active")
+	if err != nil {
+		web.Error(c, err)
+		return
+	}
+
+	logService(ctx, "service_resumed", service)
+	c.JSON(http.StatusOK, newServiceResponse(service))
 }
 
-func serviceOf(r db.Service) serviceJSON {
-	s := serviceJSON{
-		ID:                  r.ID,
-		Slug:                r.Slug,
-		Name:                r.Name,
-		Description:         r.Description,
-		BookingAction:       r.BookingAction,
-		State:               r.State,
-		BufferBeforeMinutes: r.BufferBeforeMinutes,
-		BufferAfterMinutes:  r.BufferAfterMinutes,
-		Formats:             r.Formats,
-		FeeText:             r.FeeText,
-		PreparationText:     r.PreparationText,
-		SortOrder:           r.SortOrder,
-		Version:             r.Version,
-		CreatedAt:           r.CreatedAt.UTC(),
-		UpdatedAt:           r.UpdatedAt.UTC(),
+func newServiceResponse(service db.Service) serviceResponse {
+	response := serviceResponse{
+		ID:                  service.ID,
+		Slug:                service.Slug,
+		Name:                service.Name,
+		Description:         service.Description,
+		BookingAction:       service.BookingAction,
+		State:               service.State,
+		BufferBeforeMinutes: service.BufferBeforeMinutes,
+		BufferAfterMinutes:  service.BufferAfterMinutes,
+		Formats:             service.Formats,
+		FeeText:             service.FeeText,
+		PreparationText:     service.PreparationText,
+		SortOrder:           service.SortOrder,
+		Version:             service.Version,
+		CreatedAt:           service.CreatedAt.UTC(),
+		UpdatedAt:           service.UpdatedAt.UTC(),
 	}
-	if r.DurationMinutes.Valid {
-		s.DurationMinutes = &r.DurationMinutes.Int32
+	if service.DurationMinutes.Valid {
+		response.DurationMinutes = &service.DurationMinutes.Int32
 	}
-	return s
+	return response
+}
+
+// apply copies the fields the admin sent onto the saved service.
+func (body updateServiceBody) apply(params *db.UpdateServiceParams) {
+	if body.Slug != nil {
+		params.Slug = *body.Slug
+	}
+	if body.Name != nil {
+		params.Name = localizedJSON(body.Name)
+	}
+	if body.Description != nil {
+		params.Description = localizedJSON(body.Description)
+	}
+	if body.BookingAction != nil {
+		params.BookingAction = *body.BookingAction
+	}
+	if body.State != nil {
+		params.State = *body.State
+	}
+	if body.DurationMinutes != nil {
+		params.DurationMinutes = optionalInt4(body.DurationMinutes)
+	}
+	if body.BufferBeforeMinutes != nil {
+		params.BufferBeforeMinutes = *body.BufferBeforeMinutes
+	}
+	if body.BufferAfterMinutes != nil {
+		params.BufferAfterMinutes = *body.BufferAfterMinutes
+	}
+	if body.Formats != nil {
+		params.Formats = body.Formats
+	}
+	if body.FeeText != nil {
+		params.FeeText = localizedJSON(body.FeeText)
+	}
+	if body.PreparationText != nil {
+		params.PreparationText = localizedJSON(body.PreparationText)
+	}
+	if body.SortOrder != nil {
+		params.SortOrder = *body.SortOrder
+	}
+}
+
+// logService logs ids and state only.
+func logService(ctx context.Context, event string, service db.Service) {
+	slog.InfoContext(ctx, event,
+		"request_id", web.RequestID(ctx),
+		"service_id", service.ID.String(),
+		"state", service.State,
+		"version", service.Version,
+	)
 }
 
 // localizedJSON stores text per locale; nil stays NULL.
-func localizedJSON(t localized) json.RawMessage {
-	if t == nil {
+func localizedJSON(text localized) json.RawMessage {
+	if text == nil {
 		return nil
 	}
-	b, _ := json.Marshal(t) // a map of strings always marshals
-	return b
+	encoded, _ := json.Marshal(text) // a map of strings always marshals
+	return encoded
 }
 
 func optionalInt4(n *int32) pgtype.Int4 {

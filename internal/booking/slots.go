@@ -14,20 +14,6 @@ import (
 	"github.com/VetMiMi/vetmimi-api/internal/settings"
 )
 
-const (
-	maxSlotDays = 62
-	// The free slots offered when the requested one is gone.
-	maxAlternatives = 5
-	alternativeDays = 14
-	// anyDay stands in for the furthest bookable day when Daw Mi moves an appointment.
-	anyDay = 100 * 365
-)
-
-var (
-	errNotBookable   = apperr.New(apperr.ServiceNotBookable, "The service cannot be booked or requested.")
-	errBookingPaused = apperr.New(apperr.BookingPaused, "Public booking is paused.")
-)
-
 // SlotDay's slots are sessions, buffers excluded.
 type SlotDay struct {
 	Date  time.Time
@@ -56,47 +42,97 @@ type SlotInput struct {
 	MaxAdvanceDays int
 }
 
+type slotRequest struct {
+	Service db.Service
+	// Zero means the service's duration.
+	Duration time.Duration
+	Start    time.Time
+	// Moving is an appointment being rescheduled; Daw Mi may move it outside the booking window.
+	Moving pgtype.UUID
+}
+
+type slotJSON struct {
+	StartsAt time.Time `json:"startsAt"`
+	EndsAt   time.Time `json:"endsAt"`
+}
+
+const (
+	maxSlotDays = 62
+	// The free slots offered when the requested one is gone.
+	maxAlternatives = 5
+	alternativeDays = 14
+	// anyDay stands in for the furthest bookable day when Daw Mi moves an appointment.
+	anyDay = 100 * 365
+)
+
+var (
+	errNotBookable   = apperr.New(apperr.ServiceNotBookable, "The service cannot be booked or requested.")
+	errBookingPaused = apperr.New(apperr.BookingPaused, "Public booking is paused.")
+)
+
 func PublicAvailability(ctx context.Context, q db.Querier, slug string, first, last, now time.Time) (Availability, error) {
-	svc, err := q.GetServiceBySlug(ctx, slug)
+	service, err := q.GetServiceBySlug(ctx, slug)
 	if errors.Is(err, pgx.ErrNoRows) {
 		return Availability{}, apperr.New(apperr.NotFound, "No service has this slug.")
 	}
 	if err != nil {
 		return Availability{}, err
 	}
-	cur, err := settings.Load(ctx, q)
+	current, err := settings.Load(ctx, q)
 	if err != nil {
 		return Availability{}, err
 	}
-	if !cur.PublicBookingEnabled {
+	if !current.PublicBookingEnabled {
 		return Availability{}, errBookingPaused
 	}
-	return serviceSlots(ctx, q, svc, cur, first, last, now)
+	return serviceSlots(ctx, q, service, current, first, last, now)
 }
 
 // Slots is what visitors see, without the public-booking switch.
-func Slots(ctx context.Context, q db.Querier, svc db.Service, first, last, now time.Time) (Availability, error) {
-	cur, err := settings.Load(ctx, q)
+func Slots(ctx context.Context, q db.Querier, service db.Service, first, last, now time.Time) (Availability, error) {
+	current, err := settings.Load(ctx, q)
 	if err != nil {
 		return Availability{}, err
 	}
-	return serviceSlots(ctx, q, svc, cur, first, last, now)
+	return serviceSlots(ctx, q, service, current, first, last, now)
 }
 
-func serviceSlots(ctx context.Context, q db.Querier, svc db.Service, cur settings.Settings,
+func FreeSlots(input SlotInput) []SlotDay {
+	earliest := input.Now.Add(input.MinNotice)
+	local := input.Now.In(input.Location)
+	horizon := time.Date(local.Year(), local.Month(), local.Day()+input.MaxAdvanceDays+1, 0, 0, 0, 0, input.Location)
+
+	var days []SlotDay
+	for day := input.First; !day.After(input.Last); day = day.AddDate(0, 0, 1) {
+		free := input.freeOn(day, earliest, horizon)
+		if len(free) > 0 {
+			days = append(days, SlotDay{Date: day, Slots: free})
+		}
+	}
+	return days
+}
+
+func serviceSlots(ctx context.Context, q db.Querier, service db.Service, current settings.Settings,
 	first, last, now time.Time) (Availability, error) {
-	if err := checkSlotRange(first, last); err != nil {
-		return Availability{}, err
-	}
-	if !bookable(svc) {
-		return Availability{}, errNotBookable
-	}
-	duration := time.Duration(svc.DurationMinutes.Int32) * time.Minute
-	in, err := slotInput(ctx, q, svc, duration, cur, first, last, now, pgtype.UUID{})
+	err := checkSlotRange(first, last)
 	if err != nil {
 		return Availability{}, err
 	}
-	return Availability{Timezone: cur.Timezone, First: in.First, Last: in.Last, Days: FreeSlots(in)}, nil
+	if !bookable(service) {
+		return Availability{}, errNotBookable
+	}
+	duration := time.Duration(service.DurationMinutes.Int32) * time.Minute
+	input, err := slotInput(ctx, q, service, duration, current, first, last, now, pgtype.UUID{})
+	if err != nil {
+		return Availability{}, err
+	}
+	availability := Availability{
+		Timezone: current.Timezone,
+		First:    input.First,
+		Last:     input.Last,
+		Days:     FreeSlots(input),
+	}
+	return availability, nil
 }
 
 func checkSlotRange(first, last time.Time) error {
@@ -110,13 +146,14 @@ func checkSlotRange(first, last time.Time) error {
 }
 
 // slotInput ignores except's own busy time, so an appointment can move within it.
-func slotInput(ctx context.Context, q db.Querier, svc db.Service, duration time.Duration, cur settings.Settings,
+func slotInput(ctx context.Context, q db.Querier, service db.Service, duration time.Duration, current settings.Settings,
 	first, last, now time.Time, except pgtype.UUID) (SlotInput, error) {
-	loc, err := cur.Location()
+	loc, err := current.Location()
 	if err != nil {
 		return SlotInput{}, err
 	}
-	if today := localDate(now, loc); first.Before(today) && !last.Before(today) {
+	today := localDate(now, loc)
+	if first.Before(today) && !last.Before(today) {
 		first = today
 	}
 
@@ -128,90 +165,88 @@ func slotInput(ctx context.Context, q db.Querier, svc db.Service, duration time.
 	if err != nil {
 		return SlotInput{}, err
 	}
-	busy, err := q.ListBusyPeriods(ctx, db.ListBusyPeriodsParams{
-		Within: LocalDays(first, last, loc).tstzrange(), ExceptID: except})
+	params := db.ListBusyPeriodsParams{
+		Within:   LocalDays(first, last, loc).tstzrange(),
+		ExceptID: except,
+	}
+	busy, err := q.ListBusyPeriods(ctx, params)
 	if err != nil {
 		return SlotInput{}, err
 	}
-	in := SlotInput{
-		Location: loc, First: first, Last: last, Now: now,
-		Rules: rules, Overrides: overrides, Busy: make([]Period, len(busy)),
+	input := SlotInput{
+		Location:       loc,
+		First:          first,
+		Last:           last,
+		Now:            now,
+		Rules:          rules,
+		Overrides:      overrides,
+		Busy:           make([]Period, len(busy)),
 		Duration:       duration,
-		BufferBefore:   time.Duration(svc.BufferBeforeMinutes) * time.Minute,
-		BufferAfter:    time.Duration(svc.BufferAfterMinutes) * time.Minute,
-		Step:           time.Duration(cur.SlotStepMinutes) * time.Minute,
-		MinNotice:      time.Duration(cur.MinNoticeHours) * time.Hour,
-		MaxAdvanceDays: cur.MaxAdvanceDays,
+		BufferBefore:   time.Duration(service.BufferBeforeMinutes) * time.Minute,
+		BufferAfter:    time.Duration(service.BufferAfterMinutes) * time.Minute,
+		Step:           time.Duration(current.SlotStepMinutes) * time.Minute,
+		MinNotice:      time.Duration(current.MinNoticeHours) * time.Hour,
+		MaxAdvanceDays: current.MaxAdvanceDays,
 	}
-	for i, b := range busy {
-		in.Busy[i] = PeriodOf(b)
+	for i, period := range busy {
+		input.Busy[i] = PeriodOf(period)
 	}
-	return in, nil
-}
-
-func FreeSlots(in SlotInput) []SlotDay {
-	earliest := in.Now.Add(in.MinNotice)
-	local := in.Now.In(in.Location)
-	horizon := time.Date(local.Year(), local.Month(), local.Day()+in.MaxAdvanceDays+1, 0, 0, 0, 0, in.Location)
-
-	var days []SlotDay
-	for d := in.First; !d.After(in.Last); d = d.AddDate(0, 0, 1) {
-		if free := in.freeOn(d, earliest, horizon); len(free) > 0 {
-			days = append(days, SlotDay{Date: d, Slots: free})
-		}
-	}
-	return days
+	return input, nil
 }
 
 // freeOn steps in real time, so a skipped hour yields no start and a repeated hour is offered once.
-func (in SlotInput) freeOn(d, earliest, horizon time.Time) []Period {
+func (input SlotInput) freeOn(day, earliest, horizon time.Time) []Period {
 	var free []Period
 	seen := map[[2]int]bool{}
-	for _, open := range in.openPeriods(d) {
-		for start := open.Start; ; start = start.Add(in.Step) {
-			need := Period{Start: start.Add(-in.BufferBefore), End: start.Add(in.Duration + in.BufferAfter)}
+	for _, open := range input.openPeriods(day) {
+		for start := open.Start; ; start = start.Add(input.Step) {
+			need := Period{Start: start.Add(-input.BufferBefore), End: start.Add(input.Duration + input.BufferAfter)}
 			if need.End.After(open.End) {
 				break
 			}
 			if need.Start.Before(open.Start) || start.Before(earliest) || !start.Before(horizon) ||
-				slices.ContainsFunc(in.Busy, need.overlaps) {
+				slices.ContainsFunc(input.Busy, need.overlaps) {
 				continue
 			}
-			wall := start.In(in.Location)
-			if key := [2]int{wall.Hour(), wall.Minute()}; !seen[key] {
+			wall := start.In(input.Location)
+			key := [2]int{wall.Hour(), wall.Minute()}
+			if !seen[key] {
 				seen[key] = true
-				free = append(free, Period{Start: start, End: start.Add(in.Duration)})
+				free = append(free, Period{Start: start, End: start.Add(input.Duration)})
 			}
 		}
 	}
 	return free
 }
 
-func (in SlotInput) openPeriods(d time.Time) []Period {
+func (input SlotInput) openPeriods(day time.Time) []Period {
 	var periods []Period
 	replaced := false
-	for _, o := range in.Overrides {
-		if sameDate(o.OnDate.Time, d) {
-			periods = append(periods, PeriodOf(o.Period))
-			replaced = replaced || o.Kind == "replace"
+	for _, override := range input.Overrides {
+		if sameDate(override.OnDate.Time, day) {
+			periods = append(periods, PeriodOf(override.Period))
+			replaced = replaced || override.Kind == "replace"
 		}
 	}
 	if !replaced {
-		periods = append(periods, in.weeklyPeriods(d)...)
+		periods = append(periods, input.weeklyPeriods(day)...)
 	}
 	return mergePeriods(periods)
 }
 
-func (in SlotInput) weeklyPeriods(d time.Time) []Period {
-	weekday := int16(d.Weekday())
+func (input SlotInput) weeklyPeriods(day time.Time) []Period {
+	weekday := int16(day.Weekday())
 	if weekday == 0 {
 		weekday = 7
 	}
 	var periods []Period
-	for _, r := range in.Rules {
-		if r.Weekday == weekday {
-			periods = append(periods, Period{Start: wallClock(d, r.StartTime, in.Location),
-				End: wallClock(d, r.EndTime, in.Location)})
+	for _, rule := range input.Rules {
+		if rule.Weekday == weekday {
+			period := Period{
+				Start: wallClock(day, rule.StartTime, input.Location),
+				End:   wallClock(day, rule.EndTime, input.Location),
+			}
+			periods = append(periods, period)
 		}
 	}
 	return periods
@@ -220,60 +255,53 @@ func (in SlotInput) weeklyPeriods(d time.Time) []Period {
 func mergePeriods(periods []Period) []Period {
 	slices.SortFunc(periods, func(a, b Period) int { return a.Start.Compare(b.Start) })
 	var merged []Period
-	for _, p := range periods {
-		n := len(merged)
-		if n == 0 || p.Start.After(merged[n-1].End) {
-			merged = append(merged, p)
+	for _, period := range periods {
+		last := len(merged) - 1
+		if last < 0 || period.Start.After(merged[last].End) {
+			merged = append(merged, period)
 			continue
 		}
-		if p.End.After(merged[n-1].End) {
-			merged[n-1].End = p.End
+		if period.End.After(merged[last].End) {
+			merged[last].End = period.End
 		}
 	}
 	return merged
 }
 
 // wallClock uses time.Date, which applies the date's own offset; a skipped time lands after the gap.
-func wallClock(d time.Time, t pgtype.Time, loc *time.Location) time.Time {
+func wallClock(day time.Time, t pgtype.Time, loc *time.Location) time.Time {
 	minutes := int(t.Microseconds / int64(time.Minute/time.Microsecond))
-	return time.Date(d.Year(), d.Month(), d.Day(), minutes/60, minutes%60, 0, 0, loc)
+	return time.Date(day.Year(), day.Month(), day.Day(), minutes/60, minutes%60, 0, 0, loc)
 }
 
 func sameDate(a, b time.Time) bool {
 	return a.Year() == b.Year() && a.Month() == b.Month() && a.Day() == b.Day()
 }
 
-type slotRequest struct {
-	Service db.Service
-	// Zero means the service's duration.
-	Duration time.Duration
-	Start    time.Time
-	// Moving is an appointment being rescheduled; Daw Mi may move it outside the booking window.
-	Moving pgtype.UUID
-}
-
 // checkSlot requires a free start or offers alternatives; the exclusion constraint still guards against races.
-func checkSlot(ctx context.Context, q db.Querier, cur settings.Settings, r slotRequest, now time.Time) error {
-	loc, err := cur.Location()
+func checkSlot(ctx context.Context, q db.Querier, current settings.Settings, request slotRequest, now time.Time) error {
+	loc, err := current.Location()
 	if err != nil {
 		return err
 	}
-	duration := r.Duration
+	duration := request.Duration
 	if duration == 0 {
-		duration = time.Duration(r.Service.DurationMinutes.Int32) * time.Minute
+		duration = time.Duration(request.Service.DurationMinutes.Int32) * time.Minute
 	}
-	day := localDate(r.Start, loc)
-	in, err := slotInput(ctx, q, r.Service, duration, cur, day, day.AddDate(0, 0, alternativeDays-1), now, r.Moving)
+	day := localDate(request.Start, loc)
+	lastDay := day.AddDate(0, 0, alternativeDays-1)
+	input, err := slotInput(ctx, q, request.Service, duration, current, day, lastDay, now, request.Moving)
 	if err != nil {
 		return err
 	}
-	if r.Moving.Valid {
-		in.MinNotice, in.MaxAdvanceDays = 0, anyDay
+	if request.Moving.Valid {
+		input.MinNotice = 0
+		input.MaxAdvanceDays = anyDay
 	}
 	var alternatives []Period
-	for _, d := range FreeSlots(in) {
-		for _, slot := range d.Slots {
-			if slot.Start.Equal(r.Start) && sameDate(d.Date, day) {
+	for _, free := range FreeSlots(input) {
+		for _, slot := range free.Slots {
+			if slot.Start.Equal(request.Start) && sameDate(free.Date, day) {
 				return nil
 			}
 			if len(alternatives) < maxAlternatives {
@@ -284,24 +312,22 @@ func checkSlot(ctx context.Context, q db.Querier, cur settings.Settings, r slotR
 	return slotUnavailable(alternatives)
 }
 
-type slotJSON struct {
-	StartsAt time.Time `json:"startsAt"`
-	EndsAt   time.Time `json:"endsAt"`
-}
-
 func slotUnavailable(alternatives []Period) error {
-	out := make([]slotJSON, len(alternatives))
-	for i, p := range alternatives {
-		out[i] = slotJSON{StartsAt: p.Start.UTC(), EndsAt: p.End.UTC()}
+	slots := make([]slotJSON, len(alternatives))
+	for i, period := range alternatives {
+		slots[i] = slotJSON{StartsAt: period.Start.UTC(), EndsAt: period.End.UTC()}
 	}
-	return &apperr.Error{Code: apperr.SlotUnavailable, Detail: "The requested time is no longer free.",
-		Extensions: map[string]any{"alternatives": out}}
+	return &apperr.Error{
+		Code:       apperr.SlotUnavailable,
+		Detail:     "The requested time is no longer free.",
+		Extensions: map[string]any{"alternatives": slots},
+	}
 }
 
 // withAlternatives adds the alternatives member the contract requires; the failed transaction cannot read any.
 func withAlternatives(err error) error {
-	var e *apperr.Error
-	if errors.As(err, &e) && e.Code == apperr.SlotUnavailable {
+	var appErr *apperr.Error
+	if errors.As(err, &appErr) && appErr.Code == apperr.SlotUnavailable {
 		return slotUnavailable(nil)
 	}
 	return err

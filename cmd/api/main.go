@@ -59,7 +59,8 @@ func run(ctx context.Context, log *slog.Logger, cfg config.Config, mode string, 
 		return err
 	}
 	defer pool.Close()
-	if err := postgres.Migrate(ctx, pool); err != nil {
+	err = postgres.Migrate(ctx, pool)
+	if err != nil {
 		return err
 	}
 	if mode == "create-user" {
@@ -85,9 +86,9 @@ func newLogger(level slog.Level) *slog.Logger {
 // openRedis does not connect, so the api starts while Redis is down and
 // /readyz reports it. Errors never quote the URL: it may hold a password.
 func openRedis(url string) (*redis.Client, error) {
-	opts, err := redis.ParseURL(url)
+	options, err := redis.ParseURL(url)
 	if err != nil {
 		return nil, errors.New("open redis: the connection URL is invalid")
 	}
-	return redis.NewClient(opts), nil
+	return redis.NewClient(options), nil
 }

@@ -15,6 +15,19 @@ import (
 	"github.com/VetMiMi/vetmimi-api/internal/secretbox"
 )
 
+// TOTP checks codes against secrets; its Box seals the secrets at rest.
+type TOTP struct {
+	*secretbox.Box
+	now clock.Now
+}
+
+// Enrolment is a new secret and the otpauth:// URI that carries it to an
+// authenticator app. Both are secret.
+type Enrolment struct {
+	Secret []byte
+	URI    string
+}
+
 // Settings every authenticator app understands: a 20-byte secret, HMAC-SHA-1,
 // six digits, a new code every 30 seconds.
 const (
@@ -27,12 +40,6 @@ var totpCodeOpts = totp.ValidateOpts{Period: totpPeriod, Digits: otp.DigitsSix, 
 
 var b32 = base32.StdEncoding.WithPadding(base32.NoPadding)
 
-// TOTP checks codes against secrets; its Box seals the secrets at rest.
-type TOTP struct {
-	*secretbox.Box
-	now clock.Now
-}
-
 // NewTOTP takes TOTP_ENCRYPTION_KEY, which must be 32 bytes.
 func NewTOTP(key []byte, now clock.Now) (*TOTP, error) {
 	box, err := secretbox.New(key)
@@ -40,13 +47,6 @@ func NewTOTP(key []byte, now clock.Now) (*TOTP, error) {
 		return nil, err
 	}
 	return &TOTP{Box: box, now: now}, nil
-}
-
-// Enrolment is a new secret and the otpauth:// URI that carries it to an
-// authenticator app. Both are secret.
-type Enrolment struct {
-	Secret []byte
-	URI    string
 }
 
 func NewEnrolment(email string) (Enrolment, error) {
@@ -70,28 +70,22 @@ func NewEnrolment(email string) (Enrolment, error) {
 
 // Match returns the step whose code equals code: the current step, or the one
 // either side of it to allow for a phone's clock drifting.
-func (t *TOTP) Match(secret []byte, code string) (step int64, ok bool) {
-	current := t.now().Unix() / totpPeriod
-	for _, s := range []int64{current, current - 1, current + 1} {
-		if subtle.ConstantTimeCompare([]byte(codeAt(secret, s)), []byte(code)) == 1 {
-			return s, true
+func (codes *TOTP) Match(secret []byte, code string) (step int64, ok bool) {
+	current := codes.now().Unix() / totpPeriod
+	for _, candidate := range []int64{current, current - 1, current + 1} {
+		if subtle.ConstantTimeCompare([]byte(codeAt(secret, candidate)), []byte(code)) == 1 {
+			return candidate, true
 		}
 	}
 	return 0, false
 }
 
-func codeAt(secret []byte, step int64) string {
-	// The only error is a secret that is not base32, which b32 cannot produce.
-	code, _ := totp.GenerateCodeCustom(b32.EncodeToString(secret), time.Unix(step*totpPeriod, 0), totpCodeOpts)
-	return code
-}
-
-func (t *TOTP) MatchSealed(sealed []byte, code string) (step int64, ok bool, err error) {
-	secret, err := t.Open(sealed)
+func (codes *TOTP) MatchSealed(sealed []byte, code string) (step int64, ok bool, err error) {
+	secret, err := codes.Open(sealed)
 	if err != nil {
 		return 0, false, err
 	}
-	step, ok = t.Match(secret, code)
+	step, ok = codes.Match(secret, code)
 	return step, ok, nil
 }
 
@@ -104,7 +98,13 @@ func ClaimTOTPStep(ctx context.Context, q db.Querier, userID pgtype.UUID, step i
 		return err
 	}
 	if claimed != 1 {
-		return invalidCredentials()
+		return errInvalidCredentials
 	}
 	return nil
+}
+
+func codeAt(secret []byte, step int64) string {
+	// The only error is a secret that is not base32, which b32 cannot produce.
+	code, _ := totp.GenerateCodeCustom(b32.EncodeToString(secret), time.Unix(step*totpPeriod, 0), totpCodeOpts)
+	return code
 }

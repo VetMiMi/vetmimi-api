@@ -19,23 +19,24 @@ const (
 )
 
 func NewSession() (string, error) {
-	b := make([]byte, sessionBytes)
-	if _, err := rand.Read(b); err != nil {
+	random := make([]byte, sessionBytes)
+	_, err := rand.Read(random)
+	if err != nil {
 		return "", err
 	}
-	return sessionPrefix + base64.RawURLEncoding.EncodeToString(b), nil
+	return sessionPrefix + base64.RawURLEncoding.EncodeToString(random), nil
 }
 
-// IsSession reports whether s has the shape NewSession returns, so anything
+// IsSession reports whether token has the shape NewSession returns, so anything
 // else is refused without a database lookup.
-func IsSession(s string) bool {
-	body, ok := strings.CutPrefix(s, sessionPrefix)
+func IsSession(token string) bool {
+	body, ok := strings.CutPrefix(token, sessionPrefix)
 	if !ok || len(body) != sessionChars {
 		return false
 	}
-	for _, c := range []byte(body) {
-		ok := 'a' <= c && c <= 'z' || 'A' <= c && c <= 'Z' || '0' <= c && c <= '9' || c == '-' || c == '_'
-		if !ok {
+	for _, char := range []byte(body) {
+		allowed := 'a' <= char && char <= 'z' || 'A' <= char && char <= 'Z' || '0' <= char && char <= '9' || char == '-' || char == '_'
+		if !allowed {
 			return false
 		}
 	}

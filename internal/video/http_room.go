@@ -22,30 +22,38 @@ func (h *Handler) checkRoomRequest(c *gin.Context) {
 		web.Error(c, apperr.New(apperr.Forbidden, "Video rooms open only from the VetMiMi site."))
 		return
 	}
+	_, err = pathRoomID(c)
 	ticket := c.Query("ticket")
-	if _, err := roomIDOf(c); err != nil || ticket == "" || len(ticket) > 1000 {
+	if err != nil || ticket == "" || len(ticket) > 1000 {
 		web.Error(c, apperr.New(apperr.InvalidRequest, "A room id and a ticket are required."))
 	}
 }
 
 // connectRoom opens a participant's signalling WebSocket.
 func (h *Handler) connectRoom(c *gin.Context) {
+	roomID, _ := pathRoomID(c) // checkRoomRequest has checked it
+	ticket := c.Query("ticket")
+	ctx := c.Request.Context()
+
 	site, _ := url.Parse(h.SiteURL) // checkRoomRequest has parsed it
-	conn, err := websocket.Accept(c.Writer, c.Request, &websocket.AcceptOptions{OriginPatterns: []string{site.Host}})
+	options := &websocket.AcceptOptions{OriginPatterns: []string{site.Host}}
+	conn, err := websocket.Accept(c.Writer, c.Request, options)
 	if err != nil {
 		return // Accept has answered the request.
 	}
-	roomID, _ := roomIDOf(c)
-	h.joinRoom(c.Request.Context(), conn, roomID, c.Query("ticket"))
+	h.joinRoom(ctx, conn, roomID, ticket)
 }
 
-// Refused with close codes after the upgrade: a browser cannot read why a handshake failed.
+// joinRoom refuses with close codes after the upgrade: a browser cannot read why a handshake failed.
 func (h *Handler) joinRoom(ctx context.Context, conn *websocket.Conn, roomID pgtype.UUID, ticket string) {
 	now := h.Now()
 	role, err := VerifyTicket(h.Issuer.Secret, ticket, roomID, now)
 	if err != nil {
-		slog.InfoContext(ctx, "video_refused", "request_id", web.RequestID(ctx), "room_id", roomID.String(),
-			"code", int(CloseTicketInvalid))
+		slog.InfoContext(ctx, "video_refused",
+			"request_id", web.RequestID(ctx),
+			"room_id", roomID.String(),
+			"code", int(CloseTicketInvalid),
+		)
 		_ = conn.Close(CloseTicketInvalid, "ticket invalid or expired")
 		return
 	}
@@ -60,4 +68,17 @@ func (h *Handler) joinRoom(ctx context.Context, conn *websocket.Conn, roomID pgt
 		return
 	}
 	h.Hub.Serve(ctx, conn, roomID, role, room.State, web.RequestID(ctx))
+}
+
+// byRoom counts the parsed id, so the same room written differently is still one room.
+func byRoom(c *gin.Context) string {
+	roomID, _ := pathRoomID(c) // checkRoomRequest has refused a bad id before the limit runs
+	return roomID.String()
+}
+
+// pathRoomID reads the room id without answering: the socket route refuses a bad id with its own problem.
+func pathRoomID(c *gin.Context) (pgtype.UUID, error) {
+	var roomID pgtype.UUID
+	err := roomID.Scan(c.Param("roomId"))
+	return roomID, err
 }

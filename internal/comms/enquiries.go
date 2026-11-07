@@ -24,7 +24,8 @@ import (
 type Enquiry struct {
 	IdempotencyKey      string
 	Body                []byte // the raw request, hashed with the key
-	Name, Email         string
+	Name                string
+	Email               string
 	Organisation        string
 	Subject             string
 	EnquiryType         string
@@ -48,100 +49,6 @@ type EnquiryCreated struct {
 	Tasks    []queue.Task
 }
 
-var (
-	errAckRequired = &apperr.Error{Code: apperr.AcknowledgementRequired,
-		Detail: "The privacy notice must be acknowledged.",
-		Fields: []apperr.FieldError{{Field: "/privacyAcknowledged", Message: "must be true"}}}
-	errNoSuchService = apperr.New(apperr.NotFound, "No service has this slug.")
-	errNoSuchEnquiry = apperr.New(apperr.NotFound, "No enquiry has this id.")
-)
-
-const referenceAttempts = 5
-
-func CreateEnquiry(ctx context.Context, pool *pgxpool.Pool, e Enquiry, now time.Time) (EnquiryCreated, error) {
-	if !e.PrivacyAcknowledged {
-		return EnquiryCreated{}, errAckRequired
-	}
-	var out EnquiryCreated
-	err := pgx.BeginFunc(ctx, pool, func(tx pgx.Tx) error {
-		q := db.New(tx)
-		if e.IdempotencyKey == "" {
-			var err error
-			out, err = createEnquiry(ctx, q, e, now)
-			return err
-		}
-
-		stored, err := idempotency.Begin(ctx, q, idempotency.ContactEnquiry, e.IdempotencyKey, e.Body, now)
-		if err != nil {
-			return err
-		}
-		if stored != nil {
-			out = EnquiryCreated{ID: stored.ResourceID, Replayed: true}
-			return json.Unmarshal(stored.Body, &out.Receipt)
-		}
-		if out, err = createEnquiry(ctx, q, e, now); err != nil {
-			return err
-		}
-		return idempotency.Finish(ctx, q, idempotency.ContactEnquiry, e.IdempotencyKey, out.ID, 201, out.Receipt)
-	})
-	return out, err
-}
-
-func createEnquiry(ctx context.Context, q *db.Queries, e Enquiry, now time.Time) (EnquiryCreated, error) {
-	p := db.InsertContactEnquiryParams{
-		Name:         strings.TrimSpace(e.Name),
-		Email:        strings.ToLower(strings.TrimSpace(e.Email)),
-		Organisation: optional(e.Organisation),
-		Subject:      optional(e.Subject),
-		EnquiryType:  e.EnquiryType,
-		Message:      strings.TrimSpace(e.Message),
-		Locale:       e.Locale,
-		PrivacyAckAt: now,
-	}
-	if e.Service != "" {
-		svc, err := q.GetServiceBySlug(ctx, e.Service)
-		if errors.Is(err, pgx.ErrNoRows) {
-			return EnquiryCreated{}, errNoSuchService
-		}
-		if err != nil {
-			return EnquiryCreated{}, err
-		}
-		p.ServiceID = svc.ID
-	}
-	row, err := insertEnquiry(ctx, q, p)
-	if err != nil {
-		return EnquiryCreated{}, err
-	}
-	s, err := settings.Load(ctx, q)
-	if err != nil {
-		return EnquiryCreated{}, err
-	}
-	task, err := Queue(ctx, q, Message{ContactEnquiryID: row.ID, Kind: PractitionerNewEnquiry, Recipient: s.ContactEmail})
-	if err != nil {
-		return EnquiryCreated{}, err
-	}
-	return EnquiryCreated{
-		ID:      row.ID,
-		Receipt: EnquiryReceipt{Reference: row.Reference, CreatedAt: row.CreatedAt.UTC()},
-		Tasks:   []queue.Task{task},
-	}, nil
-}
-
-func insertEnquiry(ctx context.Context, q *db.Queries, p db.InsertContactEnquiryParams) (db.ContactEnquiry, error) {
-	for range referenceAttempts {
-		var err error
-		if p.Reference, err = tokens.NewReference("EN-"); err != nil {
-			return db.ContactEnquiry{}, err
-		}
-		row, err := q.InsertContactEnquiry(ctx, p)
-		// ON CONFLICT DO NOTHING returns no row when the reference is taken.
-		if !errors.Is(err, pgx.ErrNoRows) {
-			return row, err
-		}
-	}
-	return db.ContactEnquiry{}, fmt.Errorf("comms: no free enquiry reference after %d attempts", referenceAttempts)
-}
-
 type EnquiryFilter struct {
 	Status string
 	Search string
@@ -154,31 +61,82 @@ type EnquiryPage struct {
 	NextCursor string
 }
 
-func ListEnquiries(ctx context.Context, q db.Querier, f EnquiryFilter) (EnquiryPage, error) {
-	limit := f.Limit
+const referenceAttempts = 5
+
+var enquiryTypeLabels = map[string]string{
+	"collaboration":   "Collaboration / Project",
+	"workshop":        "Workshop / Program",
+	"speaking":        "Speaking / Event",
+	"art_of_wellness": "Art of Wellness",
+	"media":           "Media / Interview",
+	"organisation":    "Organisation / Healthcare",
+	"general":         "General",
+}
+
+var (
+	errAckRequired = &apperr.Error{
+		Code:   apperr.AcknowledgementRequired,
+		Detail: "The privacy notice must be acknowledged.",
+		Fields: []apperr.FieldError{{Field: "/privacyAcknowledged", Message: "must be true"}},
+	}
+	errNoSuchService = apperr.New(apperr.NotFound, "No service has this slug.")
+	errNoSuchEnquiry = apperr.New(apperr.NotFound, "No enquiry has this id.")
+)
+
+func CreateEnquiry(ctx context.Context, pool *pgxpool.Pool, enquiry Enquiry, now time.Time) (EnquiryCreated, error) {
+	if !enquiry.PrivacyAcknowledged {
+		return EnquiryCreated{}, errAckRequired
+	}
+
+	tx, err := pool.Begin(ctx)
+	if err != nil {
+		return EnquiryCreated{}, err
+	}
+	defer tx.Rollback(ctx)
+	q := db.New(tx)
+
+	created, err := createOrReplay(ctx, q, enquiry, now)
+	if err != nil {
+		return EnquiryCreated{}, err
+	}
+
+	err = tx.Commit(ctx)
+	if err != nil {
+		return EnquiryCreated{}, err
+	}
+	return created, nil
+}
+
+func ListEnquiries(ctx context.Context, q db.Querier, filter EnquiryFilter) (EnquiryPage, error) {
+	limit := filter.Limit
 	if limit <= 0 {
 		limit = 50
 	}
-	p := db.ListContactEnquiriesParams{
-		Status:  pgtype.Text{String: f.Status, Valid: f.Status != ""},
-		Search:  listing.LikePattern(f.Search),
+	params := db.ListContactEnquiriesParams{
+		Status:  pgtype.Text{String: filter.Status, Valid: filter.Status != ""},
+		Search:  listing.LikePattern(filter.Search),
 		MaxRows: int32(limit) + 1,
 	}
-	if f.Cursor != "" {
-		var err error
-		if p.AfterAt, p.AfterID, err = listing.DecodeCursor(f.Cursor); err != nil {
+	if filter.Cursor != "" {
+		afterAt, afterID, err := listing.DecodeCursor(filter.Cursor)
+		if err != nil {
 			return EnquiryPage{}, err
 		}
+		params.AfterAt = afterAt
+		params.AfterID = afterID
 	}
-	rows, err := q.ListContactEnquiries(ctx, p)
+
+	rows, err := q.ListContactEnquiries(ctx, params)
 	if err != nil {
 		return EnquiryPage{}, err
 	}
-	page := EnquiryPage{Items: rows}
-	if len(rows) > limit {
-		page.Items = rows[:limit]
-		last := page.Items[limit-1]
-		page.NextCursor = listing.EncodeCursor(last.CreatedAt, last.ID)
+	if len(rows) <= limit {
+		return EnquiryPage{Items: rows}, nil
+	}
+	last := rows[limit-1]
+	page := EnquiryPage{
+		Items:      rows[:limit],
+		NextCursor: listing.EncodeCursor(last.CreatedAt, last.ID),
 	}
 	return page, nil
 }
@@ -193,43 +151,129 @@ func GetEnquiry(ctx context.Context, q db.Querier, id pgtype.UUID) (db.GetContac
 
 // MarkHandled keeps the first handled time and handler if called again.
 func MarkHandled(ctx context.Context, q db.Querier, id, by pgtype.UUID, now time.Time) (db.GetContactEnquiryRow, error) {
-	if _, err := q.MarkContactEnquiryHandled(ctx, db.MarkContactEnquiryHandledParams{ID: id, HandledBy: by, Now: now}); err != nil {
+	_, err := q.MarkContactEnquiryHandled(ctx, db.MarkContactEnquiryHandledParams{
+		ID:        id,
+		HandledBy: by,
+		Now:       now,
+	})
+	if err != nil {
 		return db.GetContactEnquiryRow{}, err
 	}
 	return GetEnquiry(ctx, q, id)
 }
 
-var enquiryTypeLabels = map[string]string{
-	"collaboration":   "Collaboration / Project",
-	"workshop":        "Workshop / Program",
-	"speaking":        "Speaking / Event",
-	"art_of_wellness": "Art of Wellness",
-	"media":           "Media / Interview",
-	"organisation":    "Organisation / Healthcare",
-	"general":         "General",
+// createOrReplay stores the enquiry once per idempotency key; a key seen before replays its receipt.
+func createOrReplay(ctx context.Context, q *db.Queries, enquiry Enquiry, now time.Time) (EnquiryCreated, error) {
+	if enquiry.IdempotencyKey == "" {
+		return storeEnquiry(ctx, q, enquiry, now)
+	}
+
+	stored, err := idempotency.Begin(ctx, q, idempotency.ContactEnquiry, enquiry.IdempotencyKey, enquiry.Body, now)
+	if err != nil {
+		return EnquiryCreated{}, err
+	}
+	if stored != nil {
+		replay := EnquiryCreated{ID: stored.ResourceID, Replayed: true}
+		err = json.Unmarshal(stored.Body, &replay.Receipt)
+		if err != nil {
+			return EnquiryCreated{}, err
+		}
+		return replay, nil
+	}
+	created, err := storeEnquiry(ctx, q, enquiry, now)
+	if err != nil {
+		return EnquiryCreated{}, err
+	}
+	err = idempotency.Finish(ctx, q, idempotency.ContactEnquiry, enquiry.IdempotencyKey, created.ID, 201, created.Receipt)
+	if err != nil {
+		return EnquiryCreated{}, err
+	}
+	return created, nil
+}
+
+// storeEnquiry inserts the enquiry and Daw Mi's email row.
+func storeEnquiry(ctx context.Context, q *db.Queries, enquiry Enquiry, now time.Time) (EnquiryCreated, error) {
+	params := db.InsertContactEnquiryParams{
+		Name:         strings.TrimSpace(enquiry.Name),
+		Email:        strings.ToLower(strings.TrimSpace(enquiry.Email)),
+		Organisation: optional(enquiry.Organisation),
+		Subject:      optional(enquiry.Subject),
+		EnquiryType:  enquiry.EnquiryType,
+		Message:      strings.TrimSpace(enquiry.Message),
+		Locale:       enquiry.Locale,
+		PrivacyAckAt: now,
+	}
+	if enquiry.Service != "" {
+		service, err := q.GetServiceBySlug(ctx, enquiry.Service)
+		if errors.Is(err, pgx.ErrNoRows) {
+			return EnquiryCreated{}, errNoSuchService
+		}
+		if err != nil {
+			return EnquiryCreated{}, err
+		}
+		params.ServiceID = service.ID
+	}
+	row, err := insertEnquiry(ctx, q, params)
+	if err != nil {
+		return EnquiryCreated{}, err
+	}
+	current, err := settings.Load(ctx, q)
+	if err != nil {
+		return EnquiryCreated{}, err
+	}
+	task, err := Queue(ctx, q, Message{
+		ContactEnquiryID: row.ID,
+		Kind:             PractitionerNewEnquiry,
+		Recipient:        current.ContactEmail,
+	})
+	if err != nil {
+		return EnquiryCreated{}, err
+	}
+	created := EnquiryCreated{
+		ID:      row.ID,
+		Receipt: EnquiryReceipt{Reference: row.Reference, CreatedAt: row.CreatedAt.UTC()},
+		Tasks:   []queue.Task{task},
+	}
+	return created, nil
+}
+
+func insertEnquiry(ctx context.Context, q *db.Queries, params db.InsertContactEnquiryParams) (db.ContactEnquiry, error) {
+	for range referenceAttempts {
+		reference, err := tokens.NewReference("EN-")
+		if err != nil {
+			return db.ContactEnquiry{}, err
+		}
+		params.Reference = reference
+		row, err := q.InsertContactEnquiry(ctx, params)
+		// ON CONFLICT DO NOTHING returns no row when the reference is taken.
+		if !errors.Is(err, pgx.ErrNoRows) {
+			return row, err
+		}
+	}
+	return db.ContactEnquiry{}, fmt.Errorf("comms: no free enquiry reference after %d attempts", referenceAttempts)
 }
 
 func (t *Tasks) enquiryData(ctx context.Context, q db.Querier, id pgtype.UUID) (RenderData, error) {
-	e, err := q.GetContactEnquiry(ctx, id)
+	enquiry, err := q.GetContactEnquiry(ctx, id)
 	if err != nil {
 		return RenderData{}, err
 	}
-	d := RenderData{
-		VisitorName:         e.Name,
-		VisitorEmail:        e.Email,
-		EnquiryType:         enquiryTypeLabels[e.EnquiryType],
-		EnquirySubject:      e.Subject.String,
-		EnquiryMessage:      e.Message,
-		EnquiryOrganisation: e.Organisation.String,
-		AdminURL:            strings.TrimRight(t.SiteURL, "/") + "/admin/enquiries/" + e.ID.String(),
+	data := RenderData{
+		VisitorName:         enquiry.Name,
+		VisitorEmail:        enquiry.Email,
+		EnquiryType:         enquiryTypeLabels[enquiry.EnquiryType],
+		EnquirySubject:      enquiry.Subject.String,
+		EnquiryMessage:      enquiry.Message,
+		EnquiryOrganisation: enquiry.Organisation.String,
+		AdminURL:            strings.TrimRight(t.SiteURL, "/") + "/admin/enquiries/" + enquiry.ID.String(),
 	}
-	if d.EnquirySubject == "" {
-		d.EnquirySubject = d.EnquiryType
+	if data.EnquirySubject == "" {
+		data.EnquirySubject = data.EnquiryType
 	}
-	return d, nil
+	return data, nil
 }
 
-func optional(s string) pgtype.Text {
-	s = strings.TrimSpace(s)
-	return pgtype.Text{String: s, Valid: s != ""}
+func optional(text string) pgtype.Text {
+	text = strings.TrimSpace(text)
+	return pgtype.Text{String: text, Valid: text != ""}
 }

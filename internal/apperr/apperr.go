@@ -5,8 +5,31 @@ package apperr
 import "time"
 
 // Code is the stable name of a problem; the site maps it to localised wording,
-// so renaming one is a breaking change. docs/architecture.md lists them all.
+// so renaming one is a breaking change.
 type Code string
+
+type kind struct {
+	status int
+	title  string
+}
+
+// FieldError names one part of a request, as a JSON pointer into the body or
+// a parameter name, and what is wrong with it.
+type FieldError struct {
+	Field   string
+	Message string
+}
+
+// Error is a problem a client can act on. Detail may reach the response body,
+// so it carries ids only, never names, emails or notes.
+type Error struct {
+	Code       Code
+	Detail     string
+	Fields     []FieldError
+	Extensions map[string]any
+	// RetryAfter is sent as the Retry-After header of a rate_limited answer.
+	RetryAfter time.Duration
+}
 
 const (
 	InvalidRequest           Code = "invalid_request"
@@ -37,11 +60,6 @@ const (
 	FeatureUnavailable       Code = "feature_unavailable"
 )
 
-type kind struct {
-	status int
-	title  string
-}
-
 var kinds = map[Code]kind{
 	InvalidRequest:           {400, "Invalid request"},
 	Unauthenticated:          {401, "Not signed in"},
@@ -71,41 +89,19 @@ var kinds = map[Code]kind{
 	FeatureUnavailable:       {503, "Feature unavailable"},
 }
 
-// lookup treats an unknown code as an internal error, never status 0.
-func (c Code) lookup() kind {
-	if k, ok := kinds[c]; ok {
-		return k
+func (code Code) Status() int {
+	return code.lookup().status
+}
+
+func (code Code) Title() string {
+	return code.lookup().title
+}
+
+func (failure *Error) Error() string {
+	if failure.Detail == "" {
+		return string(failure.Code)
 	}
-	return kinds[InternalError]
-}
-
-func (c Code) Status() int { return c.lookup().status }
-
-func (c Code) Title() string { return c.lookup().title }
-
-// FieldError names one part of a request, as a JSON pointer into the body or
-// a parameter name, and what is wrong with it.
-type FieldError struct {
-	Field   string
-	Message string
-}
-
-// Error is a problem a client can act on. Detail may reach the response body,
-// so it carries ids only, never names, emails or notes.
-type Error struct {
-	Code       Code
-	Detail     string
-	Fields     []FieldError
-	Extensions map[string]any
-	// RetryAfter is sent as the Retry-After header of a rate_limited answer.
-	RetryAfter time.Duration
-}
-
-func (e *Error) Error() string {
-	if e.Detail == "" {
-		return string(e.Code)
-	}
-	return string(e.Code) + ": " + e.Detail
+	return string(failure.Code) + ": " + failure.Detail
 }
 
 func New(code Code, detail string) *Error {
@@ -113,9 +109,26 @@ func New(code Code, detail string) *Error {
 }
 
 func Invalid(detail string, fields ...FieldError) *Error {
-	return &Error{Code: InvalidRequest, Detail: detail, Fields: fields}
+	return &Error{
+		Code:   InvalidRequest,
+		Detail: detail,
+		Fields: fields,
+	}
 }
 
 func RateLimit(wait time.Duration) *Error {
-	return &Error{Code: RateLimited, Detail: "Too many requests; try again later.", RetryAfter: wait}
+	return &Error{
+		Code:       RateLimited,
+		Detail:     "Too many requests; try again later.",
+		RetryAfter: wait,
+	}
+}
+
+// lookup treats an unknown code as an internal error, never status 0.
+func (code Code) lookup() kind {
+	found, ok := kinds[code]
+	if ok {
+		return found
+	}
+	return kinds[InternalError]
 }

@@ -37,10 +37,12 @@ const (
 	EndedByWindowClosing = "window_closed"
 )
 
-var errNoOpenRoom = apperr.New(apperr.InvalidTransition, "This appointment has no open video room.")
+var (
+	errNoOpenRoom = apperr.New(apperr.InvalidTransition, "This appointment has no open video room.")
 
-// ErrRoomOver means the room is unknown, ended or past its window.
-var ErrRoomOver = errors.New("video: room over")
+	// ErrRoomOver means the room is unknown, ended or past its window.
+	ErrRoomOver = errors.New("video: room over")
+)
 
 // Window is when the room for an appointment from start to end is open.
 func Window(start, end time.Time) (opens, closes time.Time) {
@@ -48,18 +50,19 @@ func Window(start, end time.Time) (opens, closes time.Time) {
 }
 
 // CreateRoom gives a just-confirmed online appointment its room and returns the task that ends it.
-func CreateRoom(ctx context.Context, q db.Querier, secret []byte, appt db.Appointment, mode string,
+func CreateRoom(ctx context.Context, q db.Querier, secret []byte, appointment db.Appointment, mode string,
 	now time.Time) ([]queue.Task, error) {
-	if appt.Format != "online" || mode != ModeRoom {
+	if appointment.Format != "online" || mode != ModeRoom {
 		return nil, nil
 	}
 	seed := make([]byte, 32)
-	if _, err := rand.Read(seed); err != nil {
+	_, err := rand.Read(seed)
+	if err != nil {
 		return nil, err
 	}
-	opens, closes := Window(appt.StartsAt, appt.EndsAt)
+	opens, closes := Window(appointment.StartsAt, appointment.EndsAt)
 	room, err := q.InsertVideoRoom(ctx, db.InsertVideoRoomParams{
-		AppointmentID: appt.ID,
+		AppointmentID: appointment.ID,
 		JoinTokenSeed: seed,
 		JoinTokenHash: tokens.Hash(tokens.Join(secret, seed)),
 		OpensAt:       opens,
@@ -69,21 +72,24 @@ func CreateRoom(ctx context.Context, q db.Querier, secret []byte, appt db.Appoin
 	if err != nil {
 		return nil, err
 	}
-	return []queue.Task{closeTask(room)}, nil
+	return []queue.Task{closeRoomTask(room)}, nil
 }
 
 // MoveRoom moves an open room to the new times. The token stays, so the emailed link still works.
-func MoveRoom(ctx context.Context, q db.Querier, appt db.Appointment, now time.Time) ([]queue.Task, error) {
-	opens, closes := Window(appt.StartsAt, appt.EndsAt)
+func MoveRoom(ctx context.Context, q db.Querier, appointment db.Appointment, now time.Time) ([]queue.Task, error) {
+	opens, closes := Window(appointment.StartsAt, appointment.EndsAt)
 	rooms, err := q.MoveVideoRoom(ctx, db.MoveVideoRoomParams{
-		AppointmentID: appt.ID, OpensAt: opens, ClosesAt: closes, Now: now,
+		AppointmentID: appointment.ID,
+		OpensAt:       opens,
+		ClosesAt:      closes,
+		Now:           now,
 	})
 	if err != nil {
 		return nil, err
 	}
 	var tasks []queue.Task
-	for _, r := range rooms {
-		tasks = append(tasks, closeTask(r))
+	for _, room := range rooms {
+		tasks = append(tasks, closeRoomTask(room))
 	}
 	return tasks, nil
 }
@@ -102,7 +108,8 @@ func EndRoom(ctx context.Context, q db.Querier, appointmentID pgtype.UUID, reaso
 // EndAsPractitioner ends the room; the appointment keeps its status until Daw Mi marks it.
 func EndAsPractitioner(ctx context.Context, q db.Querier, appointmentID pgtype.UUID,
 	now time.Time) (db.VideoRoom, error) {
-	if _, err := appointmentStatus(ctx, q, appointmentID); err != nil {
+	_, err := appointmentStatus(ctx, q, appointmentID)
+	if err != nil {
 		return db.VideoRoom{}, err
 	}
 	room, err := endRoom(ctx, q, appointmentID, EndedByPractitioner, now)
@@ -110,15 +117,6 @@ func EndAsPractitioner(ctx context.Context, q db.Querier, appointmentID pgtype.U
 		return db.VideoRoom{}, errNoOpenRoom
 	}
 	return room, err
-}
-
-func endRoom(ctx context.Context, q db.Querier, appointmentID pgtype.UUID, reason string,
-	now time.Time) (db.VideoRoom, error) {
-	return q.EndVideoRoom(ctx, db.EndVideoRoomParams{
-		AppointmentID: appointmentID,
-		EndedReason:   pgtype.Text{String: reason, Valid: true},
-		Now:           now,
-	})
 }
 
 // Actions are the video actions the admin may offer for the room.
@@ -146,8 +144,8 @@ func RoomOf(ctx context.Context, q db.Querier, appointmentID pgtype.UUID) (db.Vi
 }
 
 // OpenRoom returns a room that still accepts participants, or ErrRoomOver.
-func OpenRoom(ctx context.Context, q db.Querier, id pgtype.UUID, now time.Time) (db.VideoRoom, error) {
-	room, err := q.GetVideoRoom(ctx, id)
+func OpenRoom(ctx context.Context, q db.Querier, roomID pgtype.UUID, now time.Time) (db.VideoRoom, error) {
+	room, err := q.GetVideoRoom(ctx, roomID)
 	if errors.Is(err, pgx.ErrNoRows) {
 		return db.VideoRoom{}, ErrRoomOver
 	}
@@ -158,6 +156,15 @@ func OpenRoom(ctx context.Context, q db.Querier, id pgtype.UUID, now time.Time) 
 		return db.VideoRoom{}, ErrRoomOver
 	}
 	return room, nil
+}
+
+func endRoom(ctx context.Context, q db.Querier, appointmentID pgtype.UUID, reason string,
+	now time.Time) (db.VideoRoom, error) {
+	return q.EndVideoRoom(ctx, db.EndVideoRoomParams{
+		AppointmentID: appointmentID,
+		EndedReason:   pgtype.Text{String: reason, Valid: true},
+		Now:           now,
+	})
 }
 
 func isOver(room db.VideoRoom, now time.Time) bool {

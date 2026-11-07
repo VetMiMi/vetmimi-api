@@ -13,7 +13,14 @@ import (
 	"github.com/VetMiMi/vetmimi-api/internal/web"
 )
 
-type enquiryInput struct {
+type listEnquiriesQuery struct {
+	Status string `form:"status" binding:"omitempty,oneof=new handled"`
+	Search string `form:"q" binding:"max=100"`
+	Cursor string `form:"cursor" binding:"max=200"`
+	Limit  *int   `form:"limit" binding:"omitnil,min=1,max=100"`
+}
+
+type createEnquiryBody struct {
 	Name                string `json:"name" binding:"required,max=120"`
 	Email               string `json:"email" binding:"required,email,max=254"`
 	Organisation        string `json:"organisation,omitempty" binding:"max=200"`
@@ -25,159 +32,178 @@ type enquiryInput struct {
 	PrivacyAcknowledged bool   `json:"privacyAcknowledged"`
 }
 
+type enquiryListResponse struct {
+	Items      []enquiryResponse `json:"items"`
+	NextCursor string            `json:"nextCursor,omitempty"`
+}
+
+type enquiryResponse struct {
+	ID           string           `json:"id"`
+	Reference    string           `json:"reference"`
+	Name         string           `json:"name"`
+	Email        string           `json:"email"`
+	Organisation string           `json:"organisation,omitempty"`
+	EnquiryType  string           `json:"enquiryType"`
+	Service      *serviceResponse `json:"service,omitempty"`
+	Subject      string           `json:"subject,omitempty"`
+	Message      string           `json:"message"`
+	Locale       string           `json:"locale"`
+	Status       string           `json:"status"`
+	HandledAt    *time.Time       `json:"handledAt,omitempty"`
+	HandledBy    string           `json:"handledBy,omitempty"`
+	CreatedAt    time.Time        `json:"createdAt"`
+}
+
+type serviceResponse struct {
+	ID   string          `json:"id"`
+	Slug string          `json:"slug"`
+	Name json.RawMessage `json:"name"`
+}
+
 // createEnquiry stores an enquiry and queues Daw Mi's email. The visitor gets no email; the site shows the receipt.
 func (h *Handler) createEnquiry(c *gin.Context) {
 	var key string
-	if header := c.GetHeader("Idempotency-Key"); header != "" {
+	header := c.GetHeader("Idempotency-Key")
+	if header != "" {
 		id, ok := web.ParseUUID(c, "Idempotency-Key", header)
 		if !ok {
 			return
 		}
 		key = id.String()
 	}
-	var in enquiryInput
-	if !web.BindJSON(c, &in) {
-		return
-	}
-	// The key's hash covers the body as decoded, so a retry that differs only in spacing is the same request.
-	body, err := json.Marshal(in)
-	if err != nil {
-		web.Error(c, err)
+	var body createEnquiryBody
+	if !web.BindJSON(c, &body) {
 		return
 	}
 	ctx := c.Request.Context()
-	res, err := CreateEnquiry(ctx, h.Pool, Enquiry{
-		IdempotencyKey:      key,
-		Body:                body,
-		Name:                in.Name,
-		Email:               in.Email,
-		Organisation:        in.Organisation,
-		Subject:             in.Subject,
-		EnquiryType:         in.EnquiryType,
-		Service:             in.Service,
-		Message:             in.Message,
-		Locale:              in.Locale,
-		PrivacyAcknowledged: in.PrivacyAcknowledged,
-	}, h.Now())
+
+	// The key's hash covers the body as decoded, so a retry that differs only in spacing is the same request.
+	raw, err := json.Marshal(body)
 	if err != nil {
 		web.Error(c, err)
 		return
 	}
-	if h.Queue != nil {
-		h.Queue.Enqueue(ctx, res.Tasks...)
+	enquiry := Enquiry{
+		IdempotencyKey:      key,
+		Body:                raw,
+		Name:                body.Name,
+		Email:               body.Email,
+		Organisation:        body.Organisation,
+		Subject:             body.Subject,
+		EnquiryType:         body.EnquiryType,
+		Service:             body.Service,
+		Message:             body.Message,
+		Locale:              body.Locale,
+		PrivacyAcknowledged: body.PrivacyAcknowledged,
 	}
-	slog.InfoContext(ctx, "contact enquiry received", "request_id", web.RequestID(ctx),
-		"enquiry_id", res.ID.String(), "replayed", res.Replayed)
-	if res.Replayed {
+	created, err := CreateEnquiry(ctx, h.Pool, enquiry, h.Now())
+	if err != nil {
+		web.Error(c, err)
+		return
+	}
+
+	h.Queue.Enqueue(ctx, created.Tasks...)
+	slog.InfoContext(ctx, "contact enquiry received",
+		"request_id", web.RequestID(ctx),
+		"enquiry_id", created.ID.String(),
+		"replayed", created.Replayed,
+	)
+
+	if created.Replayed {
 		c.Header("Idempotent-Replayed", "true")
 	}
-	c.JSON(http.StatusCreated, res.Receipt)
-}
-
-type enquiryListQuery struct {
-	Status string `form:"status" binding:"omitempty,oneof=new handled"`
-	Search string `form:"q" binding:"max=100"`
-	Cursor string `form:"cursor" binding:"max=200"`
-	Limit  *int   `form:"limit" binding:"omitnil,min=1,max=100"`
-}
-
-type enquiryListResponse struct {
-	Items      []enquiryResponse `json:"items"`
-	NextCursor string            `json:"nextCursor,omitempty"`
+	c.JSON(http.StatusCreated, created.Receipt)
 }
 
 func (h *Handler) listEnquiries(c *gin.Context) {
-	var q enquiryListQuery
-	if !web.BindQuery(c, &q) {
+	var query listEnquiriesQuery
+	if !web.BindQuery(c, &query) {
 		return
 	}
-	f := EnquiryFilter{Status: q.Status, Search: q.Search, Cursor: q.Cursor}
-	if q.Limit != nil {
-		f.Limit = *q.Limit
+	ctx := c.Request.Context()
+
+	filter := EnquiryFilter{
+		Status: query.Status,
+		Search: query.Search,
+		Cursor: query.Cursor,
 	}
-	page, err := ListEnquiries(c.Request.Context(), db.New(h.Pool), f)
+	if query.Limit != nil {
+		filter.Limit = *query.Limit
+	}
+	page, err := ListEnquiries(ctx, db.New(h.Pool), filter)
 	if err != nil {
 		web.Error(c, err)
 		return
 	}
-	out := enquiryListResponse{Items: make([]enquiryResponse, len(page.Items)), NextCursor: page.NextCursor}
-	for i, row := range page.Items {
-		out.Items[i] = enquiryView(db.GetContactEnquiryRow(row))
+
+	response := enquiryListResponse{
+		Items:      make([]enquiryResponse, len(page.Items)),
+		NextCursor: page.NextCursor,
 	}
-	c.JSON(http.StatusOK, out)
+	for i, row := range page.Items {
+		response.Items[i] = newEnquiryResponse(db.GetContactEnquiryRow(row))
+	}
+	c.JSON(http.StatusOK, response)
 }
 
 func (h *Handler) getEnquiry(c *gin.Context) {
-	id, ok := web.ParseUUID(c, "enquiryId", c.Param("enquiryId"))
+	enquiryID, ok := web.PathUUID(c, "enquiryId")
 	if !ok {
 		return
 	}
-	e, err := GetEnquiry(c.Request.Context(), db.New(h.Pool), id)
+	ctx := c.Request.Context()
+
+	enquiry, err := GetEnquiry(ctx, db.New(h.Pool), enquiryID)
 	if err != nil {
 		web.Error(c, err)
 		return
 	}
-	c.JSON(http.StatusOK, enquiryView(e))
+
+	c.JSON(http.StatusOK, newEnquiryResponse(enquiry))
 }
 
 // markEnquiryHandled changes nothing the second time.
 func (h *Handler) markEnquiryHandled(c *gin.Context) {
-	id, ok := web.ParseUUID(c, "enquiryId", c.Param("enquiryId"))
+	enquiryID, ok := web.PathUUID(c, "enquiryId")
 	if !ok {
 		return
 	}
-	session, _ := auth.FromContext(c.Request.Context())
-	e, err := MarkHandled(c.Request.Context(), db.New(h.Pool), id, session.User.ID, h.Now())
+	ctx := c.Request.Context()
+
+	session, _ := auth.FromContext(ctx)
+	enquiry, err := MarkHandled(ctx, db.New(h.Pool), enquiryID, session.User.ID, h.Now())
 	if err != nil {
 		web.Error(c, err)
 		return
 	}
-	c.JSON(http.StatusOK, enquiryView(e))
+
+	c.JSON(http.StatusOK, newEnquiryResponse(enquiry))
 }
 
-type enquiryResponse struct {
-	ID           string          `json:"id"`
-	Reference    string          `json:"reference"`
-	Name         string          `json:"name"`
-	Email        string          `json:"email"`
-	Organisation string          `json:"organisation,omitempty"`
-	EnquiryType  string          `json:"enquiryType"`
-	Service      *serviceRefJSON `json:"service,omitempty"`
-	Subject      string          `json:"subject,omitempty"`
-	Message      string          `json:"message"`
-	Locale       string          `json:"locale"`
-	Status       string          `json:"status"`
-	HandledAt    *time.Time      `json:"handledAt,omitempty"`
-	HandledBy    string          `json:"handledBy,omitempty"`
-	CreatedAt    time.Time       `json:"createdAt"`
-}
-
-type serviceRefJSON struct {
-	ID   string          `json:"id"`
-	Slug string          `json:"slug"`
-	Name json.RawMessage `json:"name"`
-}
-
-func enquiryView(e db.GetContactEnquiryRow) enquiryResponse {
-	v := enquiryResponse{
-		ID:           e.ID.String(),
-		Reference:    e.Reference,
-		Name:         e.Name,
-		Email:        e.Email,
-		Organisation: e.Organisation.String,
-		EnquiryType:  e.EnquiryType,
-		Subject:      e.Subject.String,
-		Message:      e.Message,
-		Locale:       e.Locale,
-		Status:       e.Status,
-		HandledBy:    e.HandledBy.String(),
-		CreatedAt:    e.CreatedAt.UTC(),
+func newEnquiryResponse(enquiry db.GetContactEnquiryRow) enquiryResponse {
+	response := enquiryResponse{
+		ID:           enquiry.ID.String(),
+		Reference:    enquiry.Reference,
+		Name:         enquiry.Name,
+		Email:        enquiry.Email,
+		Organisation: enquiry.Organisation.String,
+		EnquiryType:  enquiry.EnquiryType,
+		Subject:      enquiry.Subject.String,
+		Message:      enquiry.Message,
+		Locale:       enquiry.Locale,
+		Status:       enquiry.Status,
+		HandledBy:    enquiry.HandledBy.String(),
+		CreatedAt:    enquiry.CreatedAt.UTC(),
 	}
-	if e.ServiceID.Valid {
-		v.Service = &serviceRefJSON{ID: e.ServiceID.String(), Slug: e.ServiceSlug.String, Name: e.ServiceName}
+	if enquiry.ServiceID.Valid {
+		response.Service = &serviceResponse{
+			ID:   enquiry.ServiceID.String(),
+			Slug: enquiry.ServiceSlug.String,
+			Name: enquiry.ServiceName,
+		}
 	}
-	if e.HandledAt.Valid {
-		v.HandledAt = new(e.HandledAt.Time.UTC())
+	if enquiry.HandledAt.Valid {
+		response.HandledAt = new(enquiry.HandledAt.Time.UTC())
 	}
-	return v
+	return response
 }

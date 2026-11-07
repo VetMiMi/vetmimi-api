@@ -16,6 +16,13 @@ import (
 	"github.com/VetMiMi/vetmimi-api/internal/db"
 )
 
+// Stored is the response a key already holds.
+type Stored struct {
+	ResourceID pgtype.UUID
+	Status     int
+	Body       json.RawMessage
+}
+
 // Key scopes.
 const (
 	PublicAppointment = "public_appointment"
@@ -29,15 +36,7 @@ const Lifetime = 24 * time.Hour
 // deleteBatch bounds one delete, so cleanup never holds a long lock.
 const deleteBatch = 500
 
-// Stored is the response a key already holds.
-type Stored struct {
-	ResourceID pgtype.UUID
-	Status     int
-	Body       json.RawMessage
-}
-
-var errReused = apperr.New(apperr.IdempotencyKeyReused,
-	"The Idempotency-Key was already used with a different body.")
+var errReused = apperr.New(apperr.IdempotencyKeyReused, "The Idempotency-Key was already used with a different body.")
 
 // Begin claims key in scope for body and returns nil when the key is new and
 // the caller should create. When another transaction holds the key, Begin
@@ -45,12 +44,19 @@ var errReused = apperr.New(apperr.IdempotencyKeyReused,
 // idempotency_key_reused for a different one.
 func Begin(ctx context.Context, q db.Querier, scope, key string, body []byte, now time.Time) (*Stored, error) {
 	hash := sha256.Sum256(body)
-	n, err := q.InsertIdempotencyKey(ctx, db.InsertIdempotencyKeyParams{
-		Scope: scope, Key: key, RequestHash: hash[:], CreatedAt: now,
+	inserted, err := q.InsertIdempotencyKey(ctx, db.InsertIdempotencyKeyParams{
+		Scope:       scope,
+		Key:         key,
+		RequestHash: hash[:],
+		CreatedAt:   now,
 	})
-	if err != nil || n == 1 {
+	if err != nil {
 		return nil, err
 	}
+	if inserted == 1 {
+		return nil, nil
+	}
+
 	row, err := q.GetIdempotencyKey(ctx, db.GetIdempotencyKeyParams{Scope: scope, Key: key})
 	if err != nil {
 		return nil, err
@@ -58,7 +64,12 @@ func Begin(ctx context.Context, q db.Querier, scope, key string, body []byte, no
 	if !bytes.Equal(row.RequestHash, hash[:]) {
 		return nil, errReused
 	}
-	return &Stored{ResourceID: row.ResourceID, Status: int(row.ResponseStatus.Int16), Body: row.ResponseBody}, nil
+	stored := &Stored{
+		ResourceID: row.ResourceID,
+		Status:     int(row.ResponseStatus.Int16),
+		Body:       row.ResponseBody,
+	}
+	return stored, nil
 }
 
 // Finish stores the response to key, in the transaction Begin ran in.
@@ -68,8 +79,11 @@ func Finish(ctx context.Context, q db.Querier, scope, key string, resourceID pgt
 		return err
 	}
 	return q.FinishIdempotencyKey(ctx, db.FinishIdempotencyKeyParams{
-		Scope: scope, Key: key, ResourceID: resourceID,
-		ResponseStatus: pgtype.Int2{Int16: int16(status), Valid: true}, ResponseBody: raw,
+		Scope:          scope,
+		Key:            key,
+		ResourceID:     resourceID,
+		ResponseStatus: pgtype.Int2{Int16: int16(status), Valid: true},
+		ResponseBody:   raw,
 	})
 }
 
@@ -78,12 +92,16 @@ func Finish(ctx context.Context, q db.Querier, scope, key string, resourceID pgt
 func DeleteExpired(ctx context.Context, q db.Querier, now time.Time) (int64, error) {
 	var total int64
 	for {
-		n, err := q.DeleteExpiredIdempotencyKeys(ctx, db.DeleteExpiredIdempotencyKeysParams{
-			Before: now.Add(-Lifetime), MaxRows: deleteBatch,
+		deleted, err := q.DeleteExpiredIdempotencyKeys(ctx, db.DeleteExpiredIdempotencyKeysParams{
+			Before:  now.Add(-Lifetime),
+			MaxRows: deleteBatch,
 		})
-		total += n
-		if err != nil || n < deleteBatch {
+		total += deleted
+		if err != nil {
 			return total, err
+		}
+		if deleted < deleteBatch {
+			return total, nil
 		}
 	}
 }

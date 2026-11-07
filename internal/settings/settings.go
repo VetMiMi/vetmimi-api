@@ -8,7 +8,6 @@ import (
 	"encoding/json"
 	"fmt"
 	"maps"
-	"net/mail"
 	"slices"
 	"strconv"
 	"strings"
@@ -25,11 +24,6 @@ import (
 // site_admin. Every role may read the site keys; only booking and site
 // administrators read the booking keys.
 type Group string
-
-const (
-	Booking Group = "booking"
-	Site    Group = "site"
-)
 
 // Localized is text per locale; en is required.
 type Localized struct {
@@ -61,24 +55,36 @@ type Settings struct {
 	updatedAt map[string]time.Time
 }
 
+// Patch is the keys to change, by table key, each with its new JSON value.
+type Patch map[string]json.RawMessage
+
+const (
+	Booking Group = "booking"
+	Site    Group = "site"
+)
+
+// TaskRescheduleReminders is run by comms, which imports this package.
+const TaskRescheduleReminders = "comms:reschedule-reminders"
+
 // Location is the practice timezone, stored as a name so daylight saving
 // follows the date.
-func (s Settings) Location() (*time.Location, error) {
-	return time.LoadLocation(s.Timezone)
+func (settings Settings) Location() (*time.Location, error) {
+	return time.LoadLocation(settings.Timezone)
 }
 
-// CanRead reports whether a user holding roles may read the keys of g.
-func CanRead(roles []string, g Group) bool {
-	return g == Site || auth.HasRole(roles, auth.BookingAdmin)
+// CanRead reports whether a user holding roles may read the keys of group.
+func CanRead(roles []string, group Group) bool {
+	return group == Site || auth.HasRole(roles, auth.BookingAdmin)
 }
 
 // UpdatedAt is the newest change among the keys a user holding roles may
 // read.
-func (s Settings) UpdatedAt(roles []string) time.Time {
+func (settings Settings) UpdatedAt(roles []string) time.Time {
 	var newest time.Time
-	for _, k := range keys {
-		if t := s.updatedAt[k.name]; CanRead(roles, k.group) && t.After(newest) {
-			newest = t
+	for _, setting := range keys {
+		changed := settings.updatedAt[setting.name]
+		if CanRead(roles, setting.group) && changed.After(newest) {
+			newest = changed
 		}
 	}
 	return newest
@@ -90,34 +96,34 @@ func Load(ctx context.Context, q db.Querier) (Settings, error) {
 		return Settings{}, err
 	}
 	values := make(map[string]json.RawMessage, len(rows))
-	s := Settings{updatedAt: make(map[string]time.Time, len(rows))}
-	for _, r := range rows {
-		values[r.Key] = r.Value
-		s.updatedAt[r.Key] = r.UpdatedAt
+	loaded := Settings{updatedAt: make(map[string]time.Time, len(rows))}
+	for _, row := range rows {
+		values[row.Key] = row.Value
+		loaded.updatedAt[row.Key] = row.UpdatedAt
 	}
 	body, err := json.Marshal(values)
 	if err != nil {
 		return Settings{}, err
 	}
-	if err := json.Unmarshal(body, &s); err != nil {
+	err = json.Unmarshal(body, &loaded)
+	if err != nil {
 		return Settings{}, fmt.Errorf("settings: decode the stored values: %w", err)
 	}
-	return s, nil
+	return loaded, nil
 }
-
-// Patch is the keys to change, by table key, each with its new JSON value.
-type Patch map[string]json.RawMessage
-
-// TaskRescheduleReminders is run by comms, which imports this package.
-const TaskRescheduleReminders = "comms:reschedule-reminders"
 
 // RescheduleTasks moves queued reminders when patch changes reminder_hours.
 // The task reads the stored setting, so a repeat is harmless.
 func RescheduleTasks(patch Patch, now time.Time) []queue.Task {
-	if _, ok := patch["reminder_hours"]; !ok {
+	_, changed := patch["reminder_hours"]
+	if !changed {
 		return nil
 	}
-	return []queue.Task{{Type: TaskRescheduleReminders, ID: "reminders:" + strconv.FormatInt(now.UnixNano(), 10)}}
+	task := queue.Task{
+		Type: TaskRescheduleReminders,
+		ID:   "reminders:" + strconv.FormatInt(now.UnixNano(), 10),
+	}
+	return []queue.Task{task}
 }
 
 // Update applies patch for user by and returns the settings after it. The
@@ -128,21 +134,28 @@ func Update(ctx context.Context, q db.Querier, patch Patch, by auth.User, now ti
 		return Settings{}, apperr.Invalid("Change at least one setting.")
 	}
 	names := slices.Sorted(maps.Keys(patch))
-	if err := checkKeys(names, by); err != nil {
-		return Settings{}, err
-	}
-	s, err := decodePatch(patch)
+	err := checkKeys(names, by)
 	if err != nil {
 		return Settings{}, err
 	}
-	if err := checkValues(names, &s); err != nil {
-		return Settings{}, err
-	}
-	body, err := changedValues(s, names)
+	decoded, err := decodePatch(patch)
 	if err != nil {
 		return Settings{}, err
 	}
-	if err := q.UpdateSettings(ctx, db.UpdateSettingsParams{UpdatedBy: by.ID, Now: now, Patch: body}); err != nil {
+	err = checkValues(names, &decoded)
+	if err != nil {
+		return Settings{}, err
+	}
+	body, err := changedValues(decoded, names)
+	if err != nil {
+		return Settings{}, err
+	}
+	err = q.UpdateSettings(ctx, db.UpdateSettingsParams{
+		UpdatedBy: by.ID,
+		Now:       now,
+		Patch:     body,
+	})
+	if err != nil {
 		return Settings{}, err
 	}
 	return Load(ctx, q)
@@ -152,12 +165,12 @@ func Update(ctx context.Context, q db.Querier, patch Patch, by auth.User, now ti
 func checkKeys(names []string, by auth.User) error {
 	var unknown []apperr.FieldError
 	for _, name := range names {
-		k, ok := keyNamed(name)
+		setting, ok := keyNamed(name)
 		if !ok {
 			unknown = append(unknown, apperr.FieldError{Field: "/" + JSONName(name), Message: "is not a setting"})
 			continue
 		}
-		if !mayChange(by.Roles, k.group) {
+		if !mayChange(by.Roles, setting.group) {
 			return apperr.New(apperr.Forbidden, "Your role does not allow this.")
 		}
 	}
@@ -173,21 +186,23 @@ func decodePatch(patch Patch) (Settings, error) {
 	if err != nil {
 		return Settings{}, err
 	}
-	var s Settings
-	dec := json.NewDecoder(bytes.NewReader(body))
-	dec.DisallowUnknownFields()
-	if err := dec.Decode(&s); err != nil {
+	var decoded Settings
+	decoder := json.NewDecoder(bytes.NewReader(body))
+	decoder.DisallowUnknownFields()
+	err = decoder.Decode(&decoded)
+	if err != nil {
 		return Settings{}, apperr.Invalid("Each setting must have its documented type.")
 	}
-	s.ContactEmail = strings.ToLower(s.ContactEmail)
-	return s, nil
+	decoded.ContactEmail = strings.ToLower(decoded.ContactEmail)
+	return decoded, nil
 }
 
-func checkValues(names []string, s *Settings) error {
+func checkValues(names []string, decoded *Settings) error {
 	var wrong []apperr.FieldError
 	for _, name := range names {
-		if k, _ := keyNamed(name); !k.valid(s) {
-			wrong = append(wrong, apperr.FieldError{Field: "/" + JSONName(name), Message: k.rule})
+		setting, _ := keyNamed(name) // checkKeys has refused unknown names
+		if !setting.valid(decoded) {
+			wrong = append(wrong, apperr.FieldError{Field: "/" + JSONName(name), Message: setting.rule})
 		}
 	}
 	if len(wrong) > 0 {
@@ -196,15 +211,16 @@ func checkValues(names []string, s *Settings) error {
 	return nil
 }
 
-// changedValues re-encodes the named keys from s, so what is stored is the
-// checked, normalised value.
-func changedValues(s Settings, names []string) ([]byte, error) {
-	normal, err := json.Marshal(s)
+// changedValues re-encodes the named keys from decoded, so what is stored is
+// the checked, normalised value.
+func changedValues(decoded Settings, names []string) ([]byte, error) {
+	normal, err := json.Marshal(decoded)
 	if err != nil {
 		return nil, err
 	}
 	var all map[string]json.RawMessage
-	if err := json.Unmarshal(normal, &all); err != nil {
+	err = json.Unmarshal(normal, &all)
+	if err != nil {
 		return nil, err
 	}
 	changed := make(map[string]json.RawMessage, len(names))
@@ -212,116 +228,4 @@ func changedValues(s Settings, names []string) ([]byte, error) {
 		changed[name] = all[name]
 	}
 	return json.Marshal(changed)
-}
-
-func mayChange(roles []string, g Group) bool {
-	if g == Site {
-		return auth.HasRole(roles, auth.SiteAdmin)
-	}
-	return auth.HasRole(roles, auth.BookingAdmin)
-}
-
-// Key is the table key for the API's camelCase name of it.
-func Key(jsonName string) string {
-	var b strings.Builder
-	for _, r := range jsonName {
-		if r >= 'A' && r <= 'Z' {
-			b.WriteByte('_')
-			r += 'a' - 'A'
-		}
-		b.WriteRune(r)
-	}
-	return b.String()
-}
-
-// JSONName is the API's camelCase name for a table key.
-func JSONName(key string) string {
-	parts := strings.Split(key, "_")
-	for i := 1; i < len(parts); i++ {
-		if parts[i] != "" {
-			parts[i] = strings.ToUpper(parts[i][:1]) + parts[i][1:]
-		}
-	}
-	return strings.Join(parts, "")
-}
-
-// key is one settings key: who may change it and the rule its value must
-// meet.
-type key struct {
-	name  string
-	group Group
-	valid func(*Settings) bool
-	rule  string
-}
-
-var keys = []key{
-	{"timezone", Site, func(s *Settings) bool { return isTimezone(s.Timezone) }, "must be an IANA timezone name"},
-	oneOf("booking_mode", Booking, func(s *Settings) string { return s.BookingMode }, "request_approval", "instant"),
-	{"public_booking_enabled", Booking, func(*Settings) bool { return true }, ""},
-	between("pending_hold_hours", Booking, func(s *Settings) int { return s.PendingHoldHours }, 1, 168),
-	between("reminder_hours", Booking, func(s *Settings) int { return s.ReminderHours }, 1, 168),
-	between("min_notice_hours", Booking, func(s *Settings) int { return s.MinNoticeHours }, 0, 720),
-	between("max_advance_days", Booking, func(s *Settings) int { return s.MaxAdvanceDays }, 1, 365),
-	between("slot_step_minutes", Booking, func(s *Settings) int { return s.SlotStepMinutes }, 5, 120),
-	between("cancellation_notice_hours", Booking, func(s *Settings) int { return s.CancellationNoticeHours }, 0, 168),
-	between("late_cancellation_fee_percent", Booking, func(s *Settings) int { return s.LateCancellationFeePercent }, 0, 100),
-	{"late_cancellation_first_waived", Booking, func(*Settings) bool { return true }, ""},
-	between("no_show_fee_percent", Booking, func(s *Settings) int { return s.NoShowFeePercent }, 0, 100),
-	oneOf("meeting_link_mode", Booking, func(s *Settings) string { return s.MeetingLinkMode }, "vetmimi_room", "manual_link"),
-	{"payment_methods", Booking, func(s *Settings) bool { return isPaymentMethods(s.PaymentMethods) },
-		"must list bank_transfer or card, each at most once"},
-	oneOf("invoice_timing", Booking, func(s *Settings) string { return s.InvoiceTiming }, "after_session"),
-	between("retention_months", Site, func(s *Settings) int { return s.RetentionMonths }, 6, 120),
-	{"contact_email", Site, func(s *Settings) bool { return isEmail(s.ContactEmail) }, "must be an email address"},
-	{"response_time", Site, func(s *Settings) bool { return s.ResponseTime.En != "" }, "needs en"},
-}
-
-func keyNamed(name string) (key, bool) {
-	i := slices.IndexFunc(keys, func(k key) bool { return k.name == name })
-	if i < 0 {
-		return key{}, false
-	}
-	return keys[i], true
-}
-
-func between(name string, g Group, field func(*Settings) int, lo, hi int) key {
-	return key{name, g, func(s *Settings) bool {
-		v := field(s)
-		return v >= lo && v <= hi
-	}, fmt.Sprintf("must be from %d to %d", lo, hi)}
-}
-
-func oneOf(name string, g Group, field func(*Settings) string, allowed ...string) key {
-	return key{name, g, func(s *Settings) bool {
-		return slices.Contains(allowed, field(s))
-	}, "must be one of " + strings.Join(allowed, ", ")}
-}
-
-// isTimezone refuses "" and "Local", which LoadLocation accepts as UTC and
-// the host's zone.
-func isTimezone(name string) bool {
-	if name == "" || name == "Local" {
-		return false
-	}
-	_, err := time.LoadLocation(name)
-	return err == nil
-}
-
-func isPaymentMethods(methods []string) bool {
-	if len(methods) == 0 {
-		return false
-	}
-	seen := map[string]bool{}
-	for _, m := range methods {
-		if (m != "bank_transfer" && m != "card") || seen[m] {
-			return false
-		}
-		seen[m] = true
-	}
-	return true
-}
-
-func isEmail(s string) bool {
-	a, err := mail.ParseAddress(s)
-	return err == nil && a.Address == s
 }

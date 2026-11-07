@@ -1,7 +1,6 @@
 package booking
 
 import (
-	"context"
 	"time"
 
 	"github.com/jackc/pgx/v5/pgxpool"
@@ -22,9 +21,24 @@ type Handler struct {
 }
 
 var (
-	availabilityLimit = web.Rule{Name: "availability", Limit: 60, Window: time.Minute, By: web.ByVisitorIP}
-	requestLimit      = web.Rule{Name: "booking", Limit: 5, Window: 10 * time.Minute, By: web.ByVisitorIP}
-	manageLimit       = web.Rule{Name: "manage", Limit: 20, Window: time.Hour, By: web.ByToken}
+	availabilityLimit = web.Rule{
+		Name:   "availability",
+		Limit:  60,
+		Window: time.Minute,
+		By:     web.ByVisitorIP,
+	}
+	requestLimit = web.Rule{
+		Name:   "booking",
+		Limit:  5,
+		Window: 10 * time.Minute,
+		By:     web.ByVisitorIP,
+	}
+	manageLimit = web.Rule{
+		Name:   "manage",
+		Limit:  20,
+		Window: time.Hour,
+		By:     web.ByToken,
+	}
 )
 
 func (h *Handler) Routes(r web.Routes) {
@@ -72,16 +86,4 @@ func (h *Handler) Routes(r web.Routes) {
 	admin.PUT("/admin/appointments/:appointmentId/note", h.setAppointmentNote)
 	admin.POST("/admin/appointments/:appointmentId/communications/:communicationId/resend", h.resendCommunication)
 	admin.POST("/admin/appointments/:appointmentId/mark-communicated", h.markCommunicated)
-}
-
-// afterCommit hands the queue what a committed change asks of it and closes a video room it ended.
-func (h *Handler) afterCommit(ctx context.Context, changed Changed) {
-	if h.Queue != nil {
-		h.Queue.Remove(changed.Remove...)
-		h.Queue.Replace(ctx, changed.Replace...)
-		h.Queue.Enqueue(ctx, changed.Tasks...)
-	}
-	if h.Hub != nil {
-		h.Hub.EndRoom(changed.EndedRoom)
-	}
 }
