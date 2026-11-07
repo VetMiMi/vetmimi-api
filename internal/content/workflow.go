@@ -263,11 +263,11 @@ func Retry(ctx context.Context, pool *pgxpool.Pool, id pgtype.UUID, channel stri
 	return result, nil
 }
 
-func (a action) check(post *db.Post) error {
-	if slices.Contains(a.from, post.Status) {
+func (step action) check(post *db.Post) error {
+	if slices.Contains(step.from, post.Status) {
 		return nil
 	}
-	return errTransition(post, a.name)
+	return errTransition(post, step.name)
 }
 
 func errTransition(post *db.Post, name string) error {

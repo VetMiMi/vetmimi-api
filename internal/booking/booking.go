@@ -50,18 +50,18 @@ func PeriodOf(span pgtype.Range[pgtype.Timestamptz]) Period {
 	return Period{Start: span.Lower.Time, End: span.Upper.Time}
 }
 
-func (p Period) tstzrange() pgtype.Range[pgtype.Timestamptz] {
+func (period Period) tstzrange() pgtype.Range[pgtype.Timestamptz] {
 	return pgtype.Range[pgtype.Timestamptz]{
-		Lower:     pgtype.Timestamptz{Time: p.Start, Valid: true},
-		Upper:     pgtype.Timestamptz{Time: p.End, Valid: true},
+		Lower:     pgtype.Timestamptz{Time: period.Start, Valid: true},
+		Upper:     pgtype.Timestamptz{Time: period.End, Valid: true},
 		LowerType: pgtype.Inclusive,
 		UpperType: pgtype.Exclusive,
 		Valid:     true,
 	}
 }
 
-func (p Period) overlaps(other Period) bool {
-	return p.Start.Before(other.End) && other.Start.Before(p.End)
+func (period Period) overlaps(other Period) bool {
+	return period.Start.Before(other.End) && other.Start.Before(period.End)
 }
 
 // refusal turns a constraint PostgreSQL enforced into the error the admin or visitor sees.

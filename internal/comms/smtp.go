@@ -29,7 +29,7 @@ type SMTP struct {
 
 // send returns the Message-ID. SMTP has no idempotency key, so a timeout after
 // the server accepted the message can send it twice.
-func (s *SMTP) send(ctx context.Context, from string, row db.Communication, email Email, now time.Time) (string, error) {
+func (mailer *SMTP) send(ctx context.Context, from string, row db.Communication, email Email, now time.Time) (string, error) {
 	sender, err := mail.ParseAddress(from)
 	if err != nil {
 		return "", err
@@ -44,7 +44,7 @@ func (s *SMTP) send(ctx context.Context, from string, row db.Communication, emai
 	ctx, cancel := context.WithTimeout(ctx, sendTimeout)
 	defer cancel()
 	var dialer net.Dialer
-	conn, err := dialer.DialContext(ctx, "tcp", net.JoinHostPort(s.Host, strconv.Itoa(s.Port)))
+	conn, err := dialer.DialContext(ctx, "tcp", net.JoinHostPort(mailer.Host, strconv.Itoa(mailer.Port)))
 	if err != nil {
 		return "", err
 	}
@@ -55,20 +55,20 @@ func (s *SMTP) send(ctx context.Context, from string, row db.Communication, emai
 		return "", err
 	}
 
-	client, err := smtp.NewClient(conn, s.Host)
+	client, err := smtp.NewClient(conn, mailer.Host)
 	if err != nil {
 		return "", err
 	}
 	defer client.Close()
 	hasTLS, _ := client.Extension("STARTTLS")
 	if hasTLS {
-		err = client.StartTLS(&tls.Config{ServerName: s.Host})
+		err = client.StartTLS(&tls.Config{ServerName: mailer.Host})
 		if err != nil {
 			return "", err
 		}
 	}
 	// PlainAuth refuses to send the password without TLS, except to localhost.
-	err = client.Auth(smtp.PlainAuth("", s.Username, s.Password, s.Host))
+	err = client.Auth(smtp.PlainAuth("", mailer.Username, mailer.Password, mailer.Host))
 	if err != nil {
 		return "", err
 	}

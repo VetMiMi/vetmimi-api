@@ -99,82 +99,82 @@ var logLevels = map[string]slog.Level{
 // Load reads the configuration through getenv (os.Getenv in main, a map in
 // tests). The error names variables and rules, never values: it is logged.
 func Load(getenv func(string) string) (Config, error) {
-	check := loader{getenv: getenv}
+	env := loader{getenv: getenv}
 
-	env := check.withDefault("ENV", envDevelopment)
-	check.production = env == envProduction
+	environment := env.withDefault("ENV", envDevelopment)
+	env.production = environment == envProduction
 
 	config := Config{
-		Env: env,
+		Env: environment,
 
-		DatabaseURL:     check.required("DATABASE_URL"),
-		DatabaseURLTest: check.optional("DATABASE_URL_TEST"),
-		RedisURL:        check.required("REDIS_URL"),
-		RedisURLTest:    check.optional("REDIS_URL_TEST"),
+		DatabaseURL:     env.required("DATABASE_URL"),
+		DatabaseURLTest: env.optional("DATABASE_URL_TEST"),
+		RedisURL:        env.required("REDIS_URL"),
+		RedisURLTest:    env.optional("REDIS_URL_TEST"),
 
-		ServiceKey:           check.required("SERVICE_KEY"),
-		PublicAPIURL:         check.required("PUBLIC_API_URL"),
-		SiteURL:              check.required("SITE_URL"),
-		SiteRevalidateSecret: check.requiredInProduction("SITE_REVALIDATE_SECRET"),
+		ServiceKey:           env.required("SERVICE_KEY"),
+		PublicAPIURL:         env.required("PUBLIC_API_URL"),
+		SiteURL:              env.required("SITE_URL"),
+		SiteRevalidateSecret: env.requiredInProduction("SITE_REVALIDATE_SECRET"),
 
-		EmailProvider: check.withDefault("EMAIL_PROVIDER", EmailResend),
-		EmailFrom:     check.requiredInProduction("EMAIL_FROM"),
+		EmailProvider: env.withDefault("EMAIL_PROVIDER", EmailResend),
+		EmailFrom:     env.requiredInProduction("EMAIL_FROM"),
 
-		MediaS3Endpoint:         check.requiredInProduction("MEDIA_S3_ENDPOINT"),
-		MediaS3Region:           check.withDefault("MEDIA_S3_REGION", "auto"),
-		MediaS3Bucket:           check.requiredInProduction("MEDIA_S3_BUCKET"),
-		MediaS3AccessKey:        check.optional("MEDIA_S3_ACCESS_KEY"),
-		MediaS3SecretKey:        check.optional("MEDIA_S3_SECRET_KEY"),
-		ContainerCredentialsURI: check.optional("AWS_CONTAINER_CREDENTIALS_RELATIVE_URI"),
-		MediaPublicURL:          check.requiredInProduction("MEDIA_PUBLIC_URL"),
+		MediaS3Endpoint:         env.requiredInProduction("MEDIA_S3_ENDPOINT"),
+		MediaS3Region:           env.withDefault("MEDIA_S3_REGION", "auto"),
+		MediaS3Bucket:           env.requiredInProduction("MEDIA_S3_BUCKET"),
+		MediaS3AccessKey:        env.optional("MEDIA_S3_ACCESS_KEY"),
+		MediaS3SecretKey:        env.optional("MEDIA_S3_SECRET_KEY"),
+		ContainerCredentialsURI: env.optional("AWS_CONTAINER_CREDENTIALS_RELATIVE_URI"),
+		MediaPublicURL:          env.requiredInProduction("MEDIA_PUBLIC_URL"),
 
-		TURNHost:   check.requiredInProduction("TURN_HOST"),
-		TURNSecret: check.requiredInProduction("TURN_SECRET"),
+		TURNHost:   env.requiredInProduction("TURN_HOST"),
+		TURNSecret: env.requiredInProduction("TURN_SECRET"),
 
-		MetaAppID:        check.optional("META_APP_ID"),
-		MetaAppSecret:    check.optional("META_APP_SECRET"),
-		MetaConfigID:     check.optional("META_CONFIG_ID"),
-		MetaGraphVersion: check.withDefault("META_GRAPH_VERSION", "v26.0"),
+		MetaAppID:        env.optional("META_APP_ID"),
+		MetaAppSecret:    env.optional("META_APP_SECRET"),
+		MetaConfigID:     env.optional("META_CONFIG_ID"),
+		MetaGraphVersion: env.withDefault("META_GRAPH_VERSION", "v26.0"),
 
-		LinkedInClientID:     check.optional("LINKEDIN_CLIENT_ID"),
-		LinkedInClientSecret: check.optional("LINKEDIN_CLIENT_SECRET"),
-		LinkedInAPIVersion:   check.withDefault("LINKEDIN_API_VERSION", "202609"),
+		LinkedInClientID:     env.optional("LINKEDIN_CLIENT_ID"),
+		LinkedInClientSecret: env.optional("LINKEDIN_CLIENT_SECRET"),
+		LinkedInAPIVersion:   env.withDefault("LINKEDIN_API_VERSION", "202609"),
 
-		GeminiAPIKey: check.optional("GEMINI_API_KEY"),
-		GeminiModel:  check.withDefault("GEMINI_MODEL", "gemini-flash-latest"),
+		GeminiAPIKey: env.optional("GEMINI_API_KEY"),
+		GeminiModel:  env.withDefault("GEMINI_MODEL", "gemini-flash-latest"),
 
-		MetricsAddr: check.optional("METRICS_ADDR"),
+		MetricsAddr: env.optional("METRICS_ADDR"),
 	}
-	port := check.withDefault("PORT", "8080")
-	level := check.withDefault("LOG_LEVEL", "info")
-	signingSecret := check.required("SIGNING_SECRET")
-	totpKey := check.required("TOTP_ENCRYPTION_KEY")
+	port := env.withDefault("PORT", "8080")
+	level := env.withDefault("LOG_LEVEL", "info")
+	signingSecret := env.required("SIGNING_SECRET")
+	totpKey := env.required("TOTP_ENCRYPTION_KEY")
 
-	if env != envDevelopment && env != envProduction {
-		check.fail("ENV", "must be development or production")
+	if environment != envDevelopment && environment != envProduction {
+		env.fail("ENV", "must be development or production")
 	}
-	config.Port = check.port("PORT", port)
-	config.LogLevel = check.logLevel(level)
-	check.absoluteURL("SITE_URL", config.SiteURL)
-	check.absoluteURL("PUBLIC_API_URL", config.PublicAPIURL)
-	config.SigningSecret = check.signingSecret(signingSecret)
-	config.TOTPEncryptionKey = check.totpKey(totpKey)
-	check.serviceKey(config.ServiceKey)
-	check.emailAddress("EMAIL_FROM", config.EmailFrom)
-	check.email(&config)
-	check.hostPort("METRICS_ADDR", config.MetricsAddr)
+	config.Port = env.port("PORT", port)
+	config.LogLevel = env.logLevel(level)
+	env.absoluteURL("SITE_URL", config.SiteURL)
+	env.absoluteURL("PUBLIC_API_URL", config.PublicAPIURL)
+	config.SigningSecret = env.signingSecret(signingSecret)
+	config.TOTPEncryptionKey = env.totpKey(totpKey)
+	env.serviceKey(config.ServiceKey)
+	env.emailAddress("EMAIL_FROM", config.EmailFrom)
+	env.email(&config)
+	env.hostPort("METRICS_ADDR", config.MetricsAddr)
 	if (config.MetaAppID == "") != (config.MetaAppSecret == "") {
-		check.fail("META_APP_ID", "and META_APP_SECRET must be set together")
+		env.fail("META_APP_ID", "and META_APP_SECRET must be set together")
 	}
 	if (config.MediaS3AccessKey == "") != (config.MediaS3SecretKey == "") {
-		check.fail("MEDIA_S3_ACCESS_KEY", "and MEDIA_S3_SECRET_KEY must be set together")
+		env.fail("MEDIA_S3_ACCESS_KEY", "and MEDIA_S3_SECRET_KEY must be set together")
 	}
 	if (config.LinkedInClientID == "") != (config.LinkedInClientSecret == "") {
-		check.fail("LINKEDIN_CLIENT_ID", "and LINKEDIN_CLIENT_SECRET must be set together")
+		env.fail("LINKEDIN_CLIENT_ID", "and LINKEDIN_CLIENT_SECRET must be set together")
 	}
 
-	if len(check.problems) > 0 {
-		return Config{}, errors.New("invalid configuration: " + strings.Join(check.problems, "; "))
+	if len(env.problems) > 0 {
+		return Config{}, errors.New("invalid configuration: " + strings.Join(env.problems, "; "))
 	}
 	return config, nil
 }
@@ -183,139 +183,139 @@ func (config Config) Production() bool {
 	return config.Env == envProduction
 }
 
-func (l *loader) fail(name, rule string) {
-	l.problems = append(l.problems, name+" "+rule)
+func (env *loader) fail(name, rule string) {
+	env.problems = append(env.problems, name+" "+rule)
 }
 
-func (l *loader) optional(name string) string {
-	return l.getenv(name)
+func (env *loader) optional(name string) string {
+	return env.getenv(name)
 }
 
-func (l *loader) withDefault(name, fallback string) string {
-	value := l.getenv(name)
+func (env *loader) withDefault(name, fallback string) string {
+	value := env.getenv(name)
 	if value != "" {
 		return value
 	}
 	return fallback
 }
 
-func (l *loader) required(name string) string {
-	value := l.getenv(name)
+func (env *loader) required(name string) string {
+	value := env.getenv(name)
 	if value == "" {
-		l.fail(name, "is required")
+		env.fail(name, "is required")
 	}
 	return value
 }
 
 // requiredInProduction covers mail, media and TURN: development runs without
 // them, but a live site must not silently drop mail or video.
-func (l *loader) requiredInProduction(name string) string {
-	if l.production {
-		return l.required(name)
+func (env *loader) requiredInProduction(name string) string {
+	if env.production {
+		return env.required(name)
 	}
-	return l.optional(name)
+	return env.optional(name)
 }
 
-func (l *loader) email(config *Config) {
-	config.ResendAPIKey = l.optional("RESEND_API_KEY")
-	config.SMTPHost = l.optional("SMTP_HOST")
-	smtpPort := l.withDefault("SMTP_PORT", "587")
-	config.SMTPUsername = l.optional("SMTP_USERNAME")
-	config.SMTPPassword = l.optional("SMTP_PASSWORD")
+func (env *loader) email(config *Config) {
+	config.ResendAPIKey = env.optional("RESEND_API_KEY")
+	config.SMTPHost = env.optional("SMTP_HOST")
+	smtpPort := env.withDefault("SMTP_PORT", "587")
+	config.SMTPUsername = env.optional("SMTP_USERNAME")
+	config.SMTPPassword = env.optional("SMTP_PASSWORD")
 
 	switch config.EmailProvider {
 	case EmailResend:
-		if l.production && config.ResendAPIKey == "" {
-			l.fail("RESEND_API_KEY", "is required")
+		if env.production && config.ResendAPIKey == "" {
+			env.fail("RESEND_API_KEY", "is required")
 		}
 	case EmailSMTP:
-		config.SMTPPort = l.port("SMTP_PORT", smtpPort)
-		l.requiredForSMTP("SMTP_HOST", config.SMTPHost)
-		l.requiredForSMTP("SMTP_USERNAME", config.SMTPUsername)
-		l.requiredForSMTP("SMTP_PASSWORD", config.SMTPPassword)
+		config.SMTPPort = env.port("SMTP_PORT", smtpPort)
+		env.requiredForSMTP("SMTP_HOST", config.SMTPHost)
+		env.requiredForSMTP("SMTP_USERNAME", config.SMTPUsername)
+		env.requiredForSMTP("SMTP_PASSWORD", config.SMTPPassword)
 	default:
-		l.fail("EMAIL_PROVIDER", "must be resend or smtp")
+		env.fail("EMAIL_PROVIDER", "must be resend or smtp")
 	}
 }
 
-func (l *loader) requiredForSMTP(name, value string) {
+func (env *loader) requiredForSMTP(name, value string) {
 	if value == "" {
-		l.fail(name, "is required when EMAIL_PROVIDER is smtp")
+		env.fail(name, "is required when EMAIL_PROVIDER is smtp")
 	}
 }
 
-func (l *loader) port(name, value string) int {
+func (env *loader) port(name, value string) int {
 	port, ok := parsePort(value)
 	if !ok {
-		l.fail(name, "must be a port number from 1 to 65535")
+		env.fail(name, "must be a port number from 1 to 65535")
 	}
 	return port
 }
 
-func (l *loader) logLevel(value string) slog.Level {
+func (env *loader) logLevel(value string) slog.Level {
 	level, ok := logLevels[value]
 	if !ok {
-		l.fail("LOG_LEVEL", "must be debug, info, warn or error")
+		env.fail("LOG_LEVEL", "must be debug, info, warn or error")
 	}
 	return level
 }
 
-func (l *loader) absoluteURL(name, value string) {
+func (env *loader) absoluteURL(name, value string) {
 	if value == "" {
 		return
 	}
 	parsed, err := url.Parse(value)
 	switch {
 	case err != nil || !parsed.IsAbs() || parsed.Host == "":
-		l.fail(name, "must be an absolute URL")
-	case l.production && parsed.Scheme != "https":
-		l.fail(name, "must use https in production")
+		env.fail(name, "must be an absolute URL")
+	case env.production && parsed.Scheme != "https":
+		env.fail(name, "must use https in production")
 	}
 }
 
-func (l *loader) signingSecret(value string) []byte {
+func (env *loader) signingSecret(value string) []byte {
 	if value != "" && len(value) < 32 {
-		l.fail("SIGNING_SECRET", "must be at least 32 bytes")
+		env.fail("SIGNING_SECRET", "must be at least 32 bytes")
 	}
 	return []byte(value)
 }
 
-func (l *loader) totpKey(value string) []byte {
+func (env *loader) totpKey(value string) []byte {
 	if value == "" {
 		return nil
 	}
 	key, err := base64.StdEncoding.DecodeString(value)
 	if err != nil || len(key) != 32 {
-		l.fail("TOTP_ENCRYPTION_KEY", "must be standard base64 of exactly 32 bytes")
+		env.fail("TOTP_ENCRYPTION_KEY", "must be standard base64 of exactly 32 bytes")
 	}
 	return key
 }
 
 // serviceKey is length-checked only in production, so a local key can be short.
-func (l *loader) serviceKey(value string) {
-	if l.production && value != "" && utf8.RuneCountInString(value) < 32 {
-		l.fail("SERVICE_KEY", "must be at least 32 characters in production")
+func (env *loader) serviceKey(value string) {
+	if env.production && value != "" && utf8.RuneCountInString(value) < 32 {
+		env.fail("SERVICE_KEY", "must be at least 32 characters in production")
 	}
 }
 
-func (l *loader) emailAddress(name, value string) {
+func (env *loader) emailAddress(name, value string) {
 	if value == "" {
 		return
 	}
 	_, err := mail.ParseAddress(value)
 	if err != nil {
-		l.fail(name, "must be an email address such as VetMiMi <hello@example.com>")
+		env.fail(name, "must be an email address such as VetMiMi <hello@example.com>")
 	}
 }
 
-func (l *loader) hostPort(name, value string) {
+func (env *loader) hostPort(name, value string) {
 	if value == "" {
 		return
 	}
 	_, port, err := net.SplitHostPort(value)
 	_, ok := parsePort(port)
 	if err != nil || !ok {
-		l.fail(name, "must be host:port")
+		env.fail(name, "must be host:port")
 	}
 }
 

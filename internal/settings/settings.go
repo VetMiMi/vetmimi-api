@@ -68,8 +68,8 @@ const TaskRescheduleReminders = "comms:reschedule-reminders"
 
 // Location is the practice timezone, stored as a name so daylight saving
 // follows the date.
-func (s Settings) Location() (*time.Location, error) {
-	return time.LoadLocation(s.Timezone)
+func (settings Settings) Location() (*time.Location, error) {
+	return time.LoadLocation(settings.Timezone)
 }
 
 // CanRead reports whether a user holding roles may read the keys of group.
@@ -79,10 +79,10 @@ func CanRead(roles []string, group Group) bool {
 
 // UpdatedAt is the newest change among the keys a user holding roles may
 // read.
-func (s Settings) UpdatedAt(roles []string) time.Time {
+func (settings Settings) UpdatedAt(roles []string) time.Time {
 	var newest time.Time
 	for _, setting := range keys {
-		changed := s.updatedAt[setting.name]
+		changed := settings.updatedAt[setting.name]
 		if CanRead(roles, setting.group) && changed.After(newest) {
 			newest = changed
 		}

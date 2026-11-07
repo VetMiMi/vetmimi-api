@@ -159,29 +159,29 @@ func (w *Worker) logTask(next asynq.Handler) asynq.Handler {
 	})
 }
 
-func (o ownConnections) MakeRedisClient() any {
-	options := *o.options
+func (connections ownConnections) MakeRedisClient() any {
+	options := *connections.options
 	return redis.NewClient(&options)
 }
 
-func (l asynqLogger) Debug(args ...any) {
-	l.log.Debug(fmt.Sprint(args...))
+func (logger asynqLogger) Debug(args ...any) {
+	logger.log.Debug(fmt.Sprint(args...))
 }
 
-func (l asynqLogger) Info(args ...any) {
-	l.log.Info(fmt.Sprint(args...))
+func (logger asynqLogger) Info(args ...any) {
+	logger.log.Info(fmt.Sprint(args...))
 }
 
-func (l asynqLogger) Warn(args ...any) {
-	l.log.Warn(fmt.Sprint(args...))
+func (logger asynqLogger) Warn(args ...any) {
+	logger.log.Warn(fmt.Sprint(args...))
 }
 
-func (l asynqLogger) Error(args ...any) {
-	l.log.Error(fmt.Sprint(args...))
+func (logger asynqLogger) Error(args ...any) {
+	logger.log.Error(fmt.Sprint(args...))
 }
 
 // Fatal honours asynq's contract that it does not return.
-func (l asynqLogger) Fatal(args ...any) {
-	l.log.Error(fmt.Sprint(args...))
+func (logger asynqLogger) Fatal(args ...any) {
+	logger.log.Error(fmt.Sprint(args...))
 	os.Exit(1)
 }

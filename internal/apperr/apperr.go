@@ -97,11 +97,11 @@ func (code Code) Title() string {
 	return code.lookup().title
 }
 
-func (e *Error) Error() string {
-	if e.Detail == "" {
-		return string(e.Code)
+func (failure *Error) Error() string {
+	if failure.Detail == "" {
+		return string(failure.Code)
 	}
-	return string(e.Code) + ": " + e.Detail
+	return string(failure.Code) + ": " + failure.Detail
 }
 
 func New(code Code, detail string) *Error {

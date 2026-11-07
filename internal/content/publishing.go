@@ -29,8 +29,8 @@ type ChannelError struct {
 	Transient bool
 }
 
-func (e *ChannelError) Error() string {
-	return "content: channel not posted: " + e.Reason
+func (failure *ChannelError) Error() string {
+	return "content: channel not posted: " + failure.Reason
 }
 
 var ErrNotConnected = &ChannelError{Reason: "not_connected"}

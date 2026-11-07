@@ -37,16 +37,16 @@ func New(rdb *redis.Client, prefix string, now clock.Now) *Limiter {
 // within limit; if not, retryAfter is the time until the next window. Redis
 // keeps only a hash of subject. An error means Redis did not answer in time;
 // the caller decides whether to let the request through.
-func (l *Limiter) Allow(ctx context.Context, group, subject string, limit int, window time.Duration) (allowed bool, retryAfter time.Duration, err error) {
-	now := l.now()
+func (limiter *Limiter) Allow(ctx context.Context, group, subject string, limit int, window time.Duration) (allowed bool, retryAfter time.Duration, err error) {
+	now := limiter.now()
 	start := now.Truncate(window)
-	key := fmt.Sprintf("%srl:%s:%s:%d", l.prefix, group, hashSubject(subject), start.Unix())
+	key := fmt.Sprintf("%srl:%s:%s:%d", limiter.prefix, group, hashSubject(subject), start.Unix())
 
 	ctx, cancel := context.WithTimeout(ctx, timeout)
 	defer cancel()
 	var count *redis.IntCmd
 	// One transaction, so a counter is never left without its expiry.
-	_, err = l.rdb.TxPipelined(ctx, func(pipe redis.Pipeliner) error {
+	_, err = limiter.rdb.TxPipelined(ctx, func(pipe redis.Pipeliner) error {
 		count = pipe.Incr(ctx, key)
 		pipe.Expire(ctx, key, window)
 		return nil

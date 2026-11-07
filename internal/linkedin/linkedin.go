@@ -52,8 +52,8 @@ type apiError struct {
 	OAuth  string
 }
 
-func (e *apiError) Error() string {
-	return fmt.Sprintf("linkedin: answered %d, code %d %s", e.Status, e.Code, e.OAuth)
+func (failure *apiError) Error() string {
+	return fmt.Sprintf("linkedin: answered %d, code %d %s", failure.Status, failure.Code, failure.OAuth)
 }
 
 func New(cfg config.Config, pool *pgxpool.Pool, tokens *secretbox.Box, log *slog.Logger) *Connector {

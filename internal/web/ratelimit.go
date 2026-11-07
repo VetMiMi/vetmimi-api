@@ -65,14 +65,14 @@ func NewLimiter(counter *ratelimit.Limiter) *Limiter {
 	return &Limiter{counter: counter}
 }
 
-func (l *Limiter) Limit(rule Rule) gin.HandlerFunc {
+func (limiter *Limiter) Limit(rule Rule) gin.HandlerFunc {
 	return func(c *gin.Context) {
 		ctx := c.Request.Context()
 		allowed := false
 		var wait time.Duration
 		err := errNoCounter
-		if l.counter != nil {
-			allowed, wait, err = l.counter.Allow(ctx, rule.Name, rule.By(c), rule.Limit, rule.Window)
+		if limiter.counter != nil {
+			allowed, wait, err = limiter.counter.Allow(ctx, rule.Name, rule.By(c), rule.Limit, rule.Window)
 		}
 
 		if err != nil {

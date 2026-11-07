@@ -53,8 +53,8 @@ type apiError struct {
 	Message string
 }
 
-func (e *apiError) Error() string {
-	return fmt.Sprintf("meta: graph answered %d, code %d: %s", e.Status, e.Code, e.Message)
+func (failure *apiError) Error() string {
+	return fmt.Sprintf("meta: graph answered %d, code %d: %s", failure.Status, failure.Code, failure.Message)
 }
 
 func New(cfg config.Config, pool *pgxpool.Pool, tokens *secretbox.Box, log *slog.Logger) *Connector {

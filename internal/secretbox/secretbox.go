@@ -32,20 +32,20 @@ func New(key []byte) (*Box, error) {
 	return &Box{aead: aead}, nil
 }
 
-func (b *Box) Seal(plain []byte) ([]byte, error) {
-	nonce := make([]byte, b.aead.NonceSize())
+func (box *Box) Seal(plain []byte) ([]byte, error) {
+	nonce := make([]byte, box.aead.NonceSize())
 	_, err := rand.Read(nonce)
 	if err != nil {
 		return nil, err
 	}
-	return b.aead.Seal(nonce, nonce, plain, nil), nil
+	return box.aead.Seal(nonce, nonce, plain, nil), nil
 }
 
 // Open fails if sealed was altered or sealed under another key.
-func (b *Box) Open(sealed []byte) ([]byte, error) {
-	size := b.aead.NonceSize()
+func (box *Box) Open(sealed []byte) ([]byte, error) {
+	size := box.aead.NonceSize()
 	if len(sealed) < size {
 		return nil, errors.New("secretbox: sealed value is too short")
 	}
-	return b.aead.Open(nil, sealed[:size], sealed[size:], nil)
+	return box.aead.Open(nil, sealed[:size], sealed[size:], nil)
 }

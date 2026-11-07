@@ -79,20 +79,20 @@ func Sessions(t *testing.T) *auth.Sessions {
 }
 
 // Public calls as the website's server does, with the service key and a visitor address.
-func (a *API) Public(method, path, body string, headers ...string) *httptest.ResponseRecorder {
-	a.visitors++
-	visitorIP := fmt.Sprintf("198.51.%d.%d", a.visitors/250, a.visitors%250+1)
+func (api *API) Public(method, path, body string, headers ...string) *httptest.ResponseRecorder {
+	api.visitors++
+	visitorIP := fmt.Sprintf("198.51.%d.%d", api.visitors/250, api.visitors%250+1)
 	headers = append([]string{"X-Service-Key", ServiceKey, "X-Visitor-IP", visitorIP}, headers...)
-	return a.Send(method, path, body, headers...)
+	return api.Send(method, path, body, headers...)
 }
 
 // Admin calls as the signed-in user whose session token is token.
-func (a *API) Admin(method, path, token, body string) *httptest.ResponseRecorder {
-	return a.Send(method, path, body, "Authorization", "Bearer "+token)
+func (api *API) Admin(method, path, token, body string) *httptest.ResponseRecorder {
+	return api.Send(method, path, body, "Authorization", "Bearer "+token)
 }
 
 // Send makes a request with headers given as name, value pairs.
-func (a *API) Send(method, path, body string, headers ...string) *httptest.ResponseRecorder {
+func (api *API) Send(method, path, body string, headers ...string) *httptest.ResponseRecorder {
 	var reader io.Reader
 	if body != "" {
 		reader = bytes.NewBufferString(body)
@@ -103,7 +103,7 @@ func (a *API) Send(method, path, body string, headers ...string) *httptest.Respo
 		request.Header.Set(headers[i], headers[i+1])
 	}
 	response := httptest.NewRecorder()
-	a.Router.ServeHTTP(response, request)
+	api.Router.ServeHTTP(response, request)
 	return response
 }
 

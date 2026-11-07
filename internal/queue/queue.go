@@ -53,55 +53,55 @@ func New(rdb *redis.Client, log *slog.Logger) *Queue {
 
 // Enqueue adds tasks and only logs a failure: the request has already
 // succeeded, and the sweepers rebuild a lost task from PostgreSQL.
-func (q *Queue) Enqueue(ctx context.Context, tasks ...Task) {
-	if q == nil {
+func (queue *Queue) Enqueue(ctx context.Context, tasks ...Task) {
+	if queue == nil {
 		return
 	}
 	for _, task := range tasks {
-		err := q.enqueue(ctx, task)
+		err := queue.enqueue(ctx, task)
 		if err != nil && !errors.Is(err, asynq.ErrTaskIDConflict) {
-			q.log.Error("enqueue_failed", "task", task.Type, "task_id", task.ID, "err", err)
+			queue.log.Error("enqueue_failed", "task", task.Type, "task_id", task.ID, "err", err)
 		}
 	}
 }
 
 // Replace deletes any waiting task with the same id first, so a task that
 // moved in time runs at its new time. A running task is left alone.
-func (q *Queue) Replace(ctx context.Context, tasks ...Task) {
-	q.Remove(tasks...)
-	q.Enqueue(ctx, tasks...)
+func (queue *Queue) Replace(ctx context.Context, tasks ...Task) {
+	queue.Remove(tasks...)
+	queue.Enqueue(ctx, tasks...)
 }
 
 // Remove deletes the waiting tasks with these ids, ignoring any not there.
 // A failure is only logged: every handler re-checks its row.
-func (q *Queue) Remove(tasks ...Task) {
-	if q == nil {
+func (queue *Queue) Remove(tasks ...Task) {
+	if queue == nil {
 		return
 	}
 	for _, task := range tasks {
-		err := q.inspector.DeleteTask(q.queueName(task), task.ID)
+		err := queue.inspector.DeleteTask(queue.queueName(task), task.ID)
 		if err != nil && !errors.Is(err, asynq.ErrTaskNotFound) && !errors.Is(err, asynq.ErrQueueNotFound) {
-			q.log.Error("remove_failed", "task", task.Type, "task_id", task.ID, "err", err)
+			queue.log.Error("remove_failed", "task", task.Type, "task_id", task.ID, "err", err)
 		}
 	}
 }
 
-func (q *Queue) enqueue(ctx context.Context, task Task) error {
+func (queue *Queue) enqueue(ctx context.Context, task Task) error {
 	payload, err := json.Marshal(task.Payload)
 	if err != nil {
 		return err
 	}
-	options := []asynq.Option{asynq.Queue(q.queueName(task))}
+	options := []asynq.Option{asynq.Queue(queue.queueName(task))}
 	if task.ID != "" {
 		options = append(options, asynq.TaskID(task.ID))
 	}
 	if !task.ProcessAt.IsZero() {
 		options = append(options, asynq.ProcessAt(task.ProcessAt))
 	}
-	_, err = q.client.EnqueueContext(ctx, asynq.NewTask(task.Type, payload), options...)
+	_, err = queue.client.EnqueueContext(ctx, asynq.NewTask(task.Type, payload), options...)
 	return err
 }
 
-func (q *Queue) queueName(task Task) string {
-	return q.ns + cmp.Or(task.Queue, Default)
+func (queue *Queue) queueName(task Task) string {
+	return queue.ns + cmp.Or(task.Queue, Default)
 }

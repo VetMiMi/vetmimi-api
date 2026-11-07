@@ -73,8 +73,8 @@ const (
 
 var Statuses = []Status{StatusQueued, StatusSent, StatusFailed, StatusCancelled}
 
-func (k Kind) Audience() Audience {
-	if strings.HasPrefix(string(k), "practitioner_") {
+func (kind Kind) Audience() Audience {
+	if strings.HasPrefix(string(kind), "practitioner_") {
 		return Practitioner
 	}
 	return Visitor
