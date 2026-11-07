@@ -18,8 +18,9 @@ import (
 
 const (
 	MaxUploadBytes = 20 << 20
-	// maxPixels stops a small file from claiming a huge canvas (~200 MB decoded).
-	maxPixels = 50_000_000
+	// maxPixels keeps one decoded image, and the upright copy a rotated phone
+	// photo needs, within the api container's 192 MB (deploy/compose).
+	maxPixels = 16_000_000
 	// Every stored file is a JPEG: the standard library has no WebP encoder.
 	webQuality      = 82
 	originalQuality = 90
@@ -28,13 +29,13 @@ const (
 // webWidths are the web sizes made from each image, never wider than it.
 var webWidths = []int{1600, 800, 400}
 
-// decoding allows one image in memory at a time: a 50-megapixel photo
-// decodes to about 200 MB and the live host has 2 GB.
+// decoding allows one image in memory at a time: a 16-megapixel photo
+// turned upright takes about 90 MB.
 var decoding = make(chan struct{}, 1)
 
 var (
 	errNotAnImage = apperr.New(apperr.UnsupportedMediaType, "Upload a JPEG, PNG or WebP image.")
-	errTooManyPx  = apperr.New(apperr.PayloadTooLarge, "The image is over 50 megapixels.")
+	errTooManyPx  = apperr.New(apperr.PayloadTooLarge, "The image is over 16 megapixels.")
 )
 
 // encoded is an image re-encoded for storage. Re-encoding drops all
