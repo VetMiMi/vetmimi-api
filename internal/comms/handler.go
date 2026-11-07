@@ -17,7 +17,12 @@ type Handler struct {
 	Now   clock.Now
 }
 
-var enquiryLimit = web.Rule{Name: "contact", Limit: 5, Window: time.Hour, By: web.ByVisitorIP}
+var enquiryLimit = web.Rule{
+	Name:   "contact",
+	Limit:  5,
+	Window: time.Hour,
+	By:     web.ByVisitorIP,
+}
 
 func (h *Handler) Routes(r web.Routes) {
 	r.Public.POST("/public/contact-enquiries", r.Limit(enquiryLimit), h.createEnquiry)

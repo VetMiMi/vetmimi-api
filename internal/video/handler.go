@@ -19,8 +19,18 @@ type Handler struct {
 }
 
 var (
-	sessionLimit = web.Rule{Name: "video-session", Limit: 30, Window: time.Minute, By: web.ByToken}
-	roomLimit    = web.Rule{Name: "room", Limit: 20, Window: time.Minute, By: byRoom}
+	sessionLimit = web.Rule{
+		Name:   "video-session",
+		Limit:  30,
+		Window: time.Minute,
+		By:     web.ByToken,
+	}
+	roomLimit = web.Rule{
+		Name:   "room",
+		Limit:  20,
+		Window: time.Minute,
+		By:     byRoom,
+	}
 )
 
 func (h *Handler) Routes(r web.Routes) {
