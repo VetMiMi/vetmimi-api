@@ -19,6 +19,24 @@ import (
 	"github.com/VetMiMi/vetmimi-api/internal/listing"
 )
 
+// Description is an image's alt text, as localized JSON ({"en": …, "my": …}), and credit.
+type Description struct {
+	Alt    json.RawMessage
+	Credit string
+}
+
+// Filter narrows List; empty fields do not filter.
+type Filter struct {
+	Search string
+	Cursor string
+	Limit  int
+}
+
+type Page struct {
+	Items      []db.Media
+	NextCursor string
+}
+
 var (
 	errNotFound   = apperr.New(apperr.NotFound, "No media item has this id.")
 	errStale      = apperr.New(apperr.StaleVersion, "The media item changed since it was read; reload it.")
@@ -28,15 +46,9 @@ var (
 	errEmptyImage = apperr.Invalid("No image was uploaded.", apperr.FieldError{Field: "file", Message: "is required"})
 )
 
-// Description is an image's alt text, as localized JSON ({"en": …, "my": …}), and credit.
-type Description struct {
-	Alt    json.RawMessage
-	Credit string
-}
-
 // Upload stores a new image. The row and the objects are saved together or not at all.
-func Upload(ctx context.Context, pool *pgxpool.Pool, store *Store, data []byte, d Description,
-	by pgtype.UUID, now time.Time) (db.Media, error) {
+func Upload(ctx context.Context, pool *pgxpool.Pool, store *Store, data []byte, description Description,
+	uploadedBy pgtype.UUID, now time.Time) (db.Media, error) {
 	switch {
 	case store == nil:
 		return db.Media{}, errNoStorage
@@ -45,72 +57,69 @@ func Upload(ctx context.Context, pool *pgxpool.Pool, store *Store, data []byte, 
 	case len(data) > MaxUploadBytes:
 		return db.Media{}, errTooLarge
 	}
-	img, err := encode(ctx, data)
+	image, err := encode(ctx, data)
 	if err != nil {
 		return db.Media{}, err
 	}
 
-	var out db.Media
-	err = pgx.BeginFunc(ctx, pool, func(tx pgx.Tx) error {
-		out, err = db.New(tx).CreateMedia(ctx, db.CreateMediaParams{
-			Width: int32(img.width), Height: int32(img.height), Widths: img.widths, ByteSize: int64(len(data)),
-			Alt: d.Alt, Credit: optionalText(d.Credit), UploadedBy: by, Now: now,
-		})
-		if err != nil {
-			return err
-		}
-		if err := putAll(ctx, store, out.ID, img); err != nil {
-			// The row is rolled back, so remove the objects already stored.
-			_ = store.remove(context.WithoutCancel(ctx), keys(out.ID, img.widths))
-			return err
-		}
-		return nil
-	})
-	return out, err
-}
+	tx, err := pool.Begin(ctx)
+	if err != nil {
+		return db.Media{}, err
+	}
+	defer tx.Rollback(ctx)
+	q := db.New(tx)
 
-func putAll(ctx context.Context, store *Store, id pgtype.UUID, img encoded) error {
-	if err := store.put(ctx, originalKey(id), img.original); err != nil {
-		return err
+	item, err := q.CreateMedia(ctx, db.CreateMediaParams{
+		Width:      int32(image.width),
+		Height:     int32(image.height),
+		Widths:     image.widths,
+		ByteSize:   int64(len(data)),
+		Alt:        description.Alt,
+		Credit:     optionalText(description.Credit),
+		UploadedBy: uploadedBy,
+		Now:        now,
+	})
+	if err != nil {
+		return db.Media{}, err
 	}
-	for _, w := range img.widths {
-		if err := store.put(ctx, publicKey(id, w), img.sizes[w]); err != nil {
-			return err
-		}
+	err = putAll(ctx, store, item.ID, image)
+	if err != nil {
+		// The row is rolled back, so remove the objects already stored.
+		_ = store.remove(context.WithoutCancel(ctx), keys(item.ID, image.widths))
+		return db.Media{}, err
 	}
-	return nil
+
+	err = tx.Commit(ctx)
+	if err != nil {
+		return db.Media{}, err
+	}
+	return item, nil
 }
 
 func Get(ctx context.Context, q db.Querier, id pgtype.UUID) (db.Media, error) {
-	m, err := q.GetMedia(ctx, id)
+	item, err := q.GetMedia(ctx, id)
 	if errors.Is(err, pgx.ErrNoRows) {
 		return db.Media{}, errNotFound
 	}
-	return m, err
-}
-
-// Filter narrows List; empty fields do not filter.
-type Filter struct {
-	Search, Cursor string
-	Limit          int
-}
-
-type Page struct {
-	Items      []db.Media
-	NextCursor string
+	return item, err
 }
 
 // List returns items newest first, searching alt text in either language and the credit.
-func List(ctx context.Context, q db.Querier, f Filter) (Page, error) {
-	limit := cmp.Or(f.Limit, 50)
-	params := db.ListMediaParams{Search: listing.LikePattern(f.Search), MaxRows: int32(limit) + 1}
-	if f.Cursor != "" {
-		var err error
-		params.AfterAt, params.AfterID, err = listing.DecodeCursor(f.Cursor)
+func List(ctx context.Context, q db.Querier, filter Filter) (Page, error) {
+	limit := cmp.Or(filter.Limit, 50)
+	params := db.ListMediaParams{
+		Search:  listing.LikePattern(filter.Search),
+		MaxRows: int32(limit) + 1,
+	}
+	if filter.Cursor != "" {
+		afterAt, afterID, err := listing.DecodeCursor(filter.Cursor)
 		if err != nil {
 			return Page{}, err
 		}
+		params.AfterAt = afterAt
+		params.AfterID = afterID
 	}
+
 	rows, err := q.ListMedia(ctx, params)
 	if err != nil {
 		return Page{}, err
@@ -118,21 +127,29 @@ func List(ctx context.Context, q db.Querier, f Filter) (Page, error) {
 	if len(rows) <= limit {
 		return Page{Items: rows}, nil
 	}
-	items := rows[:limit]
-	last := items[limit-1]
-	return Page{Items: items, NextCursor: listing.EncodeCursor(last.CreatedAt, last.ID)}, nil
+	last := rows[limit-1]
+	page := Page{
+		Items:      rows[:limit],
+		NextCursor: listing.EncodeCursor(last.CreatedAt, last.ID),
+	}
+	return page, nil
 }
 
 // Describe replaces an item's alt text and credit, if it is still at version.
-func Describe(ctx context.Context, q db.Querier, id pgtype.UUID, version int32, d Description,
+func Describe(ctx context.Context, q db.Querier, id pgtype.UUID, version int32, description Description,
 	now time.Time) (db.Media, error) {
-	m, err := q.UpdateMedia(ctx, db.UpdateMediaParams{
-		ID: id, Version: version, Alt: d.Alt, Credit: optionalText(d.Credit), Now: now,
+	item, err := q.UpdateMedia(ctx, db.UpdateMediaParams{
+		ID:      id,
+		Version: version,
+		Alt:     description.Alt,
+		Credit:  optionalText(description.Credit),
+		Now:     now,
 	})
 	if !errors.Is(err, pgx.ErrNoRows) {
-		return m, err
+		return item, err
 	}
-	if _, err := Get(ctx, q, id); err != nil {
+	_, err = Get(ctx, q, id)
+	if err != nil {
 		return db.Media{}, err
 	}
 	return db.Media{}, errStale
@@ -141,23 +158,52 @@ func Describe(ctx context.Context, q db.Querier, id pgtype.UUID, version int32, 
 // Delete deletes an item no post uses, and its objects. The row stays if
 // the objects cannot be removed.
 func Delete(ctx context.Context, pool *pgxpool.Pool, store *Store, id pgtype.UUID) error {
-	return pgx.BeginFunc(ctx, pool, func(tx pgx.Tx) error {
-		q := db.New(tx)
-		m, err := q.DeleteUnusedMedia(ctx, id)
-		if errors.Is(err, pgx.ErrNoRows) {
-			if _, err := Get(ctx, q, id); err != nil {
-				return err
-			}
-			return errInUse
-		}
+	tx, err := pool.Begin(ctx)
+	if err != nil {
+		return err
+	}
+	defer tx.Rollback(ctx)
+	q := db.New(tx)
+
+	item, err := q.DeleteUnusedMedia(ctx, id)
+	if errors.Is(err, pgx.ErrNoRows) {
+		_, err = Get(ctx, q, id)
 		if err != nil {
 			return err
 		}
-		if store == nil {
-			return nil
+		return errInUse
+	}
+	if err != nil {
+		return err
+	}
+	if store != nil {
+		err = store.remove(ctx, keys(item.ID, item.Widths))
+		if err != nil {
+			return err
 		}
-		return store.remove(ctx, keys(m.ID, m.Widths))
-	})
+	}
+
+	err = tx.Commit(ctx)
+	if err != nil {
+		return err
+	}
+	return nil
 }
 
-func optionalText(s string) pgtype.Text { return pgtype.Text{String: s, Valid: s != ""} }
+func putAll(ctx context.Context, store *Store, id pgtype.UUID, image encoded) error {
+	err := store.put(ctx, originalKey(id), image.original)
+	if err != nil {
+		return err
+	}
+	for _, width := range image.widths {
+		err = store.put(ctx, publicKey(id, width), image.sizes[width])
+		if err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+func optionalText(value string) pgtype.Text {
+	return pgtype.Text{String: value, Valid: value != ""}
+}
