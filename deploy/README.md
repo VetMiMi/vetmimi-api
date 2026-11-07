@@ -136,7 +136,7 @@ In `api.env`: `SIGNING_SECRET` (`openssl rand -hex 32`), `TOTP_ENCRYPTION_KEY`
 `EMAIL_PROVIDER=smtp` and the `SMTP_*` values,
 `MEDIA_S3_ENDPOINT`, `MEDIA_S3_BUCKET` and `MEDIA_PUBLIC_URL` from the outputs,
 `MEDIA_S3_REGION=ap-southeast-2`, and the optional Meta, LinkedIn and
-Anthropic values. Leave `MEDIA_S3_ACCESS_KEY` and `MEDIA_S3_SECRET_KEY` empty:
+Gemini values. Leave `MEDIA_S3_ACCESS_KEY` and `MEDIA_S3_SECRET_KEY` empty:
 the instance role grants the bucket. The compose file sets `ENV`, `PORT`,
 `DATABASE_URL`, `REDIS_URL`, `PUBLIC_API_URL`, `SITE_URL`, `SERVICE_KEY`,
 `SITE_REVALIDATE_SECRET`, `TURN_HOST` and `TURN_SECRET` itself, from `.env`;

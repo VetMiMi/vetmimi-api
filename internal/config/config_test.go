@@ -240,7 +240,7 @@ func TestEnvExampleLeavesSecretsEmpty(t *testing.T) {
 	for _, name := range []string{
 		"SERVICE_KEY", "SIGNING_SECRET", "TOTP_ENCRYPTION_KEY", "SITE_REVALIDATE_SECRET",
 		"RESEND_API_KEY", "SMTP_PASSWORD", "MEDIA_S3_ACCESS_KEY", "MEDIA_S3_SECRET_KEY", "TURN_SECRET", "META_APP_SECRET",
-		"LINKEDIN_CLIENT_SECRET", "ANTHROPIC_API_KEY",
+		"LINKEDIN_CLIENT_SECRET", "GEMINI_API_KEY",
 	} {
 		require.Contains(t, example, name)
 		require.Empty(t, example[name], name)

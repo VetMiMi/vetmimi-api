@@ -1,6 +1,6 @@
 // Package assistant is the publishing portal's AI helper. Suggest drafts a
 // post's social versions, or translates its website version, through the
-// Anthropic Messages API. Nothing is saved; the editor accepts it in the portal.
+// Gemini API. Nothing is saved; the editor accepts it in the portal.
 package assistant
 
 import (
@@ -19,59 +19,62 @@ import (
 	"github.com/VetMiMi/vetmimi-api/internal/config"
 )
 
-const anthropicVersion = "2023-06-01"
-
 var (
 	errOff = apperr.New(apperr.FeatureUnavailable,
-		"The AI assistant is off: ANTHROPIC_API_KEY is empty on the server.")
+		"The AI assistant is off: GEMINI_API_KEY is empty on the server.")
 	errFailed = apperr.New(apperr.AIFailed, "The AI assistant gave no usable answer; try again.")
+	errQuota  = apperr.New(apperr.AIQuota, "The AI assistant has used its free allowance for now; try again later.")
 )
 
 type Client struct {
 	APIKey string // empty: the assistant is off
 	Model  string
 	URL    string
-	HTTP   *http.Client // nil: a client with a 30-second timeout
+	HTTP   *http.Client // nil: a client with a 90-second timeout
 	Log    *slog.Logger
 }
 
 func New(cfg config.Config, log *slog.Logger) *Client {
-	return &Client{APIKey: cfg.AnthropicAPIKey, Model: cfg.AnthropicModel, URL: "https://api.anthropic.com", Log: log}
+	return &Client{APIKey: cfg.GeminiAPIKey, Model: cfg.GeminiModel,
+		URL: "https://generativelanguage.googleapis.com", Log: log}
 }
 
 func (c *Client) Enabled() bool { return c != nil && c.APIKey != "" }
 
-type message struct {
-	Role    string `json:"role"`
-	Content string `json:"content"`
+type part struct {
+	Text string `json:"text"`
 }
 
-// messagesAnswer is the part of a Messages API answer the assistant reads.
-type messagesAnswer struct {
-	Content []struct {
-		Type string `json:"type"`
-		Text string `json:"text"`
-	} `json:"content"`
-	StopReason string `json:"stop_reason"`
-	Usage      struct {
-		InputTokens  int `json:"input_tokens"`
-		OutputTokens int `json:"output_tokens"`
-	} `json:"usage"`
+type contentParts struct {
+	Role  string `json:"role,omitempty"`
+	Parts []part `json:"parts"`
+}
+
+// answer is the part of a generateContent answer the assistant reads.
+type answer struct {
+	Candidates []struct {
+		Content      contentParts `json:"content"`
+		FinishReason string       `json:"finishReason"`
+	} `json:"candidates"`
+	UsageMetadata struct {
+		PromptTokenCount     int `json:"promptTokenCount"`
+		CandidatesTokenCount int `json:"candidatesTokenCount"`
+	} `json:"usageMetadata"`
 	Error struct {
-		Type string `json:"type"`
+		Status string `json:"status"`
 	} `json:"error"`
 }
 
-// ask sends one Messages API request and returns the answer's text. Every
-// failure is errFailed; the log never holds the prompt or the answer.
+// ask sends one generateContent request and returns the answer's text. The
+// log never holds the prompt or the answer.
 func (c *Client) ask(ctx context.Context, system, prompt string, maxTokens int) (string, error) {
-	req, err := c.messagesRequest(ctx, system, prompt, maxTokens)
+	req, err := c.request(ctx, system, prompt, maxTokens)
 	if err != nil {
 		return "", err
 	}
 	client := c.HTTP
 	if client == nil {
-		client = &http.Client{Timeout: 30 * time.Second}
+		client = &http.Client{Timeout: 90 * time.Second}
 	}
 	res, err := client.Do(req)
 	if err != nil {
@@ -88,43 +91,47 @@ func (c *Client) ask(ctx context.Context, system, prompt string, maxTokens int) 
 		c.Log.WarnContext(ctx, "assistant_unreachable", "err", err)
 		return "", errFailed
 	}
-	var answer messagesAnswer
-	_ = json.Unmarshal(raw, &answer)
+	var a answer
+	_ = json.Unmarshal(raw, &a)
 	if res.StatusCode != http.StatusOK {
-		c.Log.WarnContext(ctx, "assistant_refused", "status", res.StatusCode, "type", answer.Error.Type)
+		c.Log.WarnContext(ctx, "assistant_refused", "status", res.StatusCode, "error", a.Error.Status)
+		if res.StatusCode == http.StatusTooManyRequests {
+			return "", errQuota
+		}
 		return "", errFailed
 	}
-	c.Log.InfoContext(ctx, "assistant_answered", "model", c.Model, "stop_reason", answer.StopReason,
-		"input_tokens", answer.Usage.InputTokens, "output_tokens", answer.Usage.OutputTokens)
-	if answer.StopReason != "end_turn" {
+	if len(a.Candidates) == 0 {
+		c.Log.WarnContext(ctx, "assistant_blocked", "model", c.Model)
+		return "", errFailed
+	}
+	first := a.Candidates[0]
+	c.Log.InfoContext(ctx, "assistant_answered", "model", c.Model, "finish_reason", first.FinishReason,
+		"input_tokens", a.UsageMetadata.PromptTokenCount, "output_tokens", a.UsageMetadata.CandidatesTokenCount)
+	if first.FinishReason != "STOP" {
 		return "", errFailed
 	}
 	var text strings.Builder
-	for _, block := range answer.Content {
-		if block.Type == "text" {
-			text.WriteString(block.Text)
-		}
+	for _, p := range first.Content.Parts {
+		text.WriteString(p.Text)
 	}
 	return text.String(), nil
 }
 
-func (c *Client) messagesRequest(ctx context.Context, system, prompt string, maxTokens int) (*http.Request, error) {
+func (c *Client) request(ctx context.Context, system, prompt string, maxTokens int) (*http.Request, error) {
 	body, err := json.Marshal(map[string]any{
-		"model":      c.Model,
-		"max_tokens": maxTokens,
-		"system":     system,
-		"messages":   []message{{Role: "user", Content: prompt}},
+		"systemInstruction": contentParts{Parts: []part{{Text: system}}},
+		"contents":          []contentParts{{Role: "user", Parts: []part{{Text: prompt}}}},
+		"generationConfig":  map[string]any{"maxOutputTokens": maxTokens, "responseMimeType": "application/json"},
 	})
 	if err != nil {
 		return nil, err
 	}
-	req, err := http.NewRequestWithContext(ctx, http.MethodPost, strings.TrimSuffix(c.URL, "/")+"/v1/messages",
-		bytes.NewReader(body))
+	endpoint := strings.TrimSuffix(c.URL, "/") + "/v1beta/models/" + url.PathEscape(c.Model) + ":generateContent"
+	req, err := http.NewRequestWithContext(ctx, http.MethodPost, endpoint, bytes.NewReader(body))
 	if err != nil {
 		return nil, err
 	}
-	req.Header.Set("x-api-key", c.APIKey)
-	req.Header.Set("anthropic-version", anthropicVersion)
+	req.Header.Set("x-goog-api-key", c.APIKey)
 	req.Header.Set("content-type", "application/json")
 	return req, nil
 }

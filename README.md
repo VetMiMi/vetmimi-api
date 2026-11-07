@@ -54,7 +54,7 @@ It is designed for its real scale: one practitioner, tens of appointments a mont
 | `internal/comms/` | Email rows, templates, delivery through Resend or SMTP, contact enquiries |
 | `internal/auth/` | Admin accounts, sign-in (password and TOTP), sessions, roles, lockout |
 | `internal/meta/`, `internal/linkedin/` | Connecting and posting to Facebook and Instagram, and to LinkedIn |
-| `internal/assistant/` | AI suggestions for posts through the Anthropic API |
+| `internal/assistant/` | AI suggestions for posts through the Gemini API |
 | `internal/db/` | sqlc output (generated); `queries/` holds the SQL you edit |
 | `internal/config/` | Environment variables, read and checked once at start-up |
 | `internal/postgres/` | The pgx pool and the migrations |
@@ -137,7 +137,7 @@ import each other, and working around that needs interfaces nobody else uses.
 - **Posts** have versions for the website, Facebook, Instagram and LinkedIn. Each post goes through an editorial workflow: idea, draft, review, approved, scheduled, published.
 - **Approval checks each platform's rules.** For example, Instagram needs an image and allows at most 2,200 characters and 30 hashtags, and a True Story needs the client's consent.
 - **Publishing** to a Facebook Page, its Instagram account and LinkedIn through OAuth connections. The website version becomes a public article and the site refreshes it. If a channel isn't connected, Daw Mi gets the text to post herself.
-- **AI suggestions** draft each channel's version and translations through the Anthropic API. This is optional and turns off cleanly without a key.
+- **AI suggestions** draft each channel's version and translations through the Gemini API. This is optional and turns off cleanly without a key.
 
 **Media and email**
 - **Image uploads** up to 20 MiB. EXIF data is stripped and the image is rotated upright, then resized to 1600, 800 and 400 px JPEGs in an S3-compatible bucket.
@@ -176,7 +176,7 @@ import each other, and working around that needs interfaces nobody else uses.
 | HTTP | Gin (routing, binding, validation through go-playground/validator), coder/websocket |
 | Data | PostgreSQL 17 (pgx, sqlc, goose migrations embedded in the binary), `btree_gist` exclusion constraints |
 | Jobs | Redis + asynq (email, reminders, hold expiry, publishing, sweeps, retention) |
-| Integrations | Resend or SMTP (email), S3-compatible storage, coturn (TURN), Meta Graph API, LinkedIn API, Anthropic Messages API |
+| Integrations | Resend or SMTP (email), S3-compatible storage, coturn (TURN), Meta Graph API, LinkedIn API, Gemini API |
 | Security | argon2id, TOTP (pquerna/otp), AES-256-GCM for stored secrets (`secretbox`), HMAC-derived tokens |
 | Quality | `go test -race`, real-PostgreSQL integration tests, staticcheck, golden-file email templates |
 
@@ -236,7 +236,7 @@ It asks for a password twice, prints an `otpauth://` URI for your authenticator 
 |---|---|
 | Always required | `DATABASE_URL`, `REDIS_URL`, `SERVICE_KEY`, `SIGNING_SECRET` (32+ bytes), `TOTP_ENCRYPTION_KEY` (base64 of 32 bytes), `PUBLIC_API_URL`, `SITE_URL` |
 | Required in production | `SITE_REVALIDATE_SECRET`, `EMAIL_FROM`, `RESEND_API_KEY` (or `SMTP_HOST`, `SMTP_USERNAME`, `SMTP_PASSWORD` with `EMAIL_PROVIDER=smtp`), `MEDIA_S3_*`, `MEDIA_PUBLIC_URL`, `TURN_HOST`, `TURN_SECRET` |
-| Optional | `META_APP_ID` + `META_APP_SECRET`, `META_CONFIG_ID`, `LINKEDIN_CLIENT_ID` + `LINKEDIN_CLIENT_SECRET`, `ANTHROPIC_API_KEY`, `PORT`, `LOG_LEVEL` |
+| Optional | `META_APP_ID` + `META_APP_SECRET`, `META_CONFIG_ID`, `LINKEDIN_CLIENT_ID` + `LINKEDIN_CLIENT_SECRET`, `GEMINI_API_KEY`, `PORT`, `LOG_LEVEL` |
 | Tests | `DATABASE_URL_TEST`, `REDIS_URL_TEST` |
 
 On startup the config check reports every problem at once and never prints a value. In development, email without a Resend key is only logged, without contents, and media uploads are refused when no bucket is configured.
@@ -260,7 +260,7 @@ go test ./internal/comms -update
 What the tests promise:
 
 - **About 380 tests in 86 files.** Integration tests run against **real PostgreSQL**, with no mocks: each test binary gets its own migrated database, which is dropped afterwards. If the test databases aren't configured, the run fails rather than skipping.
-- **Every external API is tested against a fake HTTP server:** Resend, Meta, LinkedIn and Anthropic.
+- **Every external API is tested against a fake HTTP server:** Resend, Meta, LinkedIn and Gemini.
 - **Each behaviour gets a success test and a failure test**, and anything touching scheduling gets a concurrency test.
 - **CI** (`.github/workflows/ci.yml`) also runs the deployment checks (shellcheck, the deploy and compose tests, `caddy validate`, an image build, `terraform validate`) and the Conventional Commits check.
 
