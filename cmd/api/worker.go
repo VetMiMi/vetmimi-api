@@ -33,7 +33,12 @@ func runWorker(ctx context.Context, log *slog.Logger, cfg config.Config, pool *p
 	}
 	var smtp *comms.SMTP
 	if cfg.EmailProvider == config.EmailSMTP {
-		smtp = &comms.SMTP{Host: cfg.SMTPHost, Port: cfg.SMTPPort, Username: cfg.SMTPUsername, Password: cfg.SMTPPassword}
+		smtp = &comms.SMTP{
+			Host:     cfg.SMTPHost,
+			Port:     cfg.SMTPPort,
+			Username: cfg.SMTPUsername,
+			Password: cfg.SMTPPassword,
+		}
 	}
 	current, err := settings.Load(ctx, db.New(pool))
 	if err != nil {
@@ -46,24 +51,55 @@ func runWorker(ctx context.Context, log *slog.Logger, cfg config.Config, pool *p
 
 	w := queue.NewWorker(rdb, log)
 	tasks := queue.New(rdb, log)
-	w.Handle(taskCleanup, func(ctx context.Context, _ []byte) error {
-		return cleanup(ctx, log, db.New(pool), time.Now())
-	})
+	w.Handle(taskCleanup, cleanupTask(log, pool))
 	w.Every("@hourly", taskCleanup)
-	(&comms.Tasks{
-		Pool: pool, Queue: tasks, SMTP: smtp, Resend: resend, From: cfg.EmailFrom, SiteURL: cfg.SiteURL,
-		SigningSecret: cfg.SigningSecret, Log: log, Now: time.Now,
-	}).Register(w)
-	(&booking.Tasks{Pool: pool, Queue: tasks, Log: log, Now: time.Now, Timezone: current.Timezone}).Register(w)
-	(&video.Tasks{Pool: pool, Log: log, Now: time.Now}).Register(w)
-	(&content.Tasks{
-		Pool: pool, Queue: tasks, SiteURL: cfg.SiteURL, RevalidateSecret: cfg.SiteRevalidateSecret,
-		Publishers: publishers(cfg, pool, tokens, log), Log: log, Now: time.Now,
-	}).Register(w)
+
+	commsTasks := &comms.Tasks{
+		Pool:          pool,
+		Queue:         tasks,
+		SMTP:          smtp,
+		Resend:        resend,
+		From:          cfg.EmailFrom,
+		SiteURL:       cfg.SiteURL,
+		SigningSecret: cfg.SigningSecret,
+		Log:           log,
+		Now:           time.Now,
+	}
+	commsTasks.Register(w)
+
+	bookingTasks := &booking.Tasks{
+		Pool:     pool,
+		Queue:    tasks,
+		Log:      log,
+		Now:      time.Now,
+		Timezone: current.Timezone,
+	}
+	bookingTasks.Register(w)
+
+	videoTasks := &video.Tasks{
+		Pool: pool,
+		Log:  log,
+		Now:  time.Now,
+	}
+	videoTasks.Register(w)
+
+	contentTasks := &content.Tasks{
+		Pool:             pool,
+		Queue:            tasks,
+		SiteURL:          cfg.SiteURL,
+		RevalidateSecret: cfg.SiteRevalidateSecret,
+		Publishers:       publishers(cfg, pool, tokens, log),
+		Log:              log,
+		Now:              time.Now,
+	}
+	contentTasks.Register(w)
 
 	// Rebuild at once any task Redis lost while the worker was down.
-	tasks.Enqueue(ctx, queue.Task{Type: comms.TaskSweep}, queue.Task{Type: booking.TaskSweepHolds},
-		queue.Task{Type: content.TaskSweep})
+	tasks.Enqueue(ctx,
+		queue.Task{Type: comms.TaskSweep},
+		queue.Task{Type: booking.TaskSweepHolds},
+		queue.Task{Type: content.TaskSweep},
+	)
 	return w.Run(ctx)
 }
 
@@ -73,6 +109,13 @@ func publishers(cfg config.Config, pool *pgxpool.Pool, tokens *secretbox.Box, lo
 		"facebook":  metaConnector.PublishFacebook,
 		"instagram": metaConnector.PublishInstagram,
 		"linkedin":  linkedin.New(cfg, pool, tokens, log).Publish,
+	}
+}
+
+// cleanupTask gives cleanup the signature the worker calls, with the time of each run.
+func cleanupTask(log *slog.Logger, pool *pgxpool.Pool) func(ctx context.Context, payload []byte) error {
+	return func(ctx context.Context, _ []byte) error {
+		return cleanup(ctx, log, db.New(pool), time.Now())
 	}
 }
 

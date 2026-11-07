@@ -45,7 +45,7 @@ It is designed for its real scale: one practitioner, tens of appointments a mont
 
 | Path | What it holds |
 |---|---|
-| `cmd/api/` | `main`: one binary with four modes (`api`, `worker`, `create-user`, `healthcheck`); `api.go` wires every feature's routes; sign-in and health routes |
+| `cmd/api/` | `main`: one binary with four modes (`api`, `worker`, `create-user`, `healthcheck`); `api.go` wires every feature's routes |
 | `internal/web/` | What every route shares: the router, route groups, service key, sign-in and role checks, rate limits, binding and error responses |
 | `internal/booking/` | Services, availability, slots, appointments and their background tasks |
 | `internal/video/` | Video rooms, room tickets and the WebSocket signalling hub |
@@ -53,6 +53,8 @@ It is designed for its real scale: one practitioner, tens of appointments a mont
 | `internal/media/` | Image uploads, resizing and the S3 bucket |
 | `internal/comms/` | Email rows, templates, delivery through Resend or SMTP, contact enquiries |
 | `internal/auth/` | Admin accounts, sign-in (password and TOTP), sessions, roles, lockout |
+| `internal/signin/` | The sign-in routes: sign in, sign out, the current user |
+| `internal/health/` | `/healthz` and `/readyz` |
 | `internal/meta/`, `internal/linkedin/` | Connecting and posting to Facebook and Instagram, and to LinkedIn |
 | `internal/assistant/` | AI suggestions for posts through the Gemini API |
 | `internal/db/` | sqlc output (generated); `queries/` holds the SQL you edit |

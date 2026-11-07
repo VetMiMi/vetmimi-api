@@ -17,12 +17,14 @@ import (
 	"github.com/VetMiMi/vetmimi-api/internal/comms"
 	"github.com/VetMiMi/vetmimi-api/internal/config"
 	"github.com/VetMiMi/vetmimi-api/internal/content"
+	"github.com/VetMiMi/vetmimi-api/internal/health"
 	"github.com/VetMiMi/vetmimi-api/internal/linkedin"
 	"github.com/VetMiMi/vetmimi-api/internal/media"
 	"github.com/VetMiMi/vetmimi-api/internal/meta"
 	"github.com/VetMiMi/vetmimi-api/internal/queue"
 	"github.com/VetMiMi/vetmimi-api/internal/ratelimit"
 	"github.com/VetMiMi/vetmimi-api/internal/settings"
+	"github.com/VetMiMi/vetmimi-api/internal/signin"
 	"github.com/VetMiMi/vetmimi-api/internal/video"
 	"github.com/VetMiMi/vetmimi-api/internal/web"
 )
@@ -33,7 +35,8 @@ func runAPI(ctx context.Context, log *slog.Logger, cfg config.Config, pool *pgxp
 	if err != nil {
 		return err
 	}
-	sessions, err := auth.NewSessions(pool, codes, auth.NewLockout(rdb, "", time.Now), time.Now)
+	lockout := auth.NewLockout(rdb, "", time.Now)
+	sessions, err := auth.NewSessions(pool, codes, lockout, time.Now)
 	if err != nil {
 		return err
 	}
@@ -41,46 +44,112 @@ func runAPI(ctx context.Context, log *slog.Logger, cfg config.Config, pool *pgxp
 	tasks := queue.New(rdb, log)
 
 	r := web.NewRouter()
-	r.GET("/healthz", healthz)
-	r.GET("/readyz", readyz(pool.Ping, func(ctx context.Context) error { return rdb.Ping(ctx).Err() }))
+	limiter := web.NewLimiter(ratelimit.New(rdb, "", time.Now))
+	routes := web.NewRoutes(r, cfg.ServiceKey, sessions, limiter)
 
-	routes := web.NewRoutes(r, cfg.ServiceKey, sessions, web.NewLimiter(ratelimit.New(rdb, "", time.Now)))
-	(&authHandler{Sessions: sessions}).Routes(routes)
-	(&settings.Handler{Pool: pool, Queue: tasks, Now: time.Now}).Routes(routes)
-	(&booking.Handler{Pool: pool, Secret: cfg.SigningSecret, Queue: tasks, Hub: hub, Now: time.Now}).Routes(routes)
-	(&comms.Handler{Pool: pool, Queue: tasks, Now: time.Now}).Routes(routes)
-	(&video.Handler{Pool: pool, Hub: hub, SiteURL: cfg.SiteURL, Now: time.Now, Issuer: video.Issuer{
-		Secret: cfg.SigningSecret, PublicAPIURL: cfg.PublicAPIURL, TURNHost: cfg.TURNHost, TURNSecret: cfg.TURNSecret,
-	}}).Routes(routes)
-	(&media.Handler{Pool: pool, Store: media.NewStore(cfg), PublicURL: cfg.MediaPublicURL, Now: time.Now}).Routes(routes)
-	(&content.Handler{Pool: pool, Queue: tasks, MediaPublicURL: cfg.MediaPublicURL, Now: time.Now}).Routes(routes)
-	(&assistant.Handler{Pool: pool, Client: assistant.New(cfg, log)}).Routes(routes)
-	(&meta.Handler{Connector: meta.New(cfg, pool, codes.Box, log)}).Routes(routes)
-	(&linkedin.Handler{Connector: linkedin.New(cfg, pool, codes.Box, log)}).Routes(routes)
+	healthHandler := &health.Handler{
+		PingPostgres: pool.Ping,
+		PingRedis:    func(ctx context.Context) error { return rdb.Ping(ctx).Err() },
+	}
+	healthHandler.Routes(routes)
 
-	srv := newServer(cfg.Port, r)
+	signInHandler := &signin.Handler{
+		Sessions: sessions,
+	}
+	signInHandler.Routes(routes)
+
+	settingsHandler := &settings.Handler{
+		Pool:  pool,
+		Queue: tasks,
+		Now:   time.Now,
+	}
+	settingsHandler.Routes(routes)
+
+	bookingHandler := &booking.Handler{
+		Pool:   pool,
+		Secret: cfg.SigningSecret,
+		Queue:  tasks,
+		Hub:    hub,
+		Now:    time.Now,
+	}
+	bookingHandler.Routes(routes)
+
+	commsHandler := &comms.Handler{
+		Pool:  pool,
+		Queue: tasks,
+		Now:   time.Now,
+	}
+	commsHandler.Routes(routes)
+
+	videoHandler := &video.Handler{
+		Pool: pool,
+		Hub:  hub,
+		Issuer: video.Issuer{
+			Secret:       cfg.SigningSecret,
+			PublicAPIURL: cfg.PublicAPIURL,
+			TURNHost:     cfg.TURNHost,
+			TURNSecret:   cfg.TURNSecret,
+		},
+		SiteURL: cfg.SiteURL,
+		Now:     time.Now,
+	}
+	videoHandler.Routes(routes)
+
+	mediaHandler := &media.Handler{
+		Pool:      pool,
+		Store:     media.NewStore(cfg),
+		PublicURL: cfg.MediaPublicURL,
+		Now:       time.Now,
+	}
+	mediaHandler.Routes(routes)
+
+	contentHandler := &content.Handler{
+		Pool:           pool,
+		Queue:          tasks,
+		MediaPublicURL: cfg.MediaPublicURL,
+		Now:            time.Now,
+	}
+	contentHandler.Routes(routes)
+
+	assistantHandler := &assistant.Handler{
+		Pool:   pool,
+		Client: assistant.New(cfg, log),
+	}
+	assistantHandler.Routes(routes)
+
+	metaHandler := &meta.Handler{
+		Connector: meta.New(cfg, pool, codes.Box, log),
+	}
+	metaHandler.Routes(routes)
+
+	linkedinHandler := &linkedin.Handler{
+		Connector: linkedin.New(cfg, pool, codes.Box, log),
+	}
+	linkedinHandler.Routes(routes)
+
+	server := newServer(cfg.Port, r)
 	if cfg.TURNHost == "" {
 		// Development only: production refuses to start without TURN.
 		log.Warn("turn_disabled", "detail", "TURN_HOST is empty; room tickets offer STUN only")
 	}
-	return serve(ctx, log, srv, hub)
+	return serve(ctx, log, server, hub)
 }
 
-// serve runs srv and the video hub until ctx is done, then shuts both down.
-func serve(ctx context.Context, log *slog.Logger, srv *http.Server, hub *video.Hub) error {
+// serve runs server and the video hub until ctx is done, then shuts both down.
+func serve(ctx context.Context, log *slog.Logger, server *http.Server, hub *video.Hub) error {
 	hubDone := make(chan struct{})
 	go func() {
 		hub.Run(ctx)
 		close(hubDone)
 	}()
-	errc := make(chan error, 1)
+	served := make(chan error, 1)
 	go func() {
-		log.Info("api listening", "addr", srv.Addr)
-		errc <- srv.ListenAndServe()
+		log.Info("api listening", "addr", server.Addr)
+		served <- server.ListenAndServe()
 	}()
 
 	select {
-	case err := <-errc:
+	case err := <-served:
 		if errors.Is(err, http.ErrServerClosed) {
 			return nil
 		}
@@ -91,16 +160,16 @@ func serve(ctx context.Context, log *slog.Logger, srv *http.Server, hub *video.H
 		<-hubDone
 		shutdown, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 		defer cancel()
-		return srv.Shutdown(shutdown)
+		return server.Shutdown(shutdown)
 	}
 }
 
 // newServer sets no WriteTimeout: the video WebSocket stays open for a whole
 // session, and every other route gets its deadline from the router.
-func newServer(port int, h http.Handler) *http.Server {
+func newServer(port int, handler http.Handler) *http.Server {
 	return &http.Server{
 		Addr:              ":" + strconv.Itoa(port),
-		Handler:           h,
+		Handler:           handler,
 		ReadHeaderTimeout: 5 * time.Second,
 		IdleTimeout:       120 * time.Second,
 		MaxHeaderBytes:    16 << 10,
