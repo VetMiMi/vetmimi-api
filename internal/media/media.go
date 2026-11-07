@@ -157,8 +157,8 @@ func Describe(ctx context.Context, q db.Querier, id pgtype.UUID, version int32, 
 	return db.Media{}, errStale
 }
 
-// Delete deletes an item no post uses, and its objects. The row stays if
-// the objects cannot be removed.
+// Delete deletes an item no post uses, then its objects. If the objects cannot
+// be removed, the item is still deleted and unused objects are left behind.
 func Delete(ctx context.Context, pool *pgxpool.Pool, store *Store, id pgtype.UUID) error {
 	tx, err := pool.Begin(ctx)
 	if err != nil {

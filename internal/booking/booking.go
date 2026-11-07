@@ -1,6 +1,6 @@
 // Package booking schedules appointments: services, weekly hours, free slots, requests and status changes.
-// Every schedule write takes the schedule lock first, so availability edits, bookings and admin actions never
-// interleave; PostgreSQL constraints still guard every scheduling rule.
+// Availability edits, bookings and admin actions take the schedule lock first, so they never interleave;
+// service edits rely on their version check. PostgreSQL constraints still guard every scheduling rule.
 package booking
 
 import (
