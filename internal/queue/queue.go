@@ -35,7 +35,7 @@ type Task struct {
 	Queue string
 }
 
-// Queue adds tasks to the asynq queues in Redis.
+// Queue adds tasks to the asynq queues in Redis. A nil Queue, as in tests, does nothing.
 type Queue struct {
 	client    *asynq.Client
 	inspector *asynq.Inspector
@@ -53,7 +53,6 @@ func New(rdb *redis.Client, log *slog.Logger) *Queue {
 
 // Enqueue adds tasks and only logs a failure: the request has already
 // succeeded, and the sweepers rebuild a lost task from PostgreSQL.
-// A nil Queue, as in tests, drops the tasks.
 func (q *Queue) Enqueue(ctx context.Context, tasks ...Task) {
 	if q == nil {
 		return
@@ -76,6 +75,9 @@ func (q *Queue) Replace(ctx context.Context, tasks ...Task) {
 // Remove deletes the waiting tasks with these ids, ignoring any not there.
 // A failure is only logged: every handler re-checks its row.
 func (q *Queue) Remove(tasks ...Task) {
+	if q == nil {
+		return
+	}
 	for _, t := range tasks {
 		err := q.inspector.DeleteTask(q.queueName(t), t.ID)
 		if err != nil && !errors.Is(err, asynq.ErrTaskNotFound) && !errors.Is(err, asynq.ErrQueueNotFound) {

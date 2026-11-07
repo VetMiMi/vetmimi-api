@@ -189,11 +189,8 @@ func newAppointmentSummaryResponses(rows []db.ListAppointmentsRow) []appointment
 
 // afterCommit hands the queue what a committed change asks of it and closes a video room it ended.
 func (h *Handler) afterCommit(ctx context.Context, changed Changed) {
-	// Remove and Replace, unlike Enqueue, need a real queue; tests run without one.
-	if h.Queue != nil {
-		h.Queue.Remove(changed.Remove...)
-		h.Queue.Replace(ctx, changed.Replace...)
-	}
+	h.Queue.Remove(changed.Remove...)
+	h.Queue.Replace(ctx, changed.Replace...)
 	h.Queue.Enqueue(ctx, changed.Tasks...)
 	if h.Hub != nil {
 		h.Hub.EndRoom(changed.EndedRoom)

@@ -129,7 +129,12 @@ func TestEnqueueFailureIsLoggedNotReturned(t *testing.T) {
 
 func TestNilQueueDropsTasks(t *testing.T) {
 	var q *Queue
-	require.NotPanics(t, func() { q.Enqueue(context.Background(), Task{Type: "test:dropped"}) })
+	task := Task{Type: "test:dropped", ID: "dropped:1"}
+	require.NotPanics(t, func() {
+		q.Enqueue(context.Background(), task)
+		q.Replace(context.Background(), task)
+		q.Remove(task)
+	})
 }
 
 func (tw *testWorker) queueInfo(t *testing.T, queue string) *asynq.QueueInfo {

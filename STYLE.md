@@ -250,8 +250,8 @@ narration, no references to ADRs or issues.
 - A feature's dependencies are fields on its `Handler` or `Tasks` struct, set
   in `cmd/api`. No globals, no constructors that hide what is set.
 - `Now clock.Now` instead of calling `time.Now()` in rules, so tests fix the time.
-- A nil `*queue.Queue` drops tasks (tests use this); call `h.Queue.Enqueue`
-  directly, with no nil check.
+- A nil `*queue.Queue` does nothing (tests use this); call `h.Queue.Enqueue`,
+  `Replace` and `Remove` directly, with no nil check.
 
 ## 9. Keep it simple
 
