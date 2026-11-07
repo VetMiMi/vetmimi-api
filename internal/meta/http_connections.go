@@ -12,6 +12,15 @@ import (
 	"github.com/VetMiMi/vetmimi-api/internal/web"
 )
 
+type finishConnectionBody struct {
+	Code  string `json:"code" binding:"required,max=2000"`
+	State string `json:"state" binding:"required,max=500"`
+}
+
+type choosePageBody struct {
+	PageID string `json:"pageId" binding:"required,max=100"`
+}
+
 type connectionResponse struct {
 	Status            string         `json:"status"`
 	PageID            string         `json:"pageId,omitempty"`
@@ -35,101 +44,103 @@ type authorizeResponse struct {
 	AuthorizeURL string `json:"authorizeUrl"`
 }
 
-type callbackInput struct {
-	Code  string `json:"code" binding:"required,max=2000"`
-	State string `json:"state" binding:"required,max=500"`
-}
-
-type pageChoiceInput struct {
-	PageID string `json:"pageId" binding:"required,max=100"`
-}
-
 func (h *Handler) getConnection(c *gin.Context) {
-	conn, err := h.Connector.Status(c.Request.Context())
-	if err != nil {
-		web.Error(c, err)
-		return
-	}
-	c.JSON(http.StatusOK, connectionView(conn))
-}
-
-func (h *Handler) startConnection(c *gin.Context) {
-	link, err := h.Connector.AuthorizeURL(userID(c), h.Connector.Now())
-	if err != nil {
-		web.Error(c, err)
-		return
-	}
-	c.JSON(http.StatusOK, authorizeResponse{AuthorizeURL: link})
-}
-
-func (h *Handler) finishConnection(c *gin.Context) {
-	var in callbackInput
-	if !web.BindJSON(c, &in) {
-		return
-	}
 	ctx := c.Request.Context()
-	conn, err := h.Connector.Finish(ctx, userID(c), in.Code, in.State, h.Connector.Now())
-	if err != nil {
-		web.Error(c, err)
-		return
-	}
-	slog.InfoContext(ctx, "meta_signed_in", "request_id", web.RequestID(ctx), "status", conn.Status)
-	c.JSON(http.StatusOK, connectionView(conn))
-}
 
-func (h *Handler) choosePage(c *gin.Context) {
-	var in pageChoiceInput
-	if !web.BindJSON(c, &in) {
-		return
-	}
-	ctx := c.Request.Context()
-	conn, err := h.Connector.ChoosePage(ctx, userID(c), in.PageID, h.Connector.Now())
+	connection, err := h.Connector.Status(ctx)
 	if err != nil {
 		web.Error(c, err)
 		return
 	}
-	slog.InfoContext(ctx, "meta_connected", "request_id", web.RequestID(ctx), "page_id", conn.PageID)
-	c.JSON(http.StatusOK, connectionView(conn))
+
+	c.JSON(http.StatusOK, newConnectionResponse(connection))
 }
 
 func (h *Handler) disconnect(c *gin.Context) {
 	ctx := c.Request.Context()
-	if err := h.Connector.Disconnect(ctx); err != nil {
+
+	err := h.Connector.Disconnect(ctx)
+	if err != nil {
 		web.Error(c, err)
 		return
 	}
+
 	slog.InfoContext(ctx, "meta_disconnected", "request_id", web.RequestID(ctx))
 	c.Status(http.StatusNoContent)
 }
 
-func userID(c *gin.Context) pgtype.UUID {
-	session, _ := auth.FromContext(c.Request.Context())
-	return session.User.ID
+func (h *Handler) startConnection(c *gin.Context) {
+	link, err := h.Connector.AuthorizeURL(currentUserID(c), h.Connector.Now())
+	if err != nil {
+		web.Error(c, err)
+		return
+	}
+
+	c.JSON(http.StatusOK, authorizeResponse{AuthorizeURL: link})
 }
 
-// connectionView lists pages only while one is being chosen.
-func connectionView(c Connection) connectionResponse {
-	v := connectionResponse{
-		Status:            c.Status,
-		PageID:            c.PageID,
-		PageName:          c.PageName,
-		InstagramID:       c.InstagramID,
-		InstagramUsername: c.InstagramUsername,
-		LastError:         c.LastError,
-		ConnectedAt:       c.ConnectedAt.UTC(),
+func (h *Handler) finishConnection(c *gin.Context) {
+	var body finishConnectionBody
+	if !web.BindJSON(c, &body) {
+		return
 	}
-	if c.ExpiresAt.Valid {
-		v.ExpiresAt = c.ExpiresAt.Time.UTC()
+	ctx := c.Request.Context()
+
+	connection, err := h.Connector.Finish(ctx, currentUserID(c), body.Code, body.State, h.Connector.Now())
+	if err != nil {
+		web.Error(c, err)
+		return
 	}
-	if c.Status != "choosing_page" {
-		return v
+
+	slog.InfoContext(ctx, "meta_signed_in", "request_id", web.RequestID(ctx), "status", connection.Status)
+	c.JSON(http.StatusOK, newConnectionResponse(connection))
+}
+
+func (h *Handler) choosePage(c *gin.Context) {
+	var body choosePageBody
+	if !web.BindJSON(c, &body) {
+		return
 	}
-	v.Pages = make([]pageResponse, len(c.Pages))
-	for i, p := range c.Pages {
-		v.Pages[i] = pageResponse{ID: p.ID, Name: p.Name}
-		if p.Instagram != nil {
-			v.Pages[i].InstagramUsername = p.Instagram.Username
+	ctx := c.Request.Context()
+
+	connection, err := h.Connector.ChoosePage(ctx, currentUserID(c), body.PageID, h.Connector.Now())
+	if err != nil {
+		web.Error(c, err)
+		return
+	}
+
+	slog.InfoContext(ctx, "meta_connected", "request_id", web.RequestID(ctx), "page_id", connection.PageID)
+	c.JSON(http.StatusOK, newConnectionResponse(connection))
+}
+
+// newConnectionResponse lists pages only while one is being chosen.
+func newConnectionResponse(connection Connection) connectionResponse {
+	response := connectionResponse{
+		Status:            connection.Status,
+		PageID:            connection.PageID,
+		PageName:          connection.PageName,
+		InstagramID:       connection.InstagramID,
+		InstagramUsername: connection.InstagramUsername,
+		LastError:         connection.LastError,
+		ConnectedAt:       connection.ConnectedAt.UTC(),
+	}
+	if connection.ExpiresAt.Valid {
+		response.ExpiresAt = connection.ExpiresAt.Time.UTC()
+	}
+	if connection.Status != "choosing_page" {
+		return response
+	}
+	response.Pages = make([]pageResponse, len(connection.Pages))
+	for i, page := range connection.Pages {
+		response.Pages[i] = pageResponse{ID: page.ID, Name: page.Name}
+		if page.Instagram != nil {
+			response.Pages[i].InstagramUsername = page.Instagram.Username
 		}
 	}
-	return v
+	return response
+}
+
+func currentUserID(c *gin.Context) pgtype.UUID {
+	session, _ := auth.FromContext(c.Request.Context())
+	return session.User.ID
 }

@@ -30,7 +30,8 @@ type Connector struct {
 	Pool   *pgxpool.Pool
 	Tokens *secretbox.Box
 	// AppID and AppSecret are empty when Meta is not set up.
-	AppID, AppSecret string
+	AppID     string
+	AppSecret string
 	// ConfigID is the Facebook Login for Business configuration; empty, the dialog asks for scopes.
 	ConfigID string
 	Version  string
@@ -43,6 +44,17 @@ type Connector struct {
 	PollEvery      time.Duration // between Instagram container checks; zero: 3 seconds
 	Log            *slog.Logger
 	Now            clock.Now
+}
+
+// apiError is the Graph API refusing a call.
+type apiError struct {
+	Status  int
+	Code    int
+	Message string
+}
+
+func (e *apiError) Error() string {
+	return fmt.Sprintf("meta: graph answered %d, code %d: %s", e.Status, e.Code, e.Message)
 }
 
 func New(cfg config.Config, pool *pgxpool.Pool, tokens *secretbox.Box, log *slog.Logger) *Connector {
@@ -62,34 +74,24 @@ func New(cfg config.Config, pool *pgxpool.Pool, tokens *secretbox.Box, log *slog
 	}
 }
 
-type graphError struct {
-	Status  int
-	Code    int
-	Message string
-}
-
-func (e *graphError) Error() string {
-	return fmt.Sprintf("meta: graph answered %d, code %d: %s", e.Status, e.Code, e.Message)
-}
-
 // call sends one Graph API request, signed with token when it is not empty.
 // A GET carries params in the query, a POST as a form. out, if not nil,
 // receives the JSON answer.
-func (c *Connector) call(ctx context.Context, method, path, token string, params url.Values, out any) error {
-	req, err := c.graphRequest(ctx, method, path, token, params)
+func (connector *Connector) call(ctx context.Context, method, path, token string, params url.Values, out any) error {
+	req, err := connector.graphRequest(ctx, method, path, token, params)
 	if err != nil {
 		return err
 	}
-	client := c.HTTP
+	client := connector.HTTP
 	if client == nil {
 		client = &http.Client{Timeout: 30 * time.Second}
 	}
 	res, err := client.Do(req)
 	if err != nil {
 		// The URL carries the token and the app secret: keep it out of the logged error.
-		var ue *url.Error
-		if errors.As(err, &ue) {
-			err = ue.Err
+		var urlErr *url.Error
+		if errors.As(err, &urlErr) {
+			err = urlErr.Err
 		}
 		return fmt.Errorf("meta: %s %s: %w", method, path, err)
 	}
@@ -99,46 +101,43 @@ func (c *Connector) call(ctx context.Context, method, path, token string, params
 		return fmt.Errorf("meta: %s %s: %w", method, path, err)
 	}
 	if res.StatusCode/100 != 2 {
-		return parseGraphError(res.StatusCode, raw)
+		var answer struct {
+			Error struct {
+				Message string `json:"message"`
+				Code    int    `json:"code"`
+			} `json:"error"`
+		}
+		_ = json.Unmarshal(raw, &answer) // an answer that is not JSON leaves the code and message empty
+		return &apiError{Status: res.StatusCode, Code: answer.Error.Code, Message: answer.Error.Message}
 	}
 	if out == nil {
 		return nil
 	}
-	if err := json.Unmarshal(raw, out); err != nil {
+	err = json.Unmarshal(raw, out)
+	if err != nil {
 		return fmt.Errorf("meta: %s %s: %w", method, path, err)
 	}
 	return nil
 }
 
-func (c *Connector) graphRequest(ctx context.Context, method, path, token string, params url.Values) (*http.Request, error) {
+func (connector *Connector) graphRequest(ctx context.Context, method, path, token string, params url.Values) (*http.Request, error) {
 	if params == nil {
 		params = url.Values{}
 	}
 	if token != "" {
 		params.Set("access_token", token)
-		params.Set("appsecret_proof", proof(token, c.AppSecret))
+		params.Set("appsecret_proof", proof(token, connector.AppSecret))
 	}
-	u := strings.TrimSuffix(c.GraphURL, "/") + "/" + c.Version + "/" + path
+	endpoint := strings.TrimSuffix(connector.GraphURL, "/") + "/" + connector.Version + "/" + path
 	if method == http.MethodGet {
-		return http.NewRequestWithContext(ctx, method, u+"?"+params.Encode(), nil)
+		return http.NewRequestWithContext(ctx, method, endpoint+"?"+params.Encode(), nil)
 	}
-	req, err := http.NewRequestWithContext(ctx, method, u, strings.NewReader(params.Encode()))
+	req, err := http.NewRequestWithContext(ctx, method, endpoint, strings.NewReader(params.Encode()))
 	if err != nil {
 		return nil, err
 	}
 	req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
 	return req, nil
-}
-
-func parseGraphError(status int, raw []byte) *graphError {
-	var e struct {
-		Error struct {
-			Message string `json:"message"`
-			Code    int    `json:"code"`
-		} `json:"error"`
-	}
-	_ = json.Unmarshal(raw, &e)
-	return &graphError{Status: status, Code: e.Error.Code, Message: e.Error.Message}
 }
 
 // proof is the appsecret_proof Meta checks: a stolen token is useless without the app secret.
@@ -148,4 +147,6 @@ func proof(token, secret string) string {
 	return hex.EncodeToString(mac.Sum(nil))
 }
 
-func text(s string) pgtype.Text { return pgtype.Text{String: s, Valid: s != ""} }
+func text(s string) pgtype.Text {
+	return pgtype.Text{String: s, Valid: s != ""}
+}

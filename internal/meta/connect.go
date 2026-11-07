@@ -17,29 +17,12 @@ import (
 	"github.com/VetMiMi/vetmimi-api/internal/tokens"
 )
 
-const (
-	platformName  = "meta"
-	stateLifetime = 10 * time.Minute
-	dialogURL     = "https://www.facebook.com"
-	// business_management covers a Page owned by a business portfolio.
-	scopes = "pages_show_list,pages_manage_posts,pages_read_engagement,instagram_basic," +
-		"instagram_content_publish,business_management"
-)
-
-var (
-	errNotSetUp = apperr.New(apperr.Unavailable,
-		"Meta is not set up on the server: META_APP_ID and META_APP_SECRET are empty.")
-	errState = apperr.New(apperr.ActionNotAllowed,
-		"This connection attempt expired or was started by someone else; connect again.")
-	errNotChoosing = apperr.New(apperr.ActionNotAllowed, "Connect to Facebook before choosing a Page.")
-	errNoSuchPage  = apperr.New(apperr.NotFound, "None of the Pages you manage has this id.")
-)
-
 // Connection is what the Connections page shows. Pages is filled only while
 // Daw Mi chooses one.
 type Connection struct {
 	Status            string // not_connected, choosing_page or connected
-	PageID, PageName  string
+	PageID            string
+	PageName          string
 	InstagramID       string
 	InstagramUsername string
 	ExpiresAt         sql.NullTime
@@ -59,93 +42,91 @@ type Page struct {
 	} `json:"instagram_business_account"`
 }
 
+const (
+	platformName  = "meta"
+	stateLifetime = 10 * time.Minute
+	dialogURL     = "https://www.facebook.com"
+	// business_management covers a Page owned by a business portfolio.
+	scopes = "pages_show_list,pages_manage_posts,pages_read_engagement,instagram_basic," +
+		"instagram_content_publish,business_management"
+)
+
+var (
+	errNotSetUp = apperr.New(apperr.Unavailable,
+		"Meta is not set up on the server: META_APP_ID and META_APP_SECRET are empty.")
+	errState = apperr.New(apperr.ActionNotAllowed,
+		"This connection attempt expired or was started by someone else; connect again.")
+	errNotChoosing = apperr.New(apperr.ActionNotAllowed, "Connect to Facebook before choosing a Page.")
+	errNoSuchPage  = apperr.New(apperr.NotFound, "None of the Pages you manage has this id.")
+)
+
 // AuthorizeURL is the Facebook Login dialog. Its signed state is valid only
 // for user, for stateLifetime.
-func (c *Connector) AuthorizeURL(user pgtype.UUID, now time.Time) (string, error) {
-	if c.AppID == "" {
+func (connector *Connector) AuthorizeURL(user pgtype.UUID, now time.Time) (string, error) {
+	if connector.AppID == "" {
 		return "", errNotSetUp
 	}
-	q := url.Values{
-		"client_id":     {c.AppID},
-		"redirect_uri":  {c.RedirectURL},
+	state := tokens.SignOAuthState(connector.SigningSecret, platformName, user.String(), now.Add(stateLifetime))
+	query := url.Values{
+		"client_id":     {connector.AppID},
+		"redirect_uri":  {connector.RedirectURL},
 		"response_type": {"code"},
-		"state":         {tokens.SignOAuthState(c.SigningSecret, platformName, user.String(), now.Add(stateLifetime))},
+		"state":         {state},
 	}
-	if c.ConfigID != "" {
-		q.Set("config_id", c.ConfigID)
+	if connector.ConfigID != "" {
+		query.Set("config_id", connector.ConfigID)
 	} else {
-		q.Set("scope", scopes)
+		query.Set("scope", scopes)
 	}
-	return dialogURL + "/" + c.Version + "/dialog/oauth?" + q.Encode(), nil
+	return dialogURL + "/" + connector.Version + "/dialog/oauth?" + query.Encode(), nil
 }
 
 // Finish trades code for a long-lived user token. With exactly one Page,
 // that Page is connected at once; otherwise the token is kept while Daw Mi
 // chooses one.
-func (c *Connector) Finish(ctx context.Context, user pgtype.UUID, code, state string, now time.Time) (Connection, error) {
-	if c.AppID == "" {
+func (connector *Connector) Finish(ctx context.Context, user pgtype.UUID, code, state string, now time.Time) (Connection, error) {
+	if connector.AppID == "" {
 		return Connection{}, errNotSetUp
 	}
-	if !tokens.CheckOAuthState(c.SigningSecret, platformName, state, user.String(), now) {
+	if !tokens.CheckOAuthState(connector.SigningSecret, platformName, state, user.String(), now) {
 		return Connection{}, errState
 	}
-	userToken, expiresIn, err := c.longLivedToken(ctx, code)
+	userToken, expiresIn, err := connector.exchangeCode(ctx, code)
 	if err != nil {
 		return Connection{}, err
 	}
-	pages, err := c.pages(ctx, userToken)
+	pages, err := connector.pages(ctx, userToken)
 	if err != nil {
 		return Connection{}, err
 	}
 	if len(pages) == 1 {
-		return c.connect(ctx, user, pages[0], now)
+		return connector.connect(ctx, user, pages[0], now)
 	}
-	sealed, err := c.Tokens.Seal([]byte(userToken))
+
+	sealed, err := connector.Tokens.Seal([]byte(userToken))
 	if err != nil {
 		return Connection{}, err
 	}
 	params := db.SaveConnectionParams{
-		Platform: platformName, Status: "choosing_page", Token: sealed, ConnectedBy: user, Now: now,
+		Platform:    platformName,
+		Status:      "choosing_page",
+		Token:       sealed,
+		ConnectedBy: user,
+		Now:         now,
 	}
 	if expiresIn > 0 {
 		params.ExpiresAt = sql.NullTime{Time: now.Add(time.Duration(expiresIn) * time.Second), Valid: true}
 	}
-	if _, err := db.New(c.Pool).SaveConnection(ctx, params); err != nil {
+	_, err = db.New(connector.Pool).SaveConnection(ctx, params)
+	if err != nil {
 		return Connection{}, err
 	}
-	return c.Status(ctx)
-}
-
-// longLivedToken trades code for a short-lived user token, then that for a long-lived one.
-func (c *Connector) longLivedToken(ctx context.Context, code string) (token string, expiresIn int64, err error) {
-	var short, long struct {
-		AccessToken string `json:"access_token"`
-		ExpiresIn   int64  `json:"expires_in"`
-	}
-	err = c.call(ctx, http.MethodGet, "oauth/access_token", "", url.Values{
-		"client_id":     {c.AppID},
-		"client_secret": {c.AppSecret},
-		"redirect_uri":  {c.RedirectURL},
-		"code":          {code},
-	}, &short)
-	if err != nil {
-		return "", 0, c.refusal(ctx, err)
-	}
-	err = c.call(ctx, http.MethodGet, "oauth/access_token", "", url.Values{
-		"grant_type":        {"fb_exchange_token"},
-		"client_id":         {c.AppID},
-		"client_secret":     {c.AppSecret},
-		"fb_exchange_token": {short.AccessToken},
-	}, &long)
-	if err != nil {
-		return "", 0, c.refusal(ctx, err)
-	}
-	return long.AccessToken, long.ExpiresIn, nil
+	return connector.Status(ctx)
 }
 
 // ChoosePage connects pageID, which must be one of the Pages Daw Mi manages.
-func (c *Connector) ChoosePage(ctx context.Context, user pgtype.UUID, pageID string, now time.Time) (Connection, error) {
-	row, err := db.New(c.Pool).GetConnection(ctx, platformName)
+func (connector *Connector) ChoosePage(ctx context.Context, user pgtype.UUID, pageID string, now time.Time) (Connection, error) {
+	row, err := db.New(connector.Pool).GetConnection(ctx, platformName)
 	if errors.Is(err, pgx.ErrNoRows) {
 		return Connection{}, errNotChoosing
 	}
@@ -155,95 +136,31 @@ func (c *Connector) ChoosePage(ctx context.Context, user pgtype.UUID, pageID str
 	if row.Status != "choosing_page" {
 		return Connection{}, errNotChoosing
 	}
-	userToken, err := c.Tokens.Open(row.Token)
+	userToken, err := connector.Tokens.Open(row.Token)
 	if err != nil {
 		return Connection{}, err
 	}
-	pages, err := c.pages(ctx, string(userToken))
+	pages, err := connector.pages(ctx, string(userToken))
 	if err != nil {
 		return Connection{}, err
 	}
-	for _, p := range pages {
-		if p.ID == pageID {
-			return c.connect(ctx, user, p, now)
+	for _, page := range pages {
+		if page.ID == pageID {
+			return connector.connect(ctx, user, page, now)
 		}
 	}
 	return Connection{}, errNoSuchPage
 }
 
-// connect stores the Page's own token in place of the user token.
-func (c *Connector) connect(ctx context.Context, user pgtype.UUID, page Page, now time.Time) (Connection, error) {
-	expiresAt, err := c.pageTokenExpiry(ctx, page.AccessToken)
-	if err != nil {
-		return Connection{}, err
-	}
-	sealed, err := c.Tokens.Seal([]byte(page.AccessToken))
-	if err != nil {
-		return Connection{}, err
-	}
-	params := db.SaveConnectionParams{
-		Platform: platformName, Status: "connected", Token: sealed,
-		AccountID: text(page.ID), AccountName: text(page.Name), ExpiresAt: expiresAt, ConnectedBy: user, Now: now,
-	}
-	if page.Instagram != nil {
-		params.InstagramID = text(page.Instagram.ID)
-		params.InstagramUsername = text(page.Instagram.Username)
-	}
-	if _, err := db.New(c.Pool).SaveConnection(ctx, params); err != nil {
-		return Connection{}, err
-	}
-	return c.Status(ctx)
-}
-
-// pageTokenExpiry is the earlier of the token's expiry and its data access
-// expiry: a Page token does not expire, but its data access stops after 90
-// days without Daw Mi signing in again.
-func (c *Connector) pageTokenExpiry(ctx context.Context, pageToken string) (sql.NullTime, error) {
-	var debug struct {
-		Data struct {
-			ExpiresAt           int64 `json:"expires_at"`
-			DataAccessExpiresAt int64 `json:"data_access_expires_at"`
-		} `json:"data"`
-	}
-	err := c.call(ctx, http.MethodGet, "debug_token", "", url.Values{
-		"input_token":  {pageToken},
-		"access_token": {c.AppID + "|" + c.AppSecret},
-	}, &debug)
-	if err != nil {
-		return sql.NullTime{}, c.refusal(ctx, err)
-	}
-	var earliest sql.NullTime
-	for _, at := range []int64{debug.Data.ExpiresAt, debug.Data.DataAccessExpiresAt} {
-		if at > 0 && (!earliest.Valid || at < earliest.Time.Unix()) {
-			earliest = sql.NullTime{Time: time.Unix(at, 0).UTC(), Valid: true}
-		}
-	}
-	return earliest, nil
-}
-
-func (c *Connector) pages(ctx context.Context, userToken string) ([]Page, error) {
-	var res struct {
-		Data []Page `json:"data"`
-	}
-	err := c.call(ctx, http.MethodGet, "me/accounts", userToken, url.Values{
-		"fields": {"id,name,access_token,instagram_business_account{id,username}"},
-		"limit":  {"100"},
-	}, &res)
-	if err != nil {
-		return nil, c.refusal(ctx, err)
-	}
-	return res.Data, nil
-}
-
-func (c *Connector) Status(ctx context.Context) (Connection, error) {
-	row, err := db.New(c.Pool).GetConnection(ctx, platformName)
+func (connector *Connector) Status(ctx context.Context) (Connection, error) {
+	row, err := db.New(connector.Pool).GetConnection(ctx, platformName)
 	if errors.Is(err, pgx.ErrNoRows) {
 		return Connection{Status: "not_connected"}, nil
 	}
 	if err != nil {
 		return Connection{}, err
 	}
-	out := Connection{
+	connection := Connection{
 		Status:            row.Status,
 		PageID:            row.AccountID.String,
 		PageName:          row.AccountName.String,
@@ -254,32 +171,132 @@ func (c *Connector) Status(ctx context.Context) (Connection, error) {
 		ConnectedAt:       row.ConnectedAt,
 	}
 	if row.Status != "choosing_page" {
-		return out, nil
+		return connection, nil
 	}
-	userToken, err := c.Tokens.Open(row.Token)
+	userToken, err := connector.Tokens.Open(row.Token)
 	if err != nil {
 		return Connection{}, err
 	}
-	if out.Pages, err = c.pages(ctx, string(userToken)); err != nil {
+	pages, err := connector.pages(ctx, string(userToken))
+	if err != nil {
 		return Connection{}, err
 	}
-	return out, nil
+	connection.Pages = pages
+	return connection, nil
 }
 
 // Disconnect deletes the connection and its token; Facebook and Instagram are then posted by hand.
-func (c *Connector) Disconnect(ctx context.Context) error {
-	return db.New(c.Pool).DeleteConnection(ctx, platformName)
+func (connector *Connector) Disconnect(ctx context.Context) error {
+	return db.New(connector.Pool).DeleteConnection(ctx, platformName)
+}
+
+// exchangeCode trades code for a short-lived user token, then that for a long-lived one.
+func (connector *Connector) exchangeCode(ctx context.Context, code string) (token string, expiresIn int64, err error) {
+	var short, long struct {
+		AccessToken string `json:"access_token"`
+		ExpiresIn   int64  `json:"expires_in"`
+	}
+	err = connector.call(ctx, http.MethodGet, "oauth/access_token", "", url.Values{
+		"client_id":     {connector.AppID},
+		"client_secret": {connector.AppSecret},
+		"redirect_uri":  {connector.RedirectURL},
+		"code":          {code},
+	}, &short)
+	if err != nil {
+		return "", 0, connector.refusal(ctx, err)
+	}
+	err = connector.call(ctx, http.MethodGet, "oauth/access_token", "", url.Values{
+		"grant_type":        {"fb_exchange_token"},
+		"client_id":         {connector.AppID},
+		"client_secret":     {connector.AppSecret},
+		"fb_exchange_token": {short.AccessToken},
+	}, &long)
+	if err != nil {
+		return "", 0, connector.refusal(ctx, err)
+	}
+	return long.AccessToken, long.ExpiresIn, nil
+}
+
+// connect stores the Page's own token in place of the user token.
+func (connector *Connector) connect(ctx context.Context, user pgtype.UUID, page Page, now time.Time) (Connection, error) {
+	expiresAt, err := connector.pageTokenExpiry(ctx, page.AccessToken)
+	if err != nil {
+		return Connection{}, err
+	}
+	sealed, err := connector.Tokens.Seal([]byte(page.AccessToken))
+	if err != nil {
+		return Connection{}, err
+	}
+	params := db.SaveConnectionParams{
+		Platform:    platformName,
+		Status:      "connected",
+		Token:       sealed,
+		AccountID:   text(page.ID),
+		AccountName: text(page.Name),
+		ExpiresAt:   expiresAt,
+		ConnectedBy: user,
+		Now:         now,
+	}
+	if page.Instagram != nil {
+		params.InstagramID = text(page.Instagram.ID)
+		params.InstagramUsername = text(page.Instagram.Username)
+	}
+	_, err = db.New(connector.Pool).SaveConnection(ctx, params)
+	if err != nil {
+		return Connection{}, err
+	}
+	return connector.Status(ctx)
+}
+
+// pageTokenExpiry is the earlier of the token's expiry and its data access
+// expiry: a Page token does not expire, but its data access stops after 90
+// days without Daw Mi signing in again.
+func (connector *Connector) pageTokenExpiry(ctx context.Context, pageToken string) (sql.NullTime, error) {
+	var debug struct {
+		Data struct {
+			ExpiresAt           int64 `json:"expires_at"`
+			DataAccessExpiresAt int64 `json:"data_access_expires_at"`
+		} `json:"data"`
+	}
+	err := connector.call(ctx, http.MethodGet, "debug_token", "", url.Values{
+		"input_token":  {pageToken},
+		"access_token": {connector.AppID + "|" + connector.AppSecret},
+	}, &debug)
+	if err != nil {
+		return sql.NullTime{}, connector.refusal(ctx, err)
+	}
+	var earliest sql.NullTime
+	for _, at := range []int64{debug.Data.ExpiresAt, debug.Data.DataAccessExpiresAt} {
+		if at > 0 && (!earliest.Valid || at < earliest.Time.Unix()) {
+			earliest = sql.NullTime{Time: time.Unix(at, 0).UTC(), Valid: true}
+		}
+	}
+	return earliest, nil
+}
+
+func (connector *Connector) pages(ctx context.Context, userToken string) ([]Page, error) {
+	var result struct {
+		Data []Page `json:"data"`
+	}
+	err := connector.call(ctx, http.MethodGet, "me/accounts", userToken, url.Values{
+		"fields": {"id,name,access_token,instagram_business_account{id,username}"},
+		"limit":  {"100"},
+	}, &result)
+	if err != nil {
+		return nil, connector.refusal(ctx, err)
+	}
+	return result.Data, nil
 }
 
 // refusal turns a Graph API failure while connecting into an error Daw Mi
 // can act on: Facebook's own words for a refusal, or try again later.
-func (c *Connector) refusal(ctx context.Context, err error) error {
-	var ge *graphError
-	if errors.As(err, &ge) && ge.Status/100 == 4 {
-		c.Log.WarnContext(ctx, "meta_refused", "code", ge.Code, "status", ge.Status)
-		return apperr.New(apperr.ActionNotAllowed, "Facebook refused the connection: "+ge.Message+
-			" (code "+strconv.Itoa(ge.Code)+"). Connect again.")
+func (connector *Connector) refusal(ctx context.Context, err error) error {
+	var refused *apiError
+	if errors.As(err, &refused) && refused.Status/100 == 4 {
+		connector.Log.WarnContext(ctx, "meta_refused", "code", refused.Code, "status", refused.Status)
+		return apperr.New(apperr.ActionNotAllowed, "Facebook refused the connection: "+refused.Message+
+			" (code "+strconv.Itoa(refused.Code)+"). Connect again.")
 	}
-	c.Log.WarnContext(ctx, "meta_unreachable", "err", err)
+	connector.Log.WarnContext(ctx, "meta_unreachable", "err", err)
 	return apperr.New(apperr.Unavailable, "Facebook could not be reached; try again in a minute.")
 }
