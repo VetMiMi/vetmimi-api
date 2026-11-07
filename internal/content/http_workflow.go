@@ -13,53 +13,6 @@ type versionInput struct {
 	Version int32 `json:"version" binding:"required,min=1"`
 }
 
-func (h *Handler) submitPost(c *gin.Context) {
-	var u postURI
-	var in versionInput
-	if !web.BindURI(c, &u) || !web.BindJSON(c, &in) {
-		return
-	}
-	p, err := Submit(c.Request.Context(), h.Pool, u.id(), in.Version, h.Now())
-	if err != nil {
-		web.Error(c, err)
-		return
-	}
-	sendPost(c, http.StatusOK, "post_submitted", p)
-}
-
-type requestChangesInput struct {
-	Version int32  `json:"version" binding:"required,min=1"`
-	Note    string `json:"note" binding:"required,max=2000"`
-}
-
-func (h *Handler) requestChanges(c *gin.Context) {
-	var u postURI
-	var in requestChangesInput
-	if !web.BindURI(c, &u) || !web.BindJSON(c, &in) {
-		return
-	}
-	p, err := RequestChanges(c.Request.Context(), h.Pool, u.id(), in.Version, in.Note, h.Now())
-	if err != nil {
-		web.Error(c, err)
-		return
-	}
-	sendPost(c, http.StatusOK, "post_changes_requested", p)
-}
-
-func (h *Handler) approvePost(c *gin.Context) {
-	var u postURI
-	var in versionInput
-	if !web.BindURI(c, &u) || !web.BindJSON(c, &in) {
-		return
-	}
-	p, err := Approve(c.Request.Context(), h.Pool, u.id(), in.Version, actor(c), h.Now())
-	if err != nil {
-		web.Error(c, err)
-		return
-	}
-	sendPost(c, http.StatusOK, "post_approved", p)
-}
-
 type scheduleInput struct {
 	Version     int32     `json:"version" binding:"required,min=1"`
 	ScheduledAt time.Time `json:"scheduledAt" binding:"required"`
@@ -72,7 +25,7 @@ func (h *Handler) schedulePost(c *gin.Context) {
 		return
 	}
 	ctx := c.Request.Context()
-	p, err := Schedule(ctx, h.Pool, u.id(), in.Version, in.ScheduledAt, h.Now())
+	p, err := Schedule(ctx, h.Pool, u.id(), in.Version, in.ScheduledAt, actor(c), h.Now())
 	if err != nil {
 		web.Error(c, err)
 		return
@@ -103,7 +56,7 @@ func (h *Handler) publishPost(c *gin.Context) {
 		return
 	}
 	ctx := c.Request.Context()
-	p, err := PublishNow(ctx, h.Pool, u.id(), in.Version, h.Now())
+	p, err := PublishNow(ctx, h.Pool, u.id(), in.Version, actor(c), h.Now())
 	if err != nil {
 		web.Error(c, err)
 		return

@@ -20,18 +20,18 @@ type action struct {
 	from []string // the statuses it may start from
 }
 
-// idea ⇄ draft → in_review → approved → scheduled → publishing → published;
-// an edit sends approved and later posts back to in_review (editStatus).
+// idea ⇄ draft → scheduled → publishing → published, or straight to publishing.
+// One person writes and publishes, so there is no review step; in_review and
+// approved remain only on posts saved before it was removed. An edit sends a
+// scheduled or published post back to draft (editStatus).
 var (
-	submit         = action{"submitted", []string{"idea", "draft"}}
-	requestChanges = action{"sent back", []string{"in_review"}}
-	approve        = action{"approved", []string{"in_review"}}
-	schedule       = action{"scheduled", []string{"approved", "scheduled"}}
-	unschedule     = action{"unscheduled", []string{"scheduled"}}
-	publishNow     = action{"published", []string{"approved", "scheduled"}}
-	markPosted     = action{"marked posted", []string{"publishing", "published"}}
-	retry          = action{"retried", []string{"publishing"}}
-	archive        = action{"archived", []string{"idea", "draft", "in_review", "approved", "scheduled", "publishing", "published"}}
+	unpublished = []string{"idea", "draft", "in_review", "approved"}
+	schedule    = action{"scheduled", append(unpublished, "scheduled")}
+	unschedule  = action{"unscheduled", []string{"scheduled"}}
+	publishNow  = action{"published", append(unpublished, "scheduled")}
+	markPosted  = action{"marked posted", []string{"publishing", "published"}}
+	retry       = action{"retried", []string{"publishing"}}
+	archive     = action{"archived", append(unpublished, "scheduled", "publishing", "published")}
 )
 
 func (a action) check(p *db.Post) error {
@@ -50,58 +50,37 @@ var (
 	errNotFailed  = apperr.New(apperr.ActionNotAllowed, "Only a channel that failed can be retried.")
 )
 
-func Submit(ctx context.Context, pool *pgxpool.Pool, id pgtype.UUID, version int32, now time.Time) (Post, error) {
-	return changePost(ctx, pool, id, version, now, func(_ *db.Queries, p *db.Post) error {
-		if err := submit.check(p); err != nil {
-			return err
-		}
-		p.Status = "in_review"
-		return nil
-	})
+// ready checks every enabled channel against its platform's rules before the
+// post is scheduled or published, and records who cleared it.
+func ready(ctx context.Context, q *db.Queries, p *db.Post, by pgtype.UUID, now time.Time) error {
+	versions, err := q.ListPostVersions(ctx, p.ID)
+	if err != nil {
+		return err
+	}
+	inLibrary, err := mediaInLibrary(ctx, q, versions)
+	if err != nil {
+		return err
+	}
+	if problems := checkApproval(*p, versions, inLibrary); len(problems) > 0 {
+		return &apperr.Error{Code: apperr.PublishRequirementsUnmet,
+			Detail: "The post is not ready to publish.", Fields: problems}
+	}
+	p.ApprovedAt, p.ApprovedBy = sql.NullTime{Time: now, Valid: true}, by
+	return nil
 }
 
-func RequestChanges(ctx context.Context, pool *pgxpool.Pool, id pgtype.UUID, version int32, note string, now time.Time) (Post, error) {
-	return changePost(ctx, pool, id, version, now, func(_ *db.Queries, p *db.Post) error {
-		if err := requestChanges.check(p); err != nil {
-			return err
-		}
-		p.Status = "draft"
-		p.ReviewNote = pgtype.Text{String: note, Valid: true}
-		return nil
-	})
-}
-
-func Approve(ctx context.Context, pool *pgxpool.Pool, id pgtype.UUID, version int32, by pgtype.UUID, now time.Time) (Post, error) {
+func Schedule(ctx context.Context, pool *pgxpool.Pool, id pgtype.UUID, version int32, at time.Time,
+	by pgtype.UUID, now time.Time) (Post, error) {
 	return changePost(ctx, pool, id, version, now, func(q *db.Queries, p *db.Post) error {
-		if err := approve.check(p); err != nil {
-			return err
-		}
-		versions, err := q.ListPostVersions(ctx, p.ID)
-		if err != nil {
-			return err
-		}
-		inLibrary, err := mediaInLibrary(ctx, q, versions)
-		if err != nil {
-			return err
-		}
-		if problems := checkApproval(*p, versions, inLibrary); len(problems) > 0 {
-			return &apperr.Error{Code: apperr.PublishRequirementsUnmet,
-				Detail: "The post is not ready to approve.", Fields: problems}
-		}
-		p.Status = "approved"
-		p.ApprovedAt, p.ApprovedBy = sql.NullTime{Time: now, Valid: true}, by
-		return nil
-	})
-}
-
-func Schedule(ctx context.Context, pool *pgxpool.Pool, id pgtype.UUID, version int32, at, now time.Time) (Post, error) {
-	return changePost(ctx, pool, id, version, now, func(_ *db.Queries, p *db.Post) error {
 		if err := schedule.check(p); err != nil {
 			return err
 		}
 		if !at.After(now) {
 			return &apperr.Error{Code: apperr.ActionNotAllowed, Detail: "A post is scheduled for the future.",
 				Fields: []apperr.FieldError{{Field: "/scheduledAt", Message: "must be in the future"}}}
+		}
+		if err := ready(ctx, q, p, by, now); err != nil {
+			return err
 		}
 		p.Status = "scheduled"
 		p.ScheduledAt = sql.NullTime{Time: at, Valid: true}
@@ -114,15 +93,18 @@ func Unschedule(ctx context.Context, pool *pgxpool.Pool, id pgtype.UUID, version
 		if err := unschedule.check(p); err != nil {
 			return err
 		}
-		p.Status = "approved"
-		p.ScheduledAt = sql.NullTime{}
+		backToDraft(p)
 		return nil
 	})
 }
 
-func PublishNow(ctx context.Context, pool *pgxpool.Pool, id pgtype.UUID, version int32, now time.Time) (Post, error) {
+func PublishNow(ctx context.Context, pool *pgxpool.Pool, id pgtype.UUID, version int32, by pgtype.UUID,
+	now time.Time) (Post, error) {
 	return changePost(ctx, pool, id, version, now, func(q *db.Queries, p *db.Post) error {
 		if err := publishNow.check(p); err != nil {
+			return err
+		}
+		if err := ready(ctx, q, p, by, now); err != nil {
 			return err
 		}
 		return startPublishing(ctx, q, p, now)
@@ -220,8 +202,8 @@ func settle(ctx context.Context, q *db.Queries, p *db.Post, now time.Time) error
 	return nil
 }
 
-func backToReview(p *db.Post) {
-	p.Status = "in_review"
+func backToDraft(p *db.Post) {
+	p.Status = "draft"
 	p.ScheduledAt = sql.NullTime{}
 	p.ApprovedAt, p.ApprovedBy = sql.NullTime{}, pgtype.UUID{}
 }

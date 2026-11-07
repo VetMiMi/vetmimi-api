@@ -1,6 +1,6 @@
 # 009 — A publishing portal for posts, replacing the website CMS
 
-**Status:** Accepted · 2026-10-06 · Supersedes [008](008-content-in-postgres-served-through-the-api.md)
+**Status:** Accepted · 2026-10-06 · Supersedes [008](008-content-in-postgres-served-through-the-api.md) · Review step dropped by [012](012-one-writer-publishes-directly.md)
 
 ## Context
 

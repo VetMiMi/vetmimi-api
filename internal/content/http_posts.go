@@ -213,7 +213,6 @@ type postResponse struct {
 	Status       string                `json:"status"`
 	ScheduledAt  *time.Time            `json:"scheduledAt,omitempty"`
 	Consent      consentResponse       `json:"consent"`
-	ReviewNote   pgtype.Text           `json:"reviewNote,omitzero"`
 	AuthorID     pgtype.UUID           `json:"authorId,omitzero"`
 	ApprovedAt   *time.Time            `json:"approvedAt,omitempty"`
 	ApprovedBy   pgtype.UUID           `json:"approvedBy,omitzero"`
@@ -256,7 +255,6 @@ func postView(p Post) postResponse {
 			ConfirmedBy: p.ConsentConfirmedBy,
 		},
 		ScheduledAt:  utc(p.ScheduledAt),
-		ReviewNote:   p.ReviewNote,
 		AuthorID:     p.AuthorID,
 		ApprovedAt:   utc(p.ApprovedAt),
 		ApprovedBy:   p.ApprovedBy,

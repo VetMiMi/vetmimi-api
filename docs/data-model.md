@@ -250,21 +250,21 @@ The publishing portal (ADR-009): Daw Mi writes one post and a version of it for 
 |---|---|---|---|---|
 | title | text | no | — | working title in the portal, 1–200 |
 | kind | text | no | — | `insight`, `true_story`, `announcement` |
-| status | text | no | `'draft'` | `idea`, `draft`, `in_review`, `approved`, `scheduled`, `publishing`, `published`, `archived` |
+| status | text | no | `'draft'` | `idea`, `draft`, `scheduled`, `publishing`, `published`, `archived`; `in_review` and `approved` only on posts saved before ADR-012 |
 | scheduled_at | timestamptz | yes | — | required while `scheduled` |
 | consent_confirmed_at, consent_confirmed_by, consent_note | | yes | — | True Story consent; the note (≤ 2,000) says where it is kept, internal |
-| review_note | text | yes | — | the reviewer's note from the last request for changes, ≤ 2,000 |
+| review_note | text | yes | — | unused since ADR-012; kept for posts sent back before it |
 | author_id, approved_at, approved_by | | yes | — | |
 | published_at | timestamptz | yes | — | when every enabled channel was published |
 
 Index: `(status, created_at)`. Transitions (`internal/content/workflow.go`): `idea ⇄ draft` (an edit),
-`idea|draft → in_review` (submit), `in_review → draft` (request changes, with a note), `in_review → approved`
-(approve), `approved|scheduled → scheduled` (schedule, future time), `scheduled → approved` (unschedule),
-`approved|scheduled → publishing|published` (publish now; the scheduler will do the same at `scheduled_at`),
-`publishing → published` (once every publication is `published` or `manual`), any → `archived`. Saving an
-`approved` or `scheduled` post moves it back to `in_review`. A `publishing` or `published` post may change only
-its title and website version; that too returns it to `in_review` (visitors keep reading the article as last
-published until it is published again, which republishes the website only). Approval needs at least one enabled channel, every enabled version
+`idea|draft|scheduled → scheduled` (schedule, future time), `scheduled → draft` (unschedule),
+`idea|draft|scheduled → publishing|published` (publish now; the scheduler will do the same at `scheduled_at`),
+`publishing → published` (once every publication is `published` or `manual`), any → `archived`. Saving a
+`scheduled` post moves it back to `draft`. A `publishing` or `published` post may change only its title and
+website version; that too returns it to `draft` (visitors keep reading the article as last published until it
+is published again, which republishes the website only). Scheduling and publishing check, and `approved_at` and
+`approved_by` record who cleared it: at least one enabled channel, every enabled version
 valid for its platform, every image it names in `media`, and, for a True Story, consent confirmed. Only ideas and drafts that were never published may be deleted.
 
 **`post_versions`** — One row per post and channel. PK `(post_id, channel)`; FK posts `CASCADE`.

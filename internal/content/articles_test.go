@@ -2,6 +2,7 @@ package content_test
 
 import (
 	"testing"
+	"time"
 
 	"github.com/stretchr/testify/require"
 
@@ -19,7 +20,7 @@ func slugs(articles []content.Article) []string {
 	return out
 }
 
-// Approved, archived and social-only posts never show.
+// Scheduled, archived and social-only posts never show.
 func TestPublicArticlesAreOnlyPublishedWebsiteVersions(t *testing.T) {
 	q := db.New(pgtest.Pool(t))
 	withCover := website("live-both-languages")
@@ -31,9 +32,8 @@ func TestPublicArticlesAreOnlyPublishedWebsiteVersions(t *testing.T) {
 	require.NoError(t, story.edit(content.Edit{Consent: &content.Consent{Confirmed: true}}))
 	story.published()
 
-	approved := newPost(t, "insight", website("approved-not-live"))
-	require.NoError(t, approved.submit())
-	require.NoError(t, approved.approve())
+	scheduled := newPost(t, "insight", website("scheduled-not-live"))
+	require.NoError(t, scheduled.schedule(scheduled.now.Add(time.Hour)))
 	archived := newPost(t, "insight", website("archived-article")).published()
 	_, err := content.Archive(ctx, pgtest.Pool(t), archived.post.ID, archived.post.Version, archived.now)
 	require.NoError(t, err)
@@ -45,7 +45,7 @@ func TestPublicArticlesAreOnlyPublishedWebsiteVersions(t *testing.T) {
 	require.NoError(t, err)
 	got := slugs(all)
 	require.Subset(t, got, []string{"live-both-languages", "live-english-only"})
-	for _, absent := range []string{"approved-not-live", "archived-article", "website-switched-off"} {
+	for _, absent := range []string{"scheduled-not-live", "archived-article", "website-switched-off"} {
 		require.NotContains(t, got, absent)
 	}
 	stories, err := content.ListArticles(ctx, q, "en", "true_story", 100)
@@ -70,7 +70,7 @@ func TestPublicArticlesAreOnlyPublishedWebsiteVersions(t *testing.T) {
 	require.Equal(t, "Only English", fallback.Title)
 	require.Nil(t, fallback.Cover)
 
-	for _, slug := range []string{"approved-not-live", "archived-article", "website-switched-off"} {
+	for _, slug := range []string{"scheduled-not-live", "archived-article", "website-switched-off"} {
 		_, err := content.GetArticle(ctx, q, slug, "en")
 		requireCode(t, apperr.NotFound, err)
 	}

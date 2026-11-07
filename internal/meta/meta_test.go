@@ -364,14 +364,8 @@ func TestSchedulerPublishesThroughTheConnector(t *testing.T) {
 	p, err := content.CreatePost(ctx, pool, content.Edit{Title: "Open day", Kind: "announcement",
 		Versions: []db.SavePostVersionParams{{Channel: "facebook", Enabled: true, Text: text("Open day.")}}}, author, now)
 	require.NoError(t, err)
-	for _, step := range []func() (content.Post, error){
-		func() (content.Post, error) { return content.Submit(ctx, pool, p.ID, p.Version, now) },
-		func() (content.Post, error) { return content.Approve(ctx, pool, p.ID, p.Version, author, now) },
-		func() (content.Post, error) { return content.PublishNow(ctx, pool, p.ID, p.Version, now) },
-	} {
-		p, err = step()
-		require.NoError(t, err)
-	}
+	p, err = content.PublishNow(ctx, pool, p.ID, p.Version, author, now)
+	require.NoError(t, err)
 	tasks := &content.Tasks{Pool: pool, Log: slog.New(slog.DiscardHandler), Now: func() time.Time { return now },
 		Publishers: map[string]content.Publisher{"facebook": c.PublishFacebook}}
 	body, err := json.Marshal(content.PublishTasks(p)[0].Payload)

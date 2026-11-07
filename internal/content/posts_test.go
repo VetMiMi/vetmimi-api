@@ -45,7 +45,7 @@ func TestDeleteOnlyIdeasAndDrafts(t *testing.T) {
 	require.NoError(t, content.DeletePost(ctx, db.New(pgtest.Pool(t)), f.post.ID))
 	requireCode(t, apperr.NotFound, content.DeletePost(ctx, db.New(pgtest.Pool(t)), f.post.ID))
 
-	f = newPost(t, "insight")
-	require.NoError(t, f.submit())
+	f = newPost(t, "insight", facebook("Out tomorrow."))
+	require.NoError(t, f.schedule(f.now.Add(24*time.Hour)))
 	requireCode(t, apperr.InvalidTransition, content.DeletePost(ctx, db.New(pgtest.Pool(t)), f.post.ID))
 }

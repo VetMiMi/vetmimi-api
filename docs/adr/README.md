@@ -36,6 +36,7 @@ What becomes easier, what becomes harder, what we must now watch.
 | [006](006-communications-as-durable-records.md) | Communications as durable records, delivered by asynq workers |
 | [007](007-one-to-one-webrtc-with-go-signaling.md) | One-to-one WebRTC with Go WebSocket signaling |
 | [008](008-content-in-postgres-served-through-the-api.md) | Content in PostgreSQL, served through the API, revalidated by tag |
-| [009](009-publishing-portal.md) | A publishing portal for posts, replacing the website CMS |
+| [009](009-publishing-portal.md) | A publishing portal for posts, replacing the website CMS (review step dropped by 012) |
 | [010](010-live-host-on-ec2-with-the-website.md) | The live host is an EC2 instance in Sydney, and it serves the website too |
 | [011](011-gin-with-handwritten-structs.md) | Gin with handwritten structs, routes listed per feature |
+| [012](012-one-writer-publishes-directly.md) | One writer publishes directly, without a review step |
