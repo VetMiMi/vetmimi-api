@@ -14,7 +14,12 @@ type Handler struct {
 	Client *Client
 }
 
-var suggestionLimit = web.Rule{Name: "ai-suggestions", Limit: 20, Window: time.Hour, By: web.ByUser}
+var suggestionLimit = web.Rule{
+	Name:   "ai-suggestions",
+	Limit:  20,
+	Window: time.Hour,
+	By:     web.ByUser,
+}
 
 func (h *Handler) Routes(r web.Routes) {
 	r.Admin(auth.ContentEditor).GET("/admin/ai/status", h.status)

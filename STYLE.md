@@ -61,7 +61,9 @@ does not exist; never add an empty one.
 | task builder | `<Kind>Task(s)` | `PublishTasks(post)` |
 
 A method receiver names its type in one lower-case word: `hub *Hub`,
-`queue *Queue`, `limiter *Limiter`, `failure *ChannelError`.
+`queue *Queue`, `limiter *Limiter`, `failure *ChannelError`. When that word
+would hide the type's own name inside the method, pick another clear word
+(`env *loader` in `internal/config`).
 
 Variables use the whole word: `post`, `posts`, `version`, `publication`,
 `edit`, `filter`, `body`, `query`, `path`, `response`, `result`.
