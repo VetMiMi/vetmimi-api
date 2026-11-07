@@ -10,11 +10,11 @@ import (
 	"errors"
 )
 
-const keyBytes = 32 // AES-256
-
 type Box struct {
 	aead cipher.AEAD
 }
+
+const keyBytes = 32 // AES-256
 
 // New takes TOTP_ENCRYPTION_KEY, which must be 32 bytes.
 func New(key []byte) (*Box, error) {
@@ -34,7 +34,8 @@ func New(key []byte) (*Box, error) {
 
 func (b *Box) Seal(plain []byte) ([]byte, error) {
 	nonce := make([]byte, b.aead.NonceSize())
-	if _, err := rand.Read(nonce); err != nil {
+	_, err := rand.Read(nonce)
+	if err != nil {
 		return nil, err
 	}
 	return b.aead.Seal(nonce, nonce, plain, nil), nil
@@ -42,9 +43,9 @@ func (b *Box) Seal(plain []byte) ([]byte, error) {
 
 // Open fails if sealed was altered or sealed under another key.
 func (b *Box) Open(sealed []byte) ([]byte, error) {
-	n := b.aead.NonceSize()
-	if len(sealed) < n {
+	size := b.aead.NonceSize()
+	if len(sealed) < size {
 		return nil, errors.New("secretbox: sealed value is too short")
 	}
-	return b.aead.Open(nil, sealed[:n], sealed[n:], nil)
+	return b.aead.Open(nil, sealed[:size], sealed[size:], nil)
 }
