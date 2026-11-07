@@ -13,8 +13,6 @@ import (
 	"github.com/VetMiMi/vetmimi-api/internal/db"
 )
 
-var ErrPractitionerTaken = errors.New("another user is already the practitioner; there can be only one")
-
 // Account is what create-user saves for one administrator.
 type Account struct {
 	Email            string
@@ -28,6 +26,8 @@ type Account struct {
 	EnrolmentStep int64
 }
 
+var ErrPractitionerTaken = errors.New("another user is already the practitioner; there can be only one")
+
 // NormalizeEmail is the form emails are stored and looked up in.
 func NormalizeEmail(email string) string {
 	return strings.ToLower(strings.TrimSpace(email))
@@ -36,38 +36,49 @@ func NormalizeEmail(email string) string {
 // SaveAccount creates the account or, when the email exists, replaces its
 // credentials, name and roles and signs the user out everywhere, in one
 // transaction. It reports whether it created the user.
-func SaveAccount(ctx context.Context, pool *pgxpool.Pool, a Account) (id pgtype.UUID, created bool, err error) {
-	email := NormalizeEmail(a.Email)
-	step := pgtype.Int8{Int64: a.EnrolmentStep, Valid: a.SealedTOTPSecret != nil}
-	err = pgx.BeginFunc(ctx, pool, func(tx pgx.Tx) error {
-		q := db.New(tx)
-		id, err = q.ReplaceUserCredentials(ctx, db.ReplaceUserCredentialsParams{
+func SaveAccount(ctx context.Context, pool *pgxpool.Pool, account Account) (pgtype.UUID, bool, error) {
+	email := NormalizeEmail(account.Email)
+	step := pgtype.Int8{Int64: account.EnrolmentStep, Valid: account.SealedTOTPSecret != nil}
+
+	tx, err := pool.Begin(ctx)
+	if err != nil {
+		return pgtype.UUID{}, false, err
+	}
+	defer tx.Rollback(ctx)
+	q := db.New(tx)
+
+	id, err := q.ReplaceUserCredentials(ctx, db.ReplaceUserCredentialsParams{
+		Email:          email,
+		DisplayName:    account.DisplayName,
+		PasswordHash:   account.PasswordHash,
+		Roles:          account.Roles,
+		IsPractitioner: account.Practitioner,
+		TotpSecretEnc:  account.SealedTOTPSecret,
+		TotpLastStep:   step,
+	})
+	created := errors.Is(err, pgx.ErrNoRows)
+	if created {
+		id, err = q.CreateUser(ctx, db.CreateUserParams{
 			Email:          email,
-			DisplayName:    a.DisplayName,
-			PasswordHash:   a.PasswordHash,
-			Roles:          a.Roles,
-			IsPractitioner: a.Practitioner,
-			TotpSecretEnc:  a.SealedTOTPSecret,
+			DisplayName:    account.DisplayName,
+			PasswordHash:   account.PasswordHash,
+			Roles:          account.Roles,
+			IsPractitioner: account.Practitioner,
+			TotpSecretEnc:  account.SealedTOTPSecret,
 			TotpLastStep:   step,
 		})
-		if errors.Is(err, pgx.ErrNoRows) {
-			id, err = q.CreateUser(ctx, db.CreateUserParams{
-				Email:          email,
-				DisplayName:    a.DisplayName,
-				PasswordHash:   a.PasswordHash,
-				Roles:          a.Roles,
-				IsPractitioner: a.Practitioner,
-				TotpSecretEnc:  a.SealedTOTPSecret,
-				TotpLastStep:   step,
-			})
-			created = err == nil
-			return practitionerTaken(err)
-		}
+	}
+	if err != nil {
+		return pgtype.UUID{}, false, practitionerTaken(err)
+	}
+	if !created {
+		err = q.DeleteUserSessions(ctx, id)
 		if err != nil {
-			return practitionerTaken(err)
+			return pgtype.UUID{}, false, err
 		}
-		return q.DeleteUserSessions(ctx, id)
-	})
+	}
+
+	err = tx.Commit(ctx)
 	if err != nil {
 		return pgtype.UUID{}, false, err
 	}
