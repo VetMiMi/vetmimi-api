@@ -20,13 +20,14 @@ func Client(t testing.TB) *redis.Client {
 		t.Fatal("REDIS_URL_TEST is not set; point it at a Redis database tests may write to, " +
 			"for example redis://localhost:6379/1")
 	}
-	opts, err := redis.ParseURL(url)
+	options, err := redis.ParseURL(url)
 	if err != nil {
 		t.Fatal("redistest: REDIS_URL_TEST is not a valid redis:// URL")
 	}
-	rdb := redis.NewClient(opts)
+	rdb := redis.NewClient(options)
 	t.Cleanup(func() { rdb.Close() })
-	if err := rdb.Ping(context.Background()).Err(); err != nil {
+	err = rdb.Ping(context.Background()).Err()
+	if err != nil {
 		t.Fatal("redistest: ", err)
 	}
 	return rdb
@@ -36,11 +37,11 @@ func Client(t testing.TB) *redis.Client {
 // refused.
 func Stopped(t testing.TB) *redis.Client {
 	t.Helper()
-	opts, err := redis.ParseURL("redis://127.0.0.1:1/0")
+	options, err := redis.ParseURL("redis://127.0.0.1:1/0")
 	if err != nil {
 		t.Fatal("redistest: ", err)
 	}
-	rdb := redis.NewClient(opts)
+	rdb := redis.NewClient(options)
 	t.Cleanup(func() { rdb.Close() })
 	return rdb
 }
