@@ -38,9 +38,10 @@ var (
 // bucket is a fake S3 endpoint: PutObject and DeleteObject on path-style
 // keys, and a key that refuses writes.
 type bucket struct {
-	mu      sync.Mutex
-	objects map[string][]byte
-	refuse  string
+	mu           sync.Mutex
+	objects      map[string][]byte
+	refuse       string
+	refuseDelete bool
 }
 
 func (b *bucket) ServeHTTP(w http.ResponseWriter, r *http.Request) {
@@ -52,6 +53,8 @@ func (b *bucket) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		w.WriteHeader(http.StatusInternalServerError)
 	case r.Method == http.MethodPut:
 		b.objects[key], _ = io.ReadAll(r.Body)
+	case r.Method == http.MethodDelete && b.refuseDelete:
+		w.WriteHeader(http.StatusInternalServerError)
 	case r.Method == http.MethodDelete:
 		delete(b.objects, key)
 		w.WriteHeader(http.StatusNoContent)
@@ -219,4 +222,18 @@ func TestDeleteRefusesMediaInUse(t *testing.T) {
 	require.NoError(t, media.Delete(ctx, pool, store, m.ID))
 	require.Empty(t, b.keys())
 	requireCode(t, apperr.NotFound, media.Delete(ctx, pool, store, m.ID))
+}
+
+// When the bucket refuses to delete, the item is still deleted and only unused
+// files are left behind: never an item whose files are gone.
+func TestDeleteRemovesTheRowEvenWhenFilesStay(t *testing.T) {
+	store, b := newStore(t)
+	pool := pgtest.Pool(t)
+	m, err := media.Upload(ctx, pool, store, photo(t, 500, 500), media.Description{}, pgtype.UUID{}, now)
+	require.NoError(t, err)
+
+	b.refuseDelete = true
+	require.NoError(t, media.Delete(ctx, pool, store, m.ID))
+	requireCode(t, apperr.NotFound, media.Delete(ctx, pool, store, m.ID))
+	require.Len(t, b.keys(), 3, "the files stay, unused")
 }
