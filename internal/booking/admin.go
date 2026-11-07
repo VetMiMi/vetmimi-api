@@ -21,17 +21,6 @@ import (
 
 type View string
 
-const (
-	ViewUpcoming  View = "upcoming"
-	ViewPending   View = "pending"
-	ViewPast      View = "past"
-	ViewCancelled View = "cancelled"
-	ViewAll       View = "all"
-)
-
-var allStatuses = []Status{Pending, Confirmed, Declined, Expired, CancelledByClient, CancelledByPractitioner,
-	Completed, NoShow}
-
 // Filter narrows the admin list; zero fields filter nothing.
 type Filter struct {
 	View      View
@@ -51,74 +40,6 @@ type Page struct {
 	NextCursor string
 }
 
-const defaultLimit = 50
-
-// maxNoteLength is appointments_visitor_lengths' bound on admin_note.
-const maxNoteLength = 2000
-
-func ListAppointments(ctx context.Context, q db.Querier, f Filter, now time.Time) (Page, error) {
-	cur, err := settings.Load(ctx, q)
-	if err != nil {
-		return Page{}, err
-	}
-	limit := f.Limit
-	if limit <= 0 {
-		limit = defaultLimit
-	}
-	p, err := listParams(f, limit, now)
-	if err != nil {
-		return Page{}, err
-	}
-	rows, err := q.ListAppointments(ctx, p)
-	if err != nil {
-		return Page{}, err
-	}
-	page := Page{Timezone: cur.Timezone, Items: rows}
-	if len(rows) > limit {
-		page.Items = rows[:limit]
-		last := page.Items[limit-1]
-		page.NextCursor = listing.EncodeCursor(last.SortAt, last.ID)
-	}
-	return page, nil
-}
-
-func listParams(f Filter, limit int, now time.Time) (db.ListAppointmentsParams, error) {
-	p := db.ListAppointmentsParams{
-		StartsFrom:   sql.NullTime{Time: f.From, Valid: !f.From.IsZero()},
-		StartsBefore: sql.NullTime{Time: f.To, Valid: !f.To.IsZero()},
-		ServiceID:    f.ServiceID,
-		Format:       pgtype.Text{String: f.Format, Valid: f.Format != ""},
-		Search:       listing.LikePattern(f.Search),
-		// One extra row tells whether there is a next page.
-		MaxRows: int32(limit) + 1,
-	}
-	preset := allStatuses
-	switch f.View {
-	case ViewUpcoming, "":
-		preset, p.Ascending = []Status{Pending, Confirmed}, true
-		if !p.StartsFrom.Valid || p.StartsFrom.Time.Before(now) {
-			p.StartsFrom = sql.NullTime{Time: now, Valid: true}
-		}
-	case ViewPending:
-		preset, p.Ascending, p.ByHold = []Status{Pending}, true, true
-	case ViewPast:
-		p.Past = sql.NullTime{Time: now, Valid: true}
-	case ViewCancelled:
-		preset = []Status{CancelledByClient, CancelledByPractitioner, Declined}
-	}
-	for _, s := range preset {
-		if len(f.Statuses) == 0 || slices.Contains(f.Statuses, s) {
-			p.Statuses = append(p.Statuses, string(s))
-		}
-	}
-	if f.Cursor == "" {
-		return p, nil
-	}
-	var err error
-	p.AfterAt, p.AfterID, err = listing.DecodeCursor(f.Cursor)
-	return p, err
-}
-
 type Detail struct {
 	Appointment    db.GetAppointmentDetailRow
 	Events         []db.ListAppointmentEventsRow
@@ -127,8 +48,53 @@ type Detail struct {
 	VideoRoom      *db.VideoRoom
 }
 
+const (
+	ViewUpcoming  View = "upcoming"
+	ViewPending   View = "pending"
+	ViewPast      View = "past"
+	ViewCancelled View = "cancelled"
+	ViewAll       View = "all"
+)
+
+const defaultLimit = 50
+
+// maxNoteLength is appointments_visitor_lengths' bound on admin_note.
+const maxNoteLength = 2000
+
+var allStatuses = []Status{Pending, Confirmed, Declined, Expired, CancelledByClient, CancelledByPractitioner,
+	Completed, NoShow}
+
+func ListAppointments(ctx context.Context, q db.Querier, filter Filter, now time.Time) (Page, error) {
+	current, err := settings.Load(ctx, q)
+	if err != nil {
+		return Page{}, err
+	}
+	limit := filter.Limit
+	if limit <= 0 {
+		limit = defaultLimit
+	}
+	params, err := listParams(filter, limit, now)
+	if err != nil {
+		return Page{}, err
+	}
+	rows, err := q.ListAppointments(ctx, params)
+	if err != nil {
+		return Page{}, err
+	}
+	page := Page{
+		Timezone: current.Timezone,
+		Items:    rows,
+	}
+	if len(rows) > limit {
+		page.Items = rows[:limit]
+		last := page.Items[limit-1]
+		page.NextCursor = listing.EncodeCursor(last.SortAt, last.ID)
+	}
+	return page, nil
+}
+
 func GetAppointment(ctx context.Context, q db.Querier, id pgtype.UUID, now time.Time) (Detail, error) {
-	appt, err := q.GetAppointmentDetail(ctx, id)
+	appointment, err := q.GetAppointmentDetail(ctx, id)
 	if errors.Is(err, pgx.ErrNoRows) {
 		return Detail{}, errAppointmentNotFound
 	}
@@ -139,50 +105,129 @@ func GetAppointment(ctx context.Context, q db.Querier, id pgtype.UUID, now time.
 	if err != nil {
 		return Detail{}, err
 	}
-	sent, err := q.ListAppointmentCommunications(ctx, id)
+	communications, err := q.ListAppointmentCommunications(ctx, id)
 	if err != nil {
 		return Detail{}, err
 	}
-	d := Detail{Appointment: appt, Events: events, Communications: sent,
-		AllowedActions: AllowedActions(Status(appt.Status), appt.StartsAt, now)}
-	room, ok, err := video.RoomOf(ctx, q, id)
-	if ok {
-		d.VideoRoom = &room
-		d.AllowedActions = append(d.AllowedActions, video.Actions(room, Status(appt.Status) == Confirmed, now)...)
+	detail := Detail{
+		Appointment:    appointment,
+		Events:         events,
+		Communications: communications,
+		AllowedActions: AllowedActions(Status(appointment.Status), appointment.StartsAt, now),
 	}
-	return d, err
+	room, ok, err := video.RoomOf(ctx, q, id)
+	if err != nil {
+		return Detail{}, err
+	}
+	if ok {
+		detail.VideoRoom = &room
+		confirmed := Status(appointment.Status) == Confirmed
+		detail.AllowedActions = append(detail.AllowedActions, video.Actions(room, confirmed, now)...)
+	}
+	return detail, nil
 }
 
 func AllowedActions(status Status, startsAt, now time.Time) []string {
-	var out []string
+	var actions []string
 	future := startsAt.After(now)
 	switch {
 	case status == Pending && future:
-		out = []string{"confirm", "decline", "reschedule"}
+		actions = []string{"confirm", "decline", "reschedule"}
 	case status == Pending:
-		out = []string{"decline"}
+		actions = []string{"decline"}
 	case status == Confirmed && future:
-		out = []string{"reschedule", "cancel"}
+		actions = []string{"reschedule", "cancel"}
 	case status == Confirmed:
-		out = []string{"complete", "no_show"}
+		actions = []string{"complete", "no_show"}
 	}
-	return append(out, "set_note", "mark_communicated")
+	return append(actions, "set_note", "mark_communicated")
 }
 
 // SetNote replaces the private note; the history records only its length.
-func SetNote(ctx context.Context, pool *pgxpool.Pool, c Change, note string, now time.Time) error {
-	n := utf8.RuneCountInString(note)
-	if n > maxNoteLength {
+func SetNote(ctx context.Context, pool *pgxpool.Pool, change Change, note string, now time.Time) error {
+	length := utf8.RuneCountInString(note)
+	if length > maxNoteLength {
 		return apperr.Invalid("The note is too long.", apperr.FieldError{Field: "/note", Message: "must be at most 2000 characters"})
 	}
-	_, err := change(ctx, pool, c, func(q *db.Queries, appt db.Appointment, _ settings.Settings) (Changed, error) {
-		if _, err := q.SetAppointmentNote(ctx, db.SetAppointmentNoteParams{
-			ID: appt.ID, AdminNote: pgtype.Text{String: note, Valid: note != ""}, Now: now,
-		}); err != nil {
-			return Changed{}, err
+
+	tx, err := pool.Begin(ctx)
+	if err != nil {
+		return err
+	}
+	defer tx.Rollback(ctx)
+	q := db.New(tx)
+
+	err = q.LockSchedule(ctx)
+	if err != nil {
+		return err
+	}
+	appointment, err := lockAppointment(ctx, q, change.ID, change.Version)
+	if err != nil {
+		return err
+	}
+	params := db.SetAppointmentNoteParams{
+		ID:        appointment.ID,
+		AdminNote: pgtype.Text{String: note, Valid: note != ""},
+		Now:       now,
+	}
+	_, err = q.SetAppointmentNote(ctx, params)
+	if err != nil {
+		return err
+	}
+	event := Event{
+		AppointmentID: appointment.ID,
+		Kind:          "note_updated",
+		Actor:         "admin",
+		ActorUserID:   change.Actor,
+		Detail:        EventDetail{NoteLength: &length},
+	}
+	err = AppendEvent(ctx, q, event)
+	if err != nil {
+		return err
+	}
+
+	return tx.Commit(ctx)
+}
+
+func listParams(filter Filter, limit int, now time.Time) (db.ListAppointmentsParams, error) {
+	params := db.ListAppointmentsParams{
+		StartsFrom:   sql.NullTime{Time: filter.From, Valid: !filter.From.IsZero()},
+		StartsBefore: sql.NullTime{Time: filter.To, Valid: !filter.To.IsZero()},
+		ServiceID:    filter.ServiceID,
+		Format:       pgtype.Text{String: filter.Format, Valid: filter.Format != ""},
+		Search:       listing.LikePattern(filter.Search),
+		// One extra row tells whether there is a next page.
+		MaxRows: int32(limit) + 1,
+	}
+	preset := allStatuses
+	switch filter.View {
+	case ViewUpcoming, "":
+		preset = []Status{Pending, Confirmed}
+		params.Ascending = true
+		if !params.StartsFrom.Valid || params.StartsFrom.Time.Before(now) {
+			params.StartsFrom = sql.NullTime{Time: now, Valid: true}
 		}
-		return Changed{}, AppendEvent(ctx, q, Event{AppointmentID: appt.ID, Kind: "note_updated", Actor: "admin",
-			ActorUserID: c.Actor, Detail: EventDetail{NoteLength: &n}})
-	})
-	return err
+	case ViewPending:
+		preset = []Status{Pending}
+		params.Ascending = true
+		params.ByHold = true
+	case ViewPast:
+		params.Past = sql.NullTime{Time: now, Valid: true}
+	case ViewCancelled:
+		preset = []Status{CancelledByClient, CancelledByPractitioner, Declined}
+	}
+	for _, status := range preset {
+		if len(filter.Statuses) == 0 || slices.Contains(filter.Statuses, status) {
+			params.Statuses = append(params.Statuses, string(status))
+		}
+	}
+	if filter.Cursor == "" {
+		return params, nil
+	}
+	var err error
+	params.AfterAt, params.AfterID, err = listing.DecodeCursor(filter.Cursor)
+	if err != nil {
+		return db.ListAppointmentsParams{}, err
+	}
+	return params, nil
 }

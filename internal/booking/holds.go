@@ -16,83 +16,73 @@ import (
 	"github.com/VetMiMi/vetmimi-api/internal/settings"
 )
 
-const sweepHoldsLimit = 500
-
-type holdPayload struct {
-	AppointmentID string `json:"appointment_id"`
-}
-
-// holdTask's fixed id makes enqueueing it twice harmless.
-func holdTask(id pgtype.UUID, at time.Time) queue.Task {
-	return queue.Task{
-		Type:      TaskExpireHold,
-		Payload:   holdPayload{AppointmentID: id.String()},
-		ID:        "hold:" + id.String(),
-		ProcessAt: at,
+// ExpireHold re-checks the locked row, so a confirmed request or an early or repeated task is left alone.
+func ExpireHold(ctx context.Context, pool *pgxpool.Pool, id pgtype.UUID, now time.Time) ([]queue.Task, error) {
+	tx, err := pool.Begin(ctx)
+	if err != nil {
+		return nil, err
 	}
+	defer tx.Rollback(ctx)
+	q := db.New(tx)
+
+	appointment, err := q.LockAppointment(ctx, id)
+	if errors.Is(err, pgx.ErrNoRows) {
+		return nil, nil
+	}
+	if err != nil {
+		return nil, err
+	}
+	if !CanTransition(Status(appointment.Status), Expired) || !appointment.HoldExpiresAt.Valid ||
+		appointment.HoldExpiresAt.Time.After(now) {
+		return nil, nil
+	}
+	params := db.SetAppointmentStatusParams{
+		ID:     id,
+		Status: string(Expired),
+		Now:    now,
+	}
+	_, err = q.SetAppointmentStatus(ctx, params)
+	if err != nil {
+		return nil, err
+	}
+	event := Event{
+		AppointmentID: id,
+		Kind:          "expired",
+		From:          Pending,
+		To:            Expired,
+		Actor:         "system",
+	}
+	err = AppendEvent(ctx, q, event)
+	if err != nil {
+		return nil, err
+	}
+	err = CancelReminders(ctx, q, id, string(Expired))
+	if err != nil {
+		return nil, err
+	}
+	message := comms.Message{
+		AppointmentID: id,
+		Kind:          comms.RequestExpired,
+		Recipient:     appointment.VisitorEmail,
+		Locale:        appointment.Locale,
+	}
+	task, err := comms.Queue(ctx, q, message)
+	if err != nil {
+		return nil, err
+	}
+
+	err = tx.Commit(ctx)
+	if err != nil {
+		return nil, err
+	}
+	return []queue.Task{task}, nil
 }
 
 // holdUntil is pending_hold_hours from now, or the start if that is sooner.
-func holdUntil(cur settings.Settings, start, now time.Time) sql.NullTime {
-	hold := now.Add(time.Duration(cur.PendingHoldHours) * time.Hour)
+func holdUntil(current settings.Settings, start, now time.Time) sql.NullTime {
+	hold := now.Add(time.Duration(current.PendingHoldHours) * time.Hour)
 	if start.Before(hold) {
 		hold = start
 	}
 	return sql.NullTime{Time: hold, Valid: true}
-}
-
-// ExpireHold re-checks the locked row, so a confirmed request or an early or repeated task is left alone.
-func ExpireHold(ctx context.Context, pool *pgxpool.Pool, id pgtype.UUID, now time.Time) ([]queue.Task, error) {
-	var tasks []queue.Task
-	err := pgx.BeginFunc(ctx, pool, func(tx pgx.Tx) error {
-		q := db.New(tx)
-		appt, err := q.LockAppointment(ctx, id)
-		if errors.Is(err, pgx.ErrNoRows) {
-			return nil
-		}
-		if err != nil {
-			return err
-		}
-		if !CanTransition(Status(appt.Status), Expired) || !appt.HoldExpiresAt.Valid ||
-			appt.HoldExpiresAt.Time.After(now) {
-			return nil
-		}
-		if _, err := q.SetAppointmentStatus(ctx, db.SetAppointmentStatusParams{
-			ID: id, Status: string(Expired), Now: now,
-		}); err != nil {
-			return err
-		}
-		if err := AppendEvent(ctx, q, Event{AppointmentID: id, Kind: "expired", From: Pending, To: Expired,
-			Actor: "system"}); err != nil {
-			return err
-		}
-		if err := CancelReminders(ctx, q, id, string(Expired)); err != nil {
-			return err
-		}
-		task, err := comms.Queue(ctx, q, comms.Message{AppointmentID: id, Kind: comms.RequestExpired,
-			Recipient: appt.VisitorEmail, Locale: appt.Locale})
-		tasks = []queue.Task{task}
-		return err
-	})
-	if err != nil {
-		return nil, err
-	}
-	return tasks, nil
-}
-
-// SweepHolds catches overdue holds whose task Redis lost.
-func SweepHolds(ctx context.Context, pool *pgxpool.Pool, now time.Time) ([]queue.Task, error) {
-	ids, err := db.New(pool).ListOverdueHolds(ctx, db.ListOverdueHoldsParams{Now: now, MaxRows: sweepHoldsLimit})
-	if err != nil {
-		return nil, err
-	}
-	var tasks []queue.Task
-	for _, id := range ids {
-		t, err := ExpireHold(ctx, pool, id, now)
-		if err != nil {
-			return tasks, err
-		}
-		tasks = append(tasks, t...)
-	}
-	return tasks, nil
 }

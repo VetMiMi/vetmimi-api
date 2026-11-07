@@ -21,15 +21,6 @@ import (
 	"github.com/VetMiMi/vetmimi-api/internal/settings"
 )
 
-const httpCreated = 201
-
-var (
-	errOutsideWindow = apperr.New(apperr.OutsideBookingWindow,
-		"The start is inside the minimum notice or beyond the furthest bookable day.")
-	errAcknowledgement = apperr.New(apperr.AcknowledgementRequired,
-		"The privacy notice and the booking policy must both be acknowledged.")
-)
-
 type Request struct {
 	IdempotencyKey string
 	// Body is the raw request; the idempotency key's hash covers it.
@@ -67,34 +58,68 @@ type Requested struct {
 	Tasks         []queue.Task
 }
 
-// RequestAppointment stores a pending request, or a confirmed booking in instant mode for a "book" service.
-func RequestAppointment(ctx context.Context, pool *pgxpool.Pool, secret []byte, r Request, now time.Time) (Requested, error) {
-	var out Requested
-	err := inSchedule(ctx, pool, func(q *db.Queries) error {
-		stored, err := idempotency.Begin(ctx, q, idempotency.PublicAppointment, r.IdempotencyKey, r.Body, now)
-		if err != nil {
-			return err
-		}
-		if stored != nil {
-			out = Requested{AppointmentID: stored.ResourceID, Replayed: true}
-			return json.Unmarshal(stored.Body, &out.Receipt)
-		}
-		out, err = createRequest(ctx, q, secret, r, now)
-		if err != nil {
-			return err
-		}
-		return idempotency.Finish(ctx, q, idempotency.PublicAppointment, r.IdempotencyKey,
-			out.AppointmentID, httpCreated, out.Receipt)
-	})
-	return out, countConflict("website", err)
-}
+const httpCreated = 201
 
-func createRequest(ctx context.Context, q *db.Queries, secret []byte, r Request, now time.Time) (Requested, error) {
-	cur, err := settings.Load(ctx, q)
+var (
+	errOutsideWindow = apperr.New(apperr.OutsideBookingWindow,
+		"The start is inside the minimum notice or beyond the furthest bookable day.")
+	errAcknowledgement = apperr.New(apperr.AcknowledgementRequired,
+		"The privacy notice and the booking policy must both be acknowledged.")
+)
+
+// RequestAppointment stores a pending request, or a confirmed booking in instant mode for a "book" service.
+func RequestAppointment(ctx context.Context, pool *pgxpool.Pool, secret []byte, request Request,
+	now time.Time) (Requested, error) {
+	tx, err := pool.Begin(ctx)
 	if err != nil {
 		return Requested{}, err
 	}
-	svc, err := checkRequest(ctx, q, cur, r, now)
+	defer tx.Rollback(ctx)
+	q := db.New(tx)
+
+	err = q.LockSchedule(ctx)
+	if err != nil {
+		return Requested{}, err
+	}
+	stored, err := idempotency.Begin(ctx, q, idempotency.PublicAppointment, request.IdempotencyKey, request.Body, now)
+	if err != nil {
+		return Requested{}, err
+	}
+	// A replay wrote nothing, so it has nothing to commit.
+	if stored != nil {
+		replayed := Requested{
+			AppointmentID: stored.ResourceID,
+			Replayed:      true,
+		}
+		err = json.Unmarshal(stored.Body, &replayed.Receipt)
+		if err != nil {
+			return Requested{}, err
+		}
+		return replayed, nil
+	}
+	requested, err := createRequest(ctx, q, secret, request, now)
+	if err != nil {
+		return Requested{}, countConflict("website", err)
+	}
+	err = idempotency.Finish(ctx, q, idempotency.PublicAppointment, request.IdempotencyKey,
+		requested.AppointmentID, httpCreated, requested.Receipt)
+	if err != nil {
+		return Requested{}, err
+	}
+
+	err = tx.Commit(ctx)
+	if err != nil {
+		return Requested{}, err
+	}
+	return requested, nil
+}
+
+func createRequest(ctx context.Context, q db.Querier, secret []byte, request Request, now time.Time) (Requested, error) {
+	current, err := settings.Load(ctx, q)
+	if err != nil {
+		return Requested{}, err
+	}
+	service, err := checkRequest(ctx, q, current, request, now)
 	if err != nil {
 		return Requested{}, err
 	}
@@ -102,132 +127,167 @@ func createRequest(ctx context.Context, q *db.Queries, secret []byte, r Request,
 	if err != nil {
 		return Requested{}, err
 	}
-	a := requestedAppointment(practitionerID, svc, cur, r, now)
-	appt, err := InsertAppointment(ctx, q, secret, a)
+	newAppointment := requestedAppointment(practitionerID, service, current, request, now)
+	appointment, err := InsertAppointment(ctx, q, secret, newAppointment)
 	if err != nil {
 		return Requested{}, withAlternatives(err)
 	}
-	appointmentsCreated.Add(a.Source, 1)
-	if err := AppendEvent(ctx, q, Event{AppointmentID: appt.ID, Kind: "created", To: a.Status, Actor: "visitor"}); err != nil {
-		return Requested{}, err
+	appointmentsCreated.Add(newAppointment.Source, 1)
+	event := Event{
+		AppointmentID: appointment.ID,
+		Kind:          "created",
+		To:            newAppointment.Status,
+		Actor:         "visitor",
 	}
-	tasks, err := notifyRequested(ctx, q, secret, appt, cur, now)
+	err = AppendEvent(ctx, q, event)
 	if err != nil {
 		return Requested{}, err
 	}
-	return Requested{AppointmentID: appt.ID, Tasks: tasks, Receipt: receiptOf(appt, svc, r.Locale)}, nil
+	tasks, err := notifyRequested(ctx, q, secret, appointment, current, now)
+	if err != nil {
+		return Requested{}, err
+	}
+	requested := Requested{
+		AppointmentID: appointment.ID,
+		Tasks:         tasks,
+		Receipt:       receiptOf(appointment, service, request.Locale),
+	}
+	return requested, nil
 }
 
-func requestedAppointment(practitionerID pgtype.UUID, svc db.Service, cur settings.Settings, r Request,
+func requestedAppointment(practitionerID pgtype.UUID, service db.Service, current settings.Settings, request Request,
 	now time.Time) NewAppointment {
 	status := Pending
-	if cur.BookingMode == "instant" && svc.BookingAction == "book" {
+	if current.BookingMode == "instant" && service.BookingAction == "book" {
 		status = Confirmed
 	}
-	ack := sql.NullTime{Time: now, Valid: true}
-	a := NewAppointment{
+	acknowledged := sql.NullTime{Time: now, Valid: true}
+	appointment := NewAppointment{
 		PractitionerID: practitionerID,
-		Service:        svc,
-		StartsAt:       r.StartsAt,
-		Duration:       time.Duration(svc.DurationMinutes.Int32) * time.Minute,
+		Service:        service,
+		StartsAt:       request.StartsAt,
+		Duration:       time.Duration(service.DurationMinutes.Int32) * time.Minute,
 		Status:         status,
-		Timezone:       cur.Timezone,
-		Format:         r.Format,
-		Locale:         r.Locale,
+		Timezone:       current.Timezone,
+		Format:         request.Format,
+		Locale:         request.Locale,
 		Source:         "website",
-		VisitorName:    strings.TrimSpace(r.VisitorName),
-		VisitorEmail:   strings.ToLower(strings.TrimSpace(r.VisitorEmail)),
-		VisitorPhone:   optionalText(r.VisitorPhone),
-		VisitorNote:    optionalText(r.VisitorNote),
-		PrivacyAckAt:   ack,
-		PolicyAckAt:    ack,
+		VisitorName:    strings.TrimSpace(request.VisitorName),
+		VisitorEmail:   strings.ToLower(strings.TrimSpace(request.VisitorEmail)),
+		VisitorPhone:   optionalText(request.VisitorPhone),
+		VisitorNote:    optionalText(request.VisitorNote),
+		PrivacyAckAt:   acknowledged,
+		PolicyAckAt:    acknowledged,
 	}
 	if status == Pending {
-		a.HoldExpiresAt = holdUntil(cur, r.StartsAt, now)
+		appointment.HoldExpiresAt = holdUntil(current, request.StartsAt, now)
 	}
-	return a
+	return appointment
 }
 
-func receiptOf(appt db.Appointment, svc db.Service, locale string) Receipt {
+func receiptOf(appointment db.Appointment, service db.Service, locale string) Receipt {
 	return Receipt{
-		Reference:       appt.Reference,
-		Status:          Status(appt.Status),
-		Service:         ServiceRef{Slug: svc.Slug, Name: inLocale(svc.Name, locale)},
-		StartsAt:        appt.StartsAt.UTC(),
-		EndsAt:          appt.EndsAt.UTC(),
-		DurationMinutes: int(appt.DurationMinutes),
-		Timezone:        appt.Timezone,
-		Format:          appt.Format,
+		Reference:       appointment.Reference,
+		Status:          Status(appointment.Status),
+		Service:         ServiceRef{Slug: service.Slug, Name: inLocale(service.Name, locale)},
+		StartsAt:        appointment.StartsAt.UTC(),
+		EndsAt:          appointment.EndsAt.UTC(),
+		DurationMinutes: int(appointment.DurationMinutes),
+		Timezone:        appointment.Timezone,
+		Format:          appointment.Format,
 	}
 }
 
-func notifyRequested(ctx context.Context, q db.Querier, secret []byte, appt db.Appointment, cur settings.Settings,
-	now time.Time) ([]queue.Task, error) {
-	if Status(appt.Status) == Confirmed {
-		tasks, err := afterConfirm(ctx, q, secret, appt, cur, now, true)
+func notifyRequested(ctx context.Context, q db.Querier, secret []byte, appointment db.Appointment,
+	current settings.Settings, now time.Time) ([]queue.Task, error) {
+	if Status(appointment.Status) == Confirmed {
+		tasks, err := afterConfirm(ctx, q, secret, appointment, current, now, true)
 		if err != nil {
 			return nil, err
 		}
-		task, err := comms.Queue(ctx, q, comms.Message{AppointmentID: appt.ID,
-			Kind: comms.PractitionerNewBooking, Recipient: cur.ContactEmail})
-		return append(tasks, task), err
+		newBooking := comms.Message{
+			AppointmentID: appointment.ID,
+			Kind:          comms.PractitionerNewBooking,
+			Recipient:     current.ContactEmail,
+		}
+		task, err := comms.Queue(ctx, q, newBooking)
+		if err != nil {
+			return nil, err
+		}
+		return append(tasks, task), nil
 	}
-	visitor, err := comms.Queue(ctx, q, comms.Message{AppointmentID: appt.ID,
-		Kind: comms.RequestReceived, Recipient: appt.VisitorEmail, Locale: appt.Locale})
+	received := comms.Message{
+		AppointmentID: appointment.ID,
+		Kind:          comms.RequestReceived,
+		Recipient:     appointment.VisitorEmail,
+		Locale:        appointment.Locale,
+	}
+	visitor, err := comms.Queue(ctx, q, received)
 	if err != nil {
 		return nil, err
 	}
-	practitioner, err := comms.Queue(ctx, q, comms.Message{AppointmentID: appt.ID,
-		Kind: comms.PractitionerNewRequest, Recipient: cur.ContactEmail})
+	newRequest := comms.Message{
+		AppointmentID: appointment.ID,
+		Kind:          comms.PractitionerNewRequest,
+		Recipient:     current.ContactEmail,
+	}
+	practitioner, err := comms.Queue(ctx, q, newRequest)
 	if err != nil {
 		return nil, err
 	}
-	return []queue.Task{visitor, practitioner, holdTask(appt.ID, appt.HoldExpiresAt.Time)}, nil
+	return []queue.Task{visitor, practitioner, holdTask(appointment.ID, appointment.HoldExpiresAt.Time)}, nil
 }
 
 // checkRequest applies the rules in the order the visitor can act on them.
-func checkRequest(ctx context.Context, q db.Querier, cur settings.Settings, r Request, now time.Time) (db.Service, error) {
-	if !cur.PublicBookingEnabled {
+func checkRequest(ctx context.Context, q db.Querier, current settings.Settings, request Request,
+	now time.Time) (db.Service, error) {
+	if !current.PublicBookingEnabled {
 		return db.Service{}, errBookingPaused
 	}
-	svc, err := q.GetServiceBySlug(ctx, r.Service)
+	service, err := q.GetServiceBySlug(ctx, request.Service)
 	if errors.Is(err, pgx.ErrNoRows) {
 		return db.Service{}, errNotBookable
 	}
 	if err != nil {
 		return db.Service{}, err
 	}
-	if err := checkService(svc, r.Format); err != nil {
+	err = checkService(service, request.Format)
+	if err != nil {
 		return db.Service{}, err
 	}
-	if !r.PrivacyAcknowledged || !r.PolicyAcknowledged {
+	if !request.PrivacyAcknowledged || !request.PolicyAcknowledged {
 		return db.Service{}, errAcknowledgement
 	}
-	if err := checkWindow(cur, r.StartsAt, now); err != nil {
+	err = checkWindow(current, request.StartsAt, now)
+	if err != nil {
 		return db.Service{}, err
 	}
-	return svc, checkSlot(ctx, q, cur, slotRequest{Service: svc, Start: r.StartsAt}, now)
+	err = checkSlot(ctx, q, current, slotRequest{Service: service, Start: request.StartsAt}, now)
+	if err != nil {
+		return db.Service{}, err
+	}
+	return service, nil
 }
 
-func checkService(svc db.Service, format string) error {
-	if !bookable(svc) {
+func checkService(service db.Service, format string) error {
+	if !bookable(service) {
 		return errNotBookable
 	}
-	if !slices.Contains(svc.Formats, format) {
-		e := unprocessable("/format", "is not offered for this service")
-		return &e
+	if !slices.Contains(service.Formats, format) {
+		refused := unprocessable("/format", "is not offered for this service")
+		return &refused
 	}
 	return nil
 }
 
-func checkWindow(cur settings.Settings, start, now time.Time) error {
-	loc, err := cur.Location()
+func checkWindow(current settings.Settings, start, now time.Time) error {
+	loc, err := current.Location()
 	if err != nil {
 		return err
 	}
 	today := now.In(loc)
-	horizon := time.Date(today.Year(), today.Month(), today.Day()+cur.MaxAdvanceDays+1, 0, 0, 0, 0, loc)
-	if start.Before(now.Add(time.Duration(cur.MinNoticeHours)*time.Hour)) || !start.Before(horizon) {
+	horizon := time.Date(today.Year(), today.Month(), today.Day()+current.MaxAdvanceDays+1, 0, 0, 0, 0, loc)
+	if start.Before(now.Add(time.Duration(current.MinNoticeHours)*time.Hour)) || !start.Before(horizon) {
 		return errOutsideWindow
 	}
 	return nil

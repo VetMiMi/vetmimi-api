@@ -12,18 +12,20 @@ import (
 )
 
 // ScheduleReminder queues no reminder when its time has already passed.
-func ScheduleReminder(ctx context.Context, q db.Querier, appt db.Appointment, reminderHours int, now time.Time) ([]queue.Task, error) {
-	at := appt.StartsAt.Add(-time.Duration(reminderHours) * time.Hour)
+func ScheduleReminder(ctx context.Context, q db.Querier, appointment db.Appointment, reminderHours int,
+	now time.Time) ([]queue.Task, error) {
+	at := appointment.StartsAt.Add(-time.Duration(reminderHours) * time.Hour)
 	if !at.After(now) {
 		return nil, nil
 	}
-	task, err := comms.Queue(ctx, q, comms.Message{
-		AppointmentID: appt.ID,
+	message := comms.Message{
+		AppointmentID: appointment.ID,
 		Kind:          comms.Reminder,
-		Recipient:     appt.VisitorEmail,
-		Locale:        appt.Locale,
+		Recipient:     appointment.VisitorEmail,
+		Locale:        appointment.Locale,
 		ScheduledFor:  at,
-	})
+	}
+	task, err := comms.Queue(ctx, q, message)
 	if err != nil {
 		return nil, err
 	}
@@ -37,7 +39,8 @@ func CancelReminders(ctx context.Context, q db.Querier, appointmentID pgtype.UUI
 		return err
 	}
 	for _, id := range ids {
-		if _, err := comms.Cancel(ctx, q, id, reason); err != nil {
+		_, err = comms.Cancel(ctx, q, id, reason)
+		if err != nil {
 			return err
 		}
 	}

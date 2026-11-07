@@ -38,8 +38,7 @@ type Managed struct {
 var (
 	// The same for an unknown and an expired link, so a link never reveals whether an appointment exists.
 	errLinkNotFound   = apperr.New(apperr.NotFound, "This link is not valid or has expired.")
-	errLinkNotAllowed = apperr.New(apperr.ActionNotAllowed,
-		"This appointment can no longer be changed through its link.")
+	errLinkNotAllowed = apperr.New(apperr.ActionNotAllowed, "This appointment can no longer be changed through its link.")
 )
 
 func GetManaged(ctx context.Context, q db.Querier, token string, now time.Time) (Managed, error) {
@@ -54,7 +53,7 @@ func GetManaged(ctx context.Context, q db.Querier, token string, now time.Time) 
 	if linkExpired(status, row.EndsAt, now) {
 		return Managed{}, errLinkNotFound
 	}
-	cur, err := settings.Load(ctx, q)
+	current, err := settings.Load(ctx, q)
 	if err != nil {
 		return Managed{}, err
 	}
@@ -62,9 +61,9 @@ func GetManaged(ctx context.Context, q db.Querier, token string, now time.Time) 
 	if err != nil {
 		return Managed{}, err
 	}
-	notice := time.Duration(cur.CancellationNoticeHours) * time.Hour
+	notice := time.Duration(current.CancellationNoticeHours) * time.Hour
 	changeable := actionable(status, row.StartsAt, now)
-	return Managed{
+	managed := Managed{
 		Reference:               row.Reference,
 		Status:                  status,
 		Service:                 ServiceRef{Slug: row.ServiceSlug, Name: inLocale(row.ServiceName, row.Locale)},
@@ -75,120 +74,186 @@ func GetManaged(ctx context.Context, q db.Querier, token string, now time.Time) 
 		Format:                  row.Format,
 		CanCancel:               changeable,
 		CanRequestReschedule:    changeable,
-		CancellationNoticeHours: cur.CancellationNoticeHours,
+		CancellationNoticeHours: current.CancellationNoticeHours,
 		LateIfCancelledNow:      changeable && late(row.StartsAt, now, notice),
 		RescheduleRequested:     requested,
-	}, nil
+	}
+	return managed, nil
 }
 
 // CancelByClient cancels through a management link, recording it as late inside the cancellation notice.
 func CancelByClient(ctx context.Context, pool *pgxpool.Pool, token, message string, now time.Time) (Changed, error) {
-	var out Changed
-	err := inSchedule(ctx, pool, func(q *db.Queries) error {
-		appt, err := lockByToken(ctx, q, token, now)
-		if err != nil {
-			return err
-		}
-		from := Status(appt.Status)
-		if !CanTransition(from, CancelledByClient) {
-			return errLinkNotAllowed
-		}
-		cur, err := settings.Load(ctx, q)
-		if err != nil {
-			return err
-		}
-		isLate := late(appt.StartsAt, now, time.Duration(cur.CancellationNoticeHours)*time.Hour)
-		if _, err := q.CancelAppointmentByClient(ctx, db.CancelAppointmentByClientParams{
-			ID: appt.ID, LateCancellation: isLate, Now: now,
-		}); err != nil {
-			return err
-		}
-		if err := AppendEvent(ctx, q, Event{AppointmentID: appt.ID, Kind: "cancelled", From: from,
-			To: CancelledByClient, Actor: "visitor",
-			Detail: EventDetail{By: "client", LateCancellation: &isLate}}); err != nil {
-			return err
-		}
-		if err := CancelReminders(ctx, q, appt.ID, string(CancelledByClient)); err != nil {
-			return err
-		}
-		if out.EndedRoom, err = video.EndRoom(ctx, q, appt.ID, video.EndedByCancellation, now); err != nil {
-			return err
-		}
-		if from == Pending {
-			out.Remove = []queue.Task{holdTask(appt.ID, time.Time{})}
-		}
-		out.Tasks, err = queueClientCancelled(ctx, q, appt, cur, message)
-		return err
-	})
-	return out, err
-}
-
-func queueClientCancelled(ctx context.Context, q db.Querier, appt db.Appointment, cur settings.Settings,
-	message string) ([]queue.Task, error) {
-	visitor, err := comms.Queue(ctx, q, comms.Message{AppointmentID: appt.ID, Kind: comms.Cancelled,
-		Recipient: appt.VisitorEmail, Locale: appt.Locale})
+	tx, err := pool.Begin(ctx)
 	if err != nil {
-		return nil, err
+		return Changed{}, err
 	}
-	practitioner, err := comms.Queue(ctx, q, comms.Message{AppointmentID: appt.ID,
-		Kind: comms.PractitionerClientCancelled, Recipient: cur.ContactEmail, Text: strings.TrimSpace(message)})
-	return []queue.Task{visitor, practitioner}, err
+	defer tx.Rollback(ctx)
+	q := db.New(tx)
+
+	err = q.LockSchedule(ctx)
+	if err != nil {
+		return Changed{}, err
+	}
+	appointment, err := lockByToken(ctx, q, token, now)
+	if err != nil {
+		return Changed{}, err
+	}
+	from := Status(appointment.Status)
+	if !CanTransition(from, CancelledByClient) {
+		return Changed{}, errLinkNotAllowed
+	}
+	current, err := settings.Load(ctx, q)
+	if err != nil {
+		return Changed{}, err
+	}
+	isLate := late(appointment.StartsAt, now, time.Duration(current.CancellationNoticeHours)*time.Hour)
+	params := db.CancelAppointmentByClientParams{
+		ID:               appointment.ID,
+		LateCancellation: isLate,
+		Now:              now,
+	}
+	_, err = q.CancelAppointmentByClient(ctx, params)
+	if err != nil {
+		return Changed{}, err
+	}
+	event := Event{
+		AppointmentID: appointment.ID,
+		Kind:          "cancelled",
+		From:          from,
+		To:            CancelledByClient,
+		Actor:         "visitor",
+		Detail:        EventDetail{By: "client", LateCancellation: &isLate},
+	}
+	err = AppendEvent(ctx, q, event)
+	if err != nil {
+		return Changed{}, err
+	}
+	err = CancelReminders(ctx, q, appointment.ID, string(CancelledByClient))
+	if err != nil {
+		return Changed{}, err
+	}
+	room, err := video.EndRoom(ctx, q, appointment.ID, video.EndedByCancellation, now)
+	if err != nil {
+		return Changed{}, err
+	}
+	tasks, err := queueClientCancelled(ctx, q, appointment, current, message)
+	if err != nil {
+		return Changed{}, err
+	}
+
+	err = tx.Commit(ctx)
+	if err != nil {
+		return Changed{}, err
+	}
+	changed := Changed{
+		Tasks:     tasks,
+		EndedRoom: room,
+	}
+	if from == Pending {
+		changed.Remove = []queue.Task{holdTask(appointment.ID, time.Time{})}
+	}
+	return changed, nil
 }
 
 // RequestReschedule only tells Daw Mi; the appointment keeps its time until she moves it.
 func RequestReschedule(ctx context.Context, pool *pgxpool.Pool, token string, preferred []time.Time, message string,
 	now time.Time) (Changed, error) {
-	var out Changed
-	err := pgx.BeginFunc(ctx, pool, func(tx pgx.Tx) error {
-		q := db.New(tx)
-		appt, err := lockByToken(ctx, q, token, now)
-		if err != nil {
-			return err
-		}
-		cur, err := settings.Load(ctx, q)
-		if err != nil {
-			return err
-		}
-		utc := make([]time.Time, len(preferred))
-		for i, p := range preferred {
-			utc[i] = p.UTC()
-		}
-		if err := AppendEvent(ctx, q, Event{AppointmentID: appt.ID, Kind: "reschedule_requested", Actor: "visitor",
-			Detail: EventDetail{Preferred: utc}}); err != nil {
-			return err
-		}
-		task, err := comms.Queue(ctx, q, comms.Message{AppointmentID: appt.ID,
-			Kind: comms.PractitionerRescheduleRequested, Recipient: cur.ContactEmail, Text: strings.TrimSpace(message)})
-		out.Tasks = []queue.Task{task}
-		return err
-	})
-	return out, err
+	tx, err := pool.Begin(ctx)
+	if err != nil {
+		return Changed{}, err
+	}
+	defer tx.Rollback(ctx)
+	q := db.New(tx)
+
+	appointment, err := lockByToken(ctx, q, token, now)
+	if err != nil {
+		return Changed{}, err
+	}
+	current, err := settings.Load(ctx, q)
+	if err != nil {
+		return Changed{}, err
+	}
+	utc := make([]time.Time, len(preferred))
+	for i, at := range preferred {
+		utc[i] = at.UTC()
+	}
+	event := Event{
+		AppointmentID: appointment.ID,
+		Kind:          "reschedule_requested",
+		Actor:         "visitor",
+		Detail:        EventDetail{Preferred: utc},
+	}
+	err = AppendEvent(ctx, q, event)
+	if err != nil {
+		return Changed{}, err
+	}
+	practitioner := comms.Message{
+		AppointmentID: appointment.ID,
+		Kind:          comms.PractitionerRescheduleRequested,
+		Recipient:     current.ContactEmail,
+		Text:          strings.TrimSpace(message),
+	}
+	task, err := comms.Queue(ctx, q, practitioner)
+	if err != nil {
+		return Changed{}, err
+	}
+
+	err = tx.Commit(ctx)
+	if err != nil {
+		return Changed{}, err
+	}
+	return Changed{Tasks: []queue.Task{task}}, nil
+}
+
+func queueClientCancelled(ctx context.Context, q db.Querier, appointment db.Appointment, current settings.Settings,
+	message string) ([]queue.Task, error) {
+	toVisitor := comms.Message{
+		AppointmentID: appointment.ID,
+		Kind:          comms.Cancelled,
+		Recipient:     appointment.VisitorEmail,
+		Locale:        appointment.Locale,
+	}
+	visitor, err := comms.Queue(ctx, q, toVisitor)
+	if err != nil {
+		return nil, err
+	}
+	toPractitioner := comms.Message{
+		AppointmentID: appointment.ID,
+		Kind:          comms.PractitionerClientCancelled,
+		Recipient:     current.ContactEmail,
+		Text:          strings.TrimSpace(message),
+	}
+	practitioner, err := comms.Queue(ctx, q, toPractitioner)
+	if err != nil {
+		return nil, err
+	}
+	return []queue.Task{visitor, practitioner}, nil
 }
 
 func lockByToken(ctx context.Context, q db.Querier, token string, now time.Time) (db.Appointment, error) {
-	appt, err := q.LockAppointmentByTokenHash(ctx, tokens.Hash(token))
+	appointment, err := q.LockAppointmentByTokenHash(ctx, tokens.Hash(token))
 	if errors.Is(err, pgx.ErrNoRows) {
 		return db.Appointment{}, errLinkNotFound
 	}
 	if err != nil {
 		return db.Appointment{}, err
 	}
-	status := Status(appt.Status)
-	if linkExpired(status, appt.EndsAt, now) {
+	status := Status(appointment.Status)
+	if linkExpired(status, appointment.EndsAt, now) {
 		return db.Appointment{}, errLinkNotFound
 	}
-	if !actionable(status, appt.StartsAt, now) {
+	if !actionable(status, appointment.StartsAt, now) {
 		return db.Appointment{}, errLinkNotAllowed
 	}
-	return appt, nil
+	return appointment, nil
 }
 
-func linkExpired(s Status, endsAt, now time.Time) bool {
-	return Terminal(s) && endsAt.Before(now)
+func linkExpired(status Status, endsAt, now time.Time) bool {
+	return Terminal(status) && endsAt.Before(now)
 }
 
-func actionable(s Status, startsAt, now time.Time) bool {
-	return (s == Pending || s == Confirmed) && startsAt.After(now)
+func actionable(status Status, startsAt, now time.Time) bool {
+	return (status == Pending || status == Confirmed) && startsAt.After(now)
 }
 
 // late compares real hours, so across a daylight-saving change the wall-clock gap may differ.

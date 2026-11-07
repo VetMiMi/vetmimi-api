@@ -2,6 +2,7 @@ package booking
 
 import (
 	"cmp"
+	"context"
 	"encoding/json"
 	"log/slog"
 	"net/http"
@@ -13,88 +14,98 @@ import (
 	"github.com/VetMiMi/vetmimi-api/internal/web"
 )
 
-type localeQuery struct {
+type tokenPath struct {
+	Token string `uri:"token" binding:"required"`
+}
+
+type listPublicServicesQuery struct {
 	Locale string `form:"locale" binding:"omitempty,oneof=en my"`
 }
 
-func (h *Handler) listPublicServices(c *gin.Context) {
-	var q localeQuery
-	if !web.BindQuery(c, &q) {
-		return
-	}
-	list, err := ListPublicServices(c.Request.Context(), db.New(h.Pool), cmp.Or(q.Locale, "en"))
-	if err != nil {
-		web.Error(c, err)
-		return
-	}
-	c.JSON(http.StatusOK, list)
-}
-
-type availabilityQuery struct {
+type publicAvailabilityQuery struct {
 	Service string    `form:"service" binding:"required,slug"`
 	From    time.Time `form:"from" binding:"required" time_format:"2006-01-02" time_utc:"1"`
 	To      time.Time `form:"to" binding:"required" time_format:"2006-01-02" time_utc:"1"`
 }
 
-type availabilityResponse struct {
-	Service  string        `json:"service"`
-	Timezone string        `json:"timezone"`
-	From     string        `json:"from"`
-	To       string        `json:"to"`
-	Days     []slotDayJSON `json:"days"`
+// requestAppointmentBody's fields keep their order: the idempotency key's hash covers the body as re-encoded.
+type requestAppointmentBody struct {
+	Service             string      `json:"service" binding:"required,slug"`
+	StartsAt            time.Time   `json:"startsAt" binding:"required"`
+	Format              string      `json:"format" binding:"required,oneof=online in_person"`
+	Locale              string      `json:"locale" binding:"required,oneof=en my"`
+	Visitor             visitorBody `json:"visitor"`
+	PrivacyAcknowledged bool        `json:"privacyAcknowledged"`
+	PolicyAcknowledged  bool        `json:"policyAcknowledged"`
 }
 
-type slotDayJSON struct {
-	Date  string     `json:"date"`
-	Slots []slotJSON `json:"slots"`
-}
-
-// publicAvailability answers times only, never appointments or why time is blocked.
-func (h *Handler) publicAvailability(c *gin.Context) {
-	var q availabilityQuery
-	if !web.BindQuery(c, &q) {
-		return
-	}
-	a, err := PublicAvailability(c.Request.Context(), db.New(h.Pool), q.Service, q.From, q.To, h.Now())
-	if err != nil {
-		web.Error(c, err)
-		return
-	}
-	c.JSON(http.StatusOK, availabilityResponse{
-		Service:  q.Service,
-		Timezone: a.Timezone,
-		From:     a.First.Format(time.DateOnly),
-		To:       a.Last.Format(time.DateOnly),
-		Days:     slotDaysJSON(a.Days),
-	})
-}
-
-func slotDaysJSON(days []SlotDay) []slotDayJSON {
-	out := make([]slotDayJSON, len(days))
-	for i, d := range days {
-		out[i] = slotDayJSON{Date: d.Date.Format(time.DateOnly), Slots: make([]slotJSON, len(d.Slots))}
-		for j, s := range d.Slots {
-			out[i].Slots[j] = slotJSON{StartsAt: s.Start.UTC(), EndsAt: s.End.UTC()}
-		}
-	}
-	return out
-}
-
-type visitorInput struct {
+type visitorBody struct {
 	Name  string `json:"name" binding:"required,max=120"`
 	Email string `json:"email" binding:"required,email,max=254"`
 	Phone string `json:"phone,omitempty" binding:"omitempty,phone"`
 	Note  string `json:"note,omitempty" binding:"max=500"`
 }
 
-type requestInput struct {
-	Service             string       `json:"service" binding:"required,slug"`
-	StartsAt            time.Time    `json:"startsAt" binding:"required"`
-	Format              string       `json:"format" binding:"required,oneof=online in_person"`
-	Locale              string       `json:"locale" binding:"required,oneof=en my"`
-	Visitor             visitorInput `json:"visitor"`
-	PrivacyAcknowledged bool         `json:"privacyAcknowledged"`
-	PolicyAcknowledged  bool         `json:"policyAcknowledged"`
+type cancelManagedBody struct {
+	Message string `json:"message" binding:"max=500"`
+}
+
+type requestManagedRescheduleBody struct {
+	PreferredTimes []time.Time `json:"preferredTimes" binding:"max=3"`
+	Message        string      `json:"message" binding:"max=500"`
+}
+
+type availabilityResponse struct {
+	Service  string            `json:"service"`
+	Timezone string            `json:"timezone"`
+	From     string            `json:"from"`
+	To       string            `json:"to"`
+	Days     []slotDayResponse `json:"days"`
+}
+
+type slotDayResponse struct {
+	Date  string     `json:"date"`
+	Slots []slotJSON `json:"slots"`
+}
+
+func (h *Handler) listPublicServices(c *gin.Context) {
+	var query listPublicServicesQuery
+	if !web.BindQuery(c, &query) {
+		return
+	}
+	ctx := c.Request.Context()
+
+	services, err := ListPublicServices(ctx, db.New(h.Pool), cmp.Or(query.Locale, "en"))
+	if err != nil {
+		web.Error(c, err)
+		return
+	}
+
+	c.JSON(http.StatusOK, services)
+}
+
+// publicAvailability answers times only, never appointments or why time is blocked.
+func (h *Handler) publicAvailability(c *gin.Context) {
+	var query publicAvailabilityQuery
+	if !web.BindQuery(c, &query) {
+		return
+	}
+	ctx := c.Request.Context()
+
+	availability, err := PublicAvailability(ctx, db.New(h.Pool), query.Service, query.From, query.To, h.Now())
+	if err != nil {
+		web.Error(c, err)
+		return
+	}
+
+	response := availabilityResponse{
+		Service:  query.Service,
+		Timezone: availability.Timezone,
+		From:     availability.First.Format(time.DateOnly),
+		To:       availability.Last.Format(time.DateOnly),
+		Days:     newSlotDayResponses(availability.Days),
+	}
+	c.JSON(http.StatusOK, response)
 }
 
 // requestAppointment stores a visitor's request, then queues its emails and hold expiry.
@@ -104,99 +115,139 @@ func (h *Handler) requestAppointment(c *gin.Context) {
 	if !ok {
 		return
 	}
-	var in requestInput
-	if !web.BindJSON(c, &in) {
-		return
-	}
-	// The key's hash covers the body as decoded, so a retry that differs only in spacing is the same request.
-	body, err := json.Marshal(in)
-	if err != nil {
-		web.Error(c, err)
+	var body requestAppointmentBody
+	if !web.BindJSON(c, &body) {
 		return
 	}
 	ctx := c.Request.Context()
-	res, err := RequestAppointment(ctx, h.Pool, h.Secret, Request{
-		IdempotencyKey:      key.String(),
-		Body:                body,
-		Service:             in.Service,
-		StartsAt:            in.StartsAt,
-		Format:              in.Format,
-		Locale:              in.Locale,
-		VisitorName:         in.Visitor.Name,
-		VisitorEmail:        in.Visitor.Email,
-		VisitorPhone:        in.Visitor.Phone,
-		VisitorNote:         in.Visitor.Note,
-		PrivacyAcknowledged: in.PrivacyAcknowledged,
-		PolicyAcknowledged:  in.PolicyAcknowledged,
-	}, h.Now())
+
+	// The key's hash covers the body as decoded, so a retry that differs only in spacing is the same request.
+	encoded, err := json.Marshal(body)
 	if err != nil {
 		web.Error(c, err)
 		return
 	}
-	h.afterCommit(ctx, Changed{Tasks: res.Tasks})
-	slog.InfoContext(ctx, "appointment requested", "request_id", web.RequestID(ctx),
-		"appointment_id", res.AppointmentID.String(), "replayed", res.Replayed)
-	if res.Replayed {
+	request := Request{
+		IdempotencyKey:      key.String(),
+		Body:                encoded,
+		Service:             body.Service,
+		StartsAt:            body.StartsAt,
+		Format:              body.Format,
+		Locale:              body.Locale,
+		VisitorName:         body.Visitor.Name,
+		VisitorEmail:        body.Visitor.Email,
+		VisitorPhone:        body.Visitor.Phone,
+		VisitorNote:         body.Visitor.Note,
+		PrivacyAcknowledged: body.PrivacyAcknowledged,
+		PolicyAcknowledged:  body.PolicyAcknowledged,
+	}
+	requested, err := RequestAppointment(ctx, h.Pool, h.Secret, request, h.Now())
+	if err != nil {
+		web.Error(c, err)
+		return
+	}
+
+	h.Queue.Enqueue(ctx, requested.Tasks...)
+	slog.InfoContext(ctx, "appointment requested",
+		"request_id", web.RequestID(ctx),
+		"appointment_id", requested.AppointmentID.String(),
+		"replayed", requested.Replayed,
+	)
+	if requested.Replayed {
 		c.Header("Idempotent-Replayed", "true")
 	}
-	c.JSON(http.StatusCreated, res.Receipt)
+	c.JSON(http.StatusCreated, requested.Receipt)
 }
 
 // getManaged answers the same 404 for an unknown and an expired link.
 func (h *Handler) getManaged(c *gin.Context) {
-	m, err := GetManaged(c.Request.Context(), db.New(h.Pool), c.Param("token"), h.Now())
+	var path tokenPath
+	if !web.BindURI(c, &path) {
+		return
+	}
+	ctx := c.Request.Context()
+
+	managed, err := GetManaged(ctx, db.New(h.Pool), path.Token, h.Now())
 	if err != nil {
 		web.Error(c, err)
 		return
 	}
-	c.JSON(http.StatusOK, m)
-}
 
-type cancelInput struct {
-	Message string `json:"message" binding:"max=500"`
+	c.JSON(http.StatusOK, managed)
 }
 
 func (h *Handler) cancelManaged(c *gin.Context) {
-	var in cancelInput
-	if c.Request.ContentLength != 0 && !web.BindJSON(c, &in) {
+	var path tokenPath
+	if !web.BindURI(c, &path) {
 		return
 	}
-	changed, err := CancelByClient(c.Request.Context(), h.Pool, c.Param("token"), in.Message, h.Now())
+	// The body is optional: a visitor may cancel without a message.
+	var body cancelManagedBody
+	if c.Request.ContentLength != 0 && !web.BindJSON(c, &body) {
+		return
+	}
+	ctx := c.Request.Context()
+
+	changed, err := CancelByClient(ctx, h.Pool, path.Token, body.Message, h.Now())
 	if err != nil {
 		web.Error(c, err)
 		return
 	}
-	h.afterManagedChange(c, "appointment_cancelled_by_client", changed, http.StatusOK)
-}
 
-type rescheduleRequestInput struct {
-	PreferredTimes []time.Time `json:"preferredTimes" binding:"max=3"`
-	Message        string      `json:"message" binding:"max=500"`
+	h.afterCommit(ctx, changed)
+	logManaged(ctx, "appointment_cancelled_by_client")
+	h.writeManaged(c, http.StatusOK, path.Token)
 }
 
 // requestManagedReschedule tells Daw Mi; the appointment keeps its time until she moves it.
 func (h *Handler) requestManagedReschedule(c *gin.Context) {
-	var in rescheduleRequestInput
-	if !web.BindJSON(c, &in) {
+	var path tokenPath
+	if !web.BindURI(c, &path) {
 		return
 	}
-	changed, err := RequestReschedule(c.Request.Context(), h.Pool, c.Param("token"), in.PreferredTimes, in.Message, h.Now())
+	var body requestManagedRescheduleBody
+	if !web.BindJSON(c, &body) {
+		return
+	}
+	ctx := c.Request.Context()
+
+	changed, err := RequestReschedule(ctx, h.Pool, path.Token, body.PreferredTimes, body.Message, h.Now())
 	if err != nil {
 		web.Error(c, err)
 		return
 	}
-	h.afterManagedChange(c, "reschedule_requested", changed, http.StatusAccepted)
+
+	h.afterCommit(ctx, changed)
+	logManaged(ctx, "reschedule_requested")
+	h.writeManaged(c, http.StatusAccepted, path.Token)
 }
 
-// afterManagedChange logs the event only: the token is as good as a password.
-func (h *Handler) afterManagedChange(c *gin.Context, event string, changed Changed, status int) {
+func newSlotDayResponses(days []SlotDay) []slotDayResponse {
+	responses := make([]slotDayResponse, len(days))
+	for i, day := range days {
+		responses[i] = slotDayResponse{
+			Date:  day.Date.Format(time.DateOnly),
+			Slots: make([]slotJSON, len(day.Slots)),
+		}
+		for j, slot := range day.Slots {
+			responses[i].Slots[j] = slotJSON{StartsAt: slot.Start.UTC(), EndsAt: slot.End.UTC()}
+		}
+	}
+	return responses
+}
+
+// writeManaged answers with what the link shows after the change.
+func (h *Handler) writeManaged(c *gin.Context, status int, token string) {
 	ctx := c.Request.Context()
-	h.afterCommit(ctx, changed)
-	slog.InfoContext(ctx, event, "request_id", web.RequestID(ctx))
-	m, err := GetManaged(ctx, db.New(h.Pool), c.Param("token"), h.Now())
+	managed, err := GetManaged(ctx, db.New(h.Pool), token, h.Now())
 	if err != nil {
 		web.Error(c, err)
 		return
 	}
-	c.JSON(status, m)
+	c.JSON(status, managed)
+}
+
+// logManaged logs the event only: the token is as good as a password.
+func logManaged(ctx context.Context, event string) {
+	slog.InfoContext(ctx, event, "request_id", web.RequestID(ctx))
 }

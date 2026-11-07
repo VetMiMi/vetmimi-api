@@ -43,11 +43,11 @@ type AttentionItem struct {
 }
 
 func Dashboard(ctx context.Context, q db.Querier, now time.Time) (DashboardData, error) {
-	cur, err := settings.Load(ctx, q)
+	current, err := settings.Load(ctx, q)
 	if err != nil {
 		return DashboardData{}, err
 	}
-	loc, err := cur.Location()
+	loc, err := current.Location()
 	if err != nil {
 		return DashboardData{}, err
 	}
@@ -55,23 +55,48 @@ func Dashboard(ctx context.Context, q db.Querier, now time.Time) (DashboardData,
 	week := weekOf(now, loc)
 	upcoming := Period{Start: today.End, End: today.End.In(loc).AddDate(0, 0, upcomingDays)}
 
-	out := DashboardData{Timezone: cur.Timezone}
-	if out.Counts, err = q.DashboardCounts(ctx, db.DashboardCountsParams{Now: now, DayStart: today.Start,
-		DayEnd: today.End, WeekStart: week.Start, WeekEnd: week.End}); err != nil {
+	countsParams := db.DashboardCountsParams{
+		Now:       now,
+		DayStart:  today.Start,
+		DayEnd:    today.End,
+		WeekStart: week.Start,
+		WeekEnd:   week.End,
+	}
+	counts, err := q.DashboardCounts(ctx, countsParams)
+	if err != nil {
 		return DashboardData{}, err
 	}
-	if out.Attention, err = attention(ctx, q, now); err != nil {
+	waiting, err := attention(ctx, q, now)
+	if err != nil {
 		return DashboardData{}, err
 	}
-	if out.Pending, err = q.ListAppointments(ctx, db.ListAppointmentsParams{Statuses: []string{string(Pending)},
-		ByHold: true, Ascending: true, MaxRows: dashboardListLimit}); err != nil {
+	pendingParams := db.ListAppointmentsParams{
+		Statuses:  []string{string(Pending)},
+		ByHold:    true,
+		Ascending: true,
+		MaxRows:   dashboardListLimit,
+	}
+	pendingAppointments, err := q.ListAppointments(ctx, pendingParams)
+	if err != nil {
 		return DashboardData{}, err
 	}
-	if out.Today, err = activeIn(ctx, q, today, todayLimit); err != nil {
+	todayAppointments, err := activeIn(ctx, q, today, todayLimit)
+	if err != nil {
 		return DashboardData{}, err
 	}
-	out.Upcoming, err = activeIn(ctx, q, upcoming, dashboardListLimit)
-	return out, err
+	upcomingAppointments, err := activeIn(ctx, q, upcoming, dashboardListLimit)
+	if err != nil {
+		return DashboardData{}, err
+	}
+	dashboard := DashboardData{
+		Timezone:  current.Timezone,
+		Counts:    counts,
+		Attention: waiting,
+		Pending:   pendingAppointments,
+		Today:     todayAppointments,
+		Upcoming:  upcomingAppointments,
+	}
+	return dashboard, nil
 }
 
 // weekOf is Monday to Monday in local dates, so a daylight-saving week keeps its 167 or 169 hours.
@@ -82,14 +107,15 @@ func weekOf(now time.Time, loc *time.Location) Period {
 	return Period{Start: monday, End: monday.AddDate(0, 0, 7)}
 }
 
-func activeIn(ctx context.Context, q db.Querier, p Period, limit int32) ([]db.ListAppointmentsRow, error) {
-	return q.ListAppointments(ctx, db.ListAppointmentsParams{
+func activeIn(ctx context.Context, q db.Querier, period Period, limit int32) ([]db.ListAppointmentsRow, error) {
+	params := db.ListAppointmentsParams{
 		Statuses:     []string{string(Pending), string(Confirmed)},
-		StartsFrom:   sql.NullTime{Time: p.Start, Valid: true},
-		StartsBefore: sql.NullTime{Time: p.End, Valid: true},
+		StartsFrom:   sql.NullTime{Time: period.Start, Valid: true},
+		StartsBefore: sql.NullTime{Time: period.End, Valid: true},
 		Ascending:    true,
 		MaxRows:      limit,
-	})
+	}
+	return q.ListAppointments(ctx, params)
 }
 
 func attention(ctx context.Context, q db.Querier, now time.Time) ([]AttentionItem, error) {
@@ -98,21 +124,26 @@ func attention(ctx context.Context, q db.Querier, now time.Time) ([]AttentionIte
 		return nil, err
 	}
 	items := make([]AttentionItem, len(rows))
-	for i, r := range rows {
-		items[i] = AttentionItem{Kind: r.Kind, AppointmentID: r.ID, Reference: r.Reference, StartsAt: r.StartsAt.UTC(),
-			Detail: attentionDetail(r, now)}
+	for i, row := range rows {
+		items[i] = AttentionItem{
+			Kind:          row.Kind,
+			AppointmentID: row.ID,
+			Reference:     row.Reference,
+			StartsAt:      row.StartsAt.UTC(),
+			Detail:        attentionDetail(row, now),
+		}
 	}
 	return items, nil
 }
 
-func attentionDetail(r db.ListAttentionRow, now time.Time) string {
-	switch r.Kind {
+func attentionDetail(row db.ListAttentionRow, now time.Time) string {
+	switch row.Kind {
 	case "pending_request":
 		return "Request waiting for a decision"
 	case "hold_expiring":
-		return holdDetail(r.HoldExpiresAt.Time.Sub(now))
+		return holdDetail(row.HoldExpiresAt.Time.Sub(now))
 	case "failed_communication":
-		return "Email failed: " + strings.ReplaceAll(r.CommunicationKind, "_", " ")
+		return "Email failed: " + strings.ReplaceAll(row.CommunicationKind, "_", " ")
 	case "reschedule_requested":
 		return "Visitor asked to reschedule"
 	case "completion_due":
