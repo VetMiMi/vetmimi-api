@@ -14,16 +14,8 @@ import (
 	"unicode/utf8"
 )
 
-const (
-	envDevelopment = "development"
-	envProduction  = "production"
-
-	EmailResend = "resend"
-	EmailSMTP   = "smtp"
-)
-
-// Config is every environment variable the process reads; docs/architecture.md
-// and .env.example list the same set.
+// Config is every environment variable the process reads; .env.example lists
+// the same set.
 type Config struct {
 	Port     int
 	Env      string
@@ -82,7 +74,20 @@ type Config struct {
 	MetricsAddr string
 }
 
-func (c Config) Production() bool { return c.Env == envProduction }
+// loader collects problems instead of stopping at the first.
+type loader struct {
+	getenv     func(string) string
+	production bool
+	problems   []string
+}
+
+const (
+	envDevelopment = "development"
+	envProduction  = "production"
+
+	EmailResend = "resend"
+	EmailSMTP   = "smtp"
+)
 
 var logLevels = map[string]slog.Level{
 	"debug": slog.LevelDebug,
@@ -94,112 +99,112 @@ var logLevels = map[string]slog.Level{
 // Load reads the configuration through getenv (os.Getenv in main, a map in
 // tests). The error names variables and rules, never values: it is logged.
 func Load(getenv func(string) string) (Config, error) {
-	l := loader{getenv: getenv}
+	check := loader{getenv: getenv}
 
-	env := l.withDefault("ENV", envDevelopment)
-	l.production = env == envProduction
+	env := check.withDefault("ENV", envDevelopment)
+	check.production = env == envProduction
 
-	c := Config{
+	config := Config{
 		Env: env,
 
-		DatabaseURL:     l.required("DATABASE_URL"),
-		DatabaseURLTest: l.optional("DATABASE_URL_TEST"),
-		RedisURL:        l.required("REDIS_URL"),
-		RedisURLTest:    l.optional("REDIS_URL_TEST"),
+		DatabaseURL:     check.required("DATABASE_URL"),
+		DatabaseURLTest: check.optional("DATABASE_URL_TEST"),
+		RedisURL:        check.required("REDIS_URL"),
+		RedisURLTest:    check.optional("REDIS_URL_TEST"),
 
-		ServiceKey:           l.required("SERVICE_KEY"),
-		PublicAPIURL:         l.required("PUBLIC_API_URL"),
-		SiteURL:              l.required("SITE_URL"),
-		SiteRevalidateSecret: l.requiredInProduction("SITE_REVALIDATE_SECRET"),
+		ServiceKey:           check.required("SERVICE_KEY"),
+		PublicAPIURL:         check.required("PUBLIC_API_URL"),
+		SiteURL:              check.required("SITE_URL"),
+		SiteRevalidateSecret: check.requiredInProduction("SITE_REVALIDATE_SECRET"),
 
-		EmailProvider: l.withDefault("EMAIL_PROVIDER", EmailResend),
-		EmailFrom:     l.requiredInProduction("EMAIL_FROM"),
+		EmailProvider: check.withDefault("EMAIL_PROVIDER", EmailResend),
+		EmailFrom:     check.requiredInProduction("EMAIL_FROM"),
 
-		MediaS3Endpoint:         l.requiredInProduction("MEDIA_S3_ENDPOINT"),
-		MediaS3Region:           l.withDefault("MEDIA_S3_REGION", "auto"),
-		MediaS3Bucket:           l.requiredInProduction("MEDIA_S3_BUCKET"),
-		MediaS3AccessKey:        l.optional("MEDIA_S3_ACCESS_KEY"),
-		MediaS3SecretKey:        l.optional("MEDIA_S3_SECRET_KEY"),
-		ContainerCredentialsURI: l.optional("AWS_CONTAINER_CREDENTIALS_RELATIVE_URI"),
-		MediaPublicURL:          l.requiredInProduction("MEDIA_PUBLIC_URL"),
+		MediaS3Endpoint:         check.requiredInProduction("MEDIA_S3_ENDPOINT"),
+		MediaS3Region:           check.withDefault("MEDIA_S3_REGION", "auto"),
+		MediaS3Bucket:           check.requiredInProduction("MEDIA_S3_BUCKET"),
+		MediaS3AccessKey:        check.optional("MEDIA_S3_ACCESS_KEY"),
+		MediaS3SecretKey:        check.optional("MEDIA_S3_SECRET_KEY"),
+		ContainerCredentialsURI: check.optional("AWS_CONTAINER_CREDENTIALS_RELATIVE_URI"),
+		MediaPublicURL:          check.requiredInProduction("MEDIA_PUBLIC_URL"),
 
-		TURNHost:   l.requiredInProduction("TURN_HOST"),
-		TURNSecret: l.requiredInProduction("TURN_SECRET"),
+		TURNHost:   check.requiredInProduction("TURN_HOST"),
+		TURNSecret: check.requiredInProduction("TURN_SECRET"),
 
-		MetaAppID:        l.optional("META_APP_ID"),
-		MetaAppSecret:    l.optional("META_APP_SECRET"),
-		MetaConfigID:     l.optional("META_CONFIG_ID"),
-		MetaGraphVersion: l.withDefault("META_GRAPH_VERSION", "v26.0"),
+		MetaAppID:        check.optional("META_APP_ID"),
+		MetaAppSecret:    check.optional("META_APP_SECRET"),
+		MetaConfigID:     check.optional("META_CONFIG_ID"),
+		MetaGraphVersion: check.withDefault("META_GRAPH_VERSION", "v26.0"),
 
-		LinkedInClientID:     l.optional("LINKEDIN_CLIENT_ID"),
-		LinkedInClientSecret: l.optional("LINKEDIN_CLIENT_SECRET"),
-		LinkedInAPIVersion:   l.withDefault("LINKEDIN_API_VERSION", "202609"),
+		LinkedInClientID:     check.optional("LINKEDIN_CLIENT_ID"),
+		LinkedInClientSecret: check.optional("LINKEDIN_CLIENT_SECRET"),
+		LinkedInAPIVersion:   check.withDefault("LINKEDIN_API_VERSION", "202609"),
 
-		GeminiAPIKey: l.optional("GEMINI_API_KEY"),
-		GeminiModel:  l.withDefault("GEMINI_MODEL", "gemini-flash-latest"),
+		GeminiAPIKey: check.optional("GEMINI_API_KEY"),
+		GeminiModel:  check.withDefault("GEMINI_MODEL", "gemini-flash-latest"),
 
-		MetricsAddr: l.optional("METRICS_ADDR"),
+		MetricsAddr: check.optional("METRICS_ADDR"),
 	}
-	port := l.withDefault("PORT", "8080")
-	level := l.withDefault("LOG_LEVEL", "info")
-	signingSecret := l.required("SIGNING_SECRET")
-	totpKey := l.required("TOTP_ENCRYPTION_KEY")
+	port := check.withDefault("PORT", "8080")
+	level := check.withDefault("LOG_LEVEL", "info")
+	signingSecret := check.required("SIGNING_SECRET")
+	totpKey := check.required("TOTP_ENCRYPTION_KEY")
 
 	if env != envDevelopment && env != envProduction {
-		l.fail("ENV", "must be development or production")
+		check.fail("ENV", "must be development or production")
 	}
-	c.Port = l.port("PORT", port)
-	c.LogLevel = l.logLevel(level)
-	l.absoluteURL("SITE_URL", c.SiteURL)
-	l.absoluteURL("PUBLIC_API_URL", c.PublicAPIURL)
-	c.SigningSecret = l.signingSecret(signingSecret)
-	c.TOTPEncryptionKey = l.totpKey(totpKey)
-	l.serviceKey(c.ServiceKey)
-	l.emailAddress("EMAIL_FROM", c.EmailFrom)
-	l.email(&c)
-	l.hostPort("METRICS_ADDR", c.MetricsAddr)
-	if (c.MetaAppID == "") != (c.MetaAppSecret == "") {
-		l.fail("META_APP_ID", "and META_APP_SECRET must be set together")
+	config.Port = check.port("PORT", port)
+	config.LogLevel = check.logLevel(level)
+	check.absoluteURL("SITE_URL", config.SiteURL)
+	check.absoluteURL("PUBLIC_API_URL", config.PublicAPIURL)
+	config.SigningSecret = check.signingSecret(signingSecret)
+	config.TOTPEncryptionKey = check.totpKey(totpKey)
+	check.serviceKey(config.ServiceKey)
+	check.emailAddress("EMAIL_FROM", config.EmailFrom)
+	check.email(&config)
+	check.hostPort("METRICS_ADDR", config.MetricsAddr)
+	if (config.MetaAppID == "") != (config.MetaAppSecret == "") {
+		check.fail("META_APP_ID", "and META_APP_SECRET must be set together")
 	}
-	if (c.MediaS3AccessKey == "") != (c.MediaS3SecretKey == "") {
-		l.fail("MEDIA_S3_ACCESS_KEY", "and MEDIA_S3_SECRET_KEY must be set together")
+	if (config.MediaS3AccessKey == "") != (config.MediaS3SecretKey == "") {
+		check.fail("MEDIA_S3_ACCESS_KEY", "and MEDIA_S3_SECRET_KEY must be set together")
 	}
-	if (c.LinkedInClientID == "") != (c.LinkedInClientSecret == "") {
-		l.fail("LINKEDIN_CLIENT_ID", "and LINKEDIN_CLIENT_SECRET must be set together")
+	if (config.LinkedInClientID == "") != (config.LinkedInClientSecret == "") {
+		check.fail("LINKEDIN_CLIENT_ID", "and LINKEDIN_CLIENT_SECRET must be set together")
 	}
 
-	if len(l.problems) > 0 {
-		return Config{}, errors.New("invalid configuration: " + strings.Join(l.problems, "; "))
+	if len(check.problems) > 0 {
+		return Config{}, errors.New("invalid configuration: " + strings.Join(check.problems, "; "))
 	}
-	return c, nil
+	return config, nil
 }
 
-// loader collects problems instead of stopping at the first.
-type loader struct {
-	getenv     func(string) string
-	production bool
-	problems   []string
+func (config Config) Production() bool {
+	return config.Env == envProduction
 }
 
 func (l *loader) fail(name, rule string) {
 	l.problems = append(l.problems, name+" "+rule)
 }
 
-func (l *loader) optional(name string) string { return l.getenv(name) }
+func (l *loader) optional(name string) string {
+	return l.getenv(name)
+}
 
 func (l *loader) withDefault(name, fallback string) string {
-	if v := l.getenv(name); v != "" {
-		return v
+	value := l.getenv(name)
+	if value != "" {
+		return value
 	}
 	return fallback
 }
 
 func (l *loader) required(name string) string {
-	v := l.getenv(name)
-	if v == "" {
+	value := l.getenv(name)
+	if value == "" {
 		l.fail(name, "is required")
 	}
-	return v
+	return value
 }
 
 // requiredInProduction covers mail, media and TURN: development runs without
@@ -211,75 +216,75 @@ func (l *loader) requiredInProduction(name string) string {
 	return l.optional(name)
 }
 
-func (l *loader) email(c *Config) {
-	c.ResendAPIKey = l.optional("RESEND_API_KEY")
-	c.SMTPHost = l.optional("SMTP_HOST")
+func (l *loader) email(config *Config) {
+	config.ResendAPIKey = l.optional("RESEND_API_KEY")
+	config.SMTPHost = l.optional("SMTP_HOST")
 	smtpPort := l.withDefault("SMTP_PORT", "587")
-	c.SMTPUsername = l.optional("SMTP_USERNAME")
-	c.SMTPPassword = l.optional("SMTP_PASSWORD")
+	config.SMTPUsername = l.optional("SMTP_USERNAME")
+	config.SMTPPassword = l.optional("SMTP_PASSWORD")
 
-	switch c.EmailProvider {
+	switch config.EmailProvider {
 	case EmailResend:
-		if l.production && c.ResendAPIKey == "" {
+		if l.production && config.ResendAPIKey == "" {
 			l.fail("RESEND_API_KEY", "is required")
 		}
 	case EmailSMTP:
-		c.SMTPPort = l.port("SMTP_PORT", smtpPort)
-		l.requiredForSMTP("SMTP_HOST", c.SMTPHost)
-		l.requiredForSMTP("SMTP_USERNAME", c.SMTPUsername)
-		l.requiredForSMTP("SMTP_PASSWORD", c.SMTPPassword)
+		config.SMTPPort = l.port("SMTP_PORT", smtpPort)
+		l.requiredForSMTP("SMTP_HOST", config.SMTPHost)
+		l.requiredForSMTP("SMTP_USERNAME", config.SMTPUsername)
+		l.requiredForSMTP("SMTP_PASSWORD", config.SMTPPassword)
 	default:
 		l.fail("EMAIL_PROVIDER", "must be resend or smtp")
 	}
 }
 
-func (l *loader) requiredForSMTP(name, v string) {
-	if v == "" {
+func (l *loader) requiredForSMTP(name, value string) {
+	if value == "" {
 		l.fail(name, "is required when EMAIL_PROVIDER is smtp")
 	}
 }
 
-func (l *loader) port(name, v string) int {
-	n, ok := parsePort(v)
+func (l *loader) port(name, value string) int {
+	port, ok := parsePort(value)
 	if !ok {
 		l.fail(name, "must be a port number from 1 to 65535")
 	}
-	return n
+	return port
 }
 
-func (l *loader) logLevel(v string) slog.Level {
-	level, ok := logLevels[v]
+func (l *loader) logLevel(value string) slog.Level {
+	level, ok := logLevels[value]
 	if !ok {
 		l.fail("LOG_LEVEL", "must be debug, info, warn or error")
 	}
 	return level
 }
 
-func (l *loader) absoluteURL(name, v string) {
-	if v == "" {
+func (l *loader) absoluteURL(name, value string) {
+	if value == "" {
 		return
 	}
-	u, err := url.Parse(v)
+	parsed, err := url.Parse(value)
 	switch {
-	case err != nil || !u.IsAbs() || u.Host == "":
+	case err != nil || !parsed.IsAbs() || parsed.Host == "":
 		l.fail(name, "must be an absolute URL")
-	case l.production && u.Scheme != "https":
+	case l.production && parsed.Scheme != "https":
 		l.fail(name, "must use https in production")
 	}
 }
 
-func (l *loader) signingSecret(v string) []byte {
-	if v != "" && len(v) < 32 {
+func (l *loader) signingSecret(value string) []byte {
+	if value != "" && len(value) < 32 {
 		l.fail("SIGNING_SECRET", "must be at least 32 bytes")
 	}
-	return []byte(v)
+	return []byte(value)
 }
 
-func (l *loader) totpKey(v string) []byte {
-	if v == "" {
+func (l *loader) totpKey(value string) []byte {
+	if value == "" {
 		return nil
 	}
-	key, err := base64.StdEncoding.DecodeString(v)
+	key, err := base64.StdEncoding.DecodeString(value)
 	if err != nil || len(key) != 32 {
 		l.fail("TOTP_ENCRYPTION_KEY", "must be standard base64 of exactly 32 bytes")
 	}
@@ -287,32 +292,34 @@ func (l *loader) totpKey(v string) []byte {
 }
 
 // serviceKey is length-checked only in production, so a local key can be short.
-func (l *loader) serviceKey(v string) {
-	if l.production && v != "" && utf8.RuneCountInString(v) < 32 {
+func (l *loader) serviceKey(value string) {
+	if l.production && value != "" && utf8.RuneCountInString(value) < 32 {
 		l.fail("SERVICE_KEY", "must be at least 32 characters in production")
 	}
 }
 
-func (l *loader) emailAddress(name, v string) {
-	if v == "" {
+func (l *loader) emailAddress(name, value string) {
+	if value == "" {
 		return
 	}
-	if _, err := mail.ParseAddress(v); err != nil {
+	_, err := mail.ParseAddress(value)
+	if err != nil {
 		l.fail(name, "must be an email address such as VetMiMi <hello@example.com>")
 	}
 }
 
-func (l *loader) hostPort(name, v string) {
-	if v == "" {
+func (l *loader) hostPort(name, value string) {
+	if value == "" {
 		return
 	}
-	_, port, err := net.SplitHostPort(v)
-	if _, ok := parsePort(port); err != nil || !ok {
+	_, port, err := net.SplitHostPort(value)
+	_, ok := parsePort(port)
+	if err != nil || !ok {
 		l.fail(name, "must be host:port")
 	}
 }
 
-func parsePort(v string) (int, bool) {
-	n, err := strconv.Atoi(v)
-	return n, err == nil && n >= 1 && n <= 65535
+func parsePort(value string) (int, bool) {
+	port, err := strconv.Atoi(value)
+	return port, err == nil && port >= 1 && port <= 65535
 }
