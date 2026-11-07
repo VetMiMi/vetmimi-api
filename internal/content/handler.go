@@ -18,7 +18,7 @@ type Handler struct {
 	Now            clock.Now
 }
 
-// Routes: editors write and submit; only a site administrator reviews and publishes.
+// Routes: editors write drafts; only a site administrator schedules, publishes and archives.
 func (h *Handler) Routes(r web.Routes) {
 	editor := r.Admin(auth.ContentEditor)
 	editor.GET("/admin/posts", h.listPosts)
@@ -26,17 +26,14 @@ func (h *Handler) Routes(r web.Routes) {
 	editor.GET("/admin/posts/:postId", h.getPost)
 	editor.PATCH("/admin/posts/:postId", h.updatePost)
 	editor.DELETE("/admin/posts/:postId", h.deletePost)
-	editor.POST("/admin/posts/:postId/submit", h.submitPost)
 	editor.POST("/admin/posts/:postId/channels/:channel/mark-posted", h.markPosted)
 	editor.POST("/admin/posts/:postId/channels/:channel/retry", h.retryChannel)
 
-	reviewer := r.Admin(auth.SiteAdmin)
-	reviewer.POST("/admin/posts/:postId/request-changes", h.requestChanges)
-	reviewer.POST("/admin/posts/:postId/approve", h.approvePost)
-	reviewer.POST("/admin/posts/:postId/schedule", h.schedulePost)
-	reviewer.POST("/admin/posts/:postId/unschedule", h.unschedulePost)
-	reviewer.POST("/admin/posts/:postId/publish", h.publishPost)
-	reviewer.POST("/admin/posts/:postId/archive", h.archivePost)
+	publisher := r.Admin(auth.SiteAdmin)
+	publisher.POST("/admin/posts/:postId/schedule", h.schedulePost)
+	publisher.POST("/admin/posts/:postId/unschedule", h.unschedulePost)
+	publisher.POST("/admin/posts/:postId/publish", h.publishPost)
+	publisher.POST("/admin/posts/:postId/archive", h.archivePost)
 
 	r.Public.GET("/public/articles", h.listArticles)
 	r.Public.GET("/public/articles/:slug", h.getArticle)

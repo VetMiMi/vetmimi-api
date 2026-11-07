@@ -110,18 +110,6 @@ func (f *fixture) step(act func(id pgtype.UUID, version int32) (content.Post, er
 	return err
 }
 
-func (f *fixture) submit() error {
-	return f.step(func(id pgtype.UUID, v int32) (content.Post, error) {
-		return content.Submit(ctx, pgtest.Pool(f.t), id, v, f.now)
-	})
-}
-
-func (f *fixture) approve() error {
-	return f.step(func(id pgtype.UUID, v int32) (content.Post, error) {
-		return content.Approve(ctx, pgtest.Pool(f.t), id, v, f.by, f.now)
-	})
-}
-
 func (f *fixture) edit(e content.Edit) error {
 	return f.step(func(id pgtype.UUID, v int32) (content.Post, error) {
 		return content.UpdatePost(ctx, pgtest.Pool(f.t), id, v, e, f.by, f.now)
@@ -130,20 +118,18 @@ func (f *fixture) edit(e content.Edit) error {
 
 func (f *fixture) publish() error {
 	return f.step(func(id pgtype.UUID, v int32) (content.Post, error) {
-		return content.PublishNow(ctx, pgtest.Pool(f.t), id, v, f.now)
+		return content.PublishNow(ctx, pgtest.Pool(f.t), id, v, f.by, f.now)
 	})
 }
 
 func (f *fixture) schedule(at time.Time) error {
 	return f.step(func(id pgtype.UUID, v int32) (content.Post, error) {
-		return content.Schedule(ctx, pgtest.Pool(f.t), id, v, at, f.now)
+		return content.Schedule(ctx, pgtest.Pool(f.t), id, v, at, f.by, f.now)
 	})
 }
 
 func (f *fixture) published() *fixture {
 	f.t.Helper()
-	require.NoError(f.t, f.submit())
-	require.NoError(f.t, f.approve())
 	require.NoError(f.t, f.publish())
 	return f
 }

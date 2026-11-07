@@ -50,8 +50,6 @@ func reload(t *testing.T, id pgtype.UUID) content.Post {
 // Run early, or after the schedule moved, the task does nothing.
 func TestScheduledPostPublishesAtItsTime(t *testing.T) {
 	f := newPost(t, "insight", website("scheduled-article"), facebook("Out tomorrow."))
-	require.NoError(t, f.submit())
-	require.NoError(t, f.approve())
 	at := f.now.Add(24 * time.Hour)
 	require.NoError(t, f.schedule(at))
 
@@ -144,8 +142,6 @@ func TestTransientFailureRetriesThreeTimes(t *testing.T) {
 // sweep fails it as unknown_outcome for Daw Mi to check.
 func TestSweepRebuildsLostTasks(t *testing.T) {
 	scheduled := newPost(t, "insight", website("swept-article"))
-	require.NoError(t, scheduled.submit())
-	require.NoError(t, scheduled.approve())
 	require.NoError(t, scheduled.schedule(scheduled.now.Add(time.Hour)))
 	stuck := newPost(t, "insight", facebook("Lost task.")).published()
 
@@ -232,20 +228,12 @@ func TestEditingAPublishedArticleRepublishesTheWebsite(t *testing.T) {
 	corrected.Body = localized("# Calm\n\nBreathe slowly.", "")
 	f.now = f.now.Add(time.Hour)
 	require.NoError(t, f.edit(content.Edit{Versions: []db.SavePostVersionParams{corrected}}))
-	require.Equal(t, "in_review", f.post.Status)
+	require.Equal(t, "draft", f.post.Status)
 	article, err := content.GetArticle(ctx, db.New(pool), "corrected-article", "en")
-	require.NoError(t, err, "still live while in review")
+	require.NoError(t, err, "still live while it is a draft again")
 	require.Equal(t, "# Calm\n\nBreathe.", article.Body)
-	p, err = content.RequestChanges(ctx, pool, f.post.ID, f.post.Version, "One more line.", f.now)
-	require.NoError(t, err)
-	require.Equal(t, "draft", p.Status)
-	requireCode(t, apperr.InvalidTransition, content.DeletePost(ctx, db.New(pool), p.ID))
-	f.post = p
-	require.NoError(t, f.submit())
-	_, err = content.GetArticle(ctx, db.New(pool), "corrected-article", "en")
-	require.NoError(t, err)
+	requireCode(t, apperr.InvalidTransition, content.DeletePost(ctx, db.New(pool), f.post.ID))
 
-	require.NoError(t, f.approve())
 	require.NoError(t, f.publish())
 	require.Equal(t, "published", f.post.Status)
 	require.Equal(t, firstPublished, publication(f.post, "website").PublishedAt)

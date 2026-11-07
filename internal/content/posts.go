@@ -134,7 +134,7 @@ func UpdatePost(ctx context.Context, pool *pgxpool.Pool, id pgtype.UUID, version
 	})
 }
 
-// editStatus sends an approved or published post back to review, so nothing unreviewed goes out.
+// editStatus sends a scheduled or published post back to draft, so it is checked again before it goes out.
 func editStatus(p *db.Post, e Edit) error {
 	if e.Status != "" {
 		move := action{"moved to " + e.Status, []string{"idea", "draft"}}
@@ -147,13 +147,13 @@ func editStatus(p *db.Post, e Edit) error {
 	case "idea", "draft", "in_review":
 		return nil
 	case "approved", "scheduled":
-		backToReview(p)
+		backToDraft(p)
 		return nil
 	case "publishing", "published":
 		if !websiteOnly(e) {
 			return errLiveEdit
 		}
-		backToReview(p)
+		backToDraft(p)
 		return nil
 	}
 	return errTransition(p, "edited")

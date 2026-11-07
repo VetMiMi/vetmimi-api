@@ -326,19 +326,18 @@ content. Daw Mi holds all three roles.
 
 ### 5. Publish a post
 
-1. An editor writes the post and its channel versions (`POST`/`PATCH /admin/posts`)
-   and submits it; the post is `in_review`.
-2. Daw Mi approves (`site_admin`). In one transaction the post is locked, its
-   `version` checked, and every enabled version checked against its platform
-   (docs/data-model.md, "Posts"); a True Story needs consent confirmed. Failures
-   give `422 publish_requirements_unmet` listing each one.
-3. She publishes now, or schedules a future time (`content:publish-scheduled`
-   does the same at that time). Publishing opens a `post_publications` row per
+1. Daw Mi writes the post and its channel versions (`POST`/`PATCH /admin/posts`);
+   it stays a `draft`. There is no review step: she is the only writer (ADR-012).
+2. She publishes now, or schedules a future time (`site_admin`;
+   `content:publish-scheduled` does the same at that time). In one transaction
+   the post is locked, its `version` checked, and every enabled version checked
+   against its platform (docs/data-model.md, "Posts"); a True Story needs consent
+   confirmed. Failures give `422 publish_requirements_unmet` listing each one. Publishing opens a `post_publications` row per
    enabled channel: the website's is `published` at once and the website
    version is copied to `published_articles`, which `GET /public/articles/{slug}`
    serves, and `content:revalidate` asks the site to refresh it; social ones are
    `pending` and the post is `publishing`.
-4. Each social channel is its own `content:publish-channel` task, calling that
+3. Each social channel is its own `content:publish-channel` task, calling that
    platform's connector: `internal/meta` for Facebook and Instagram once the
    Page is connected, `internal/linkedin` for LinkedIn once her profile is,
    otherwise `not_connected`. A transient failure is retried three times. An attempt
@@ -347,9 +346,9 @@ content. Daw Mi holds all three roles.
    sent again by itself, since it may have posted. A failed channel can be
    retried, or Daw Mi posts it herself (copy & open) and marks it posted. When
    every channel is `published` or `manual`, the post is `published`.
-5. Editing an `approved` or `scheduled` post sends it back to `in_review`; so
-   does editing a published post's website version, while visitors keep
-   reading the copy in `published_articles` until it is published again.
+4. Editing a `scheduled` post sends it back to `draft`; so does editing a
+   published post's website version, while visitors keep reading the copy in
+   `published_articles` until it is published again.
 
 ## Time handling rules
 
@@ -547,6 +546,7 @@ one-day demo.
   tasks carry only a row id, so tokens are HMAC-derived from a random seed.
 - ADR-006 fixes `channel = 'email'`; "Mark as communicated" rows use `manual`.
 - The content requirements name Professional Approver and Publisher roles;
-  ADR-002 fixes three, so approving and publishing are `site_admin` rights.
+  ADR-002 fixes three, so publishing is a `site_admin` right, and ADR-012
+  drops the separate approval step.
 - The video hub lives in one api process; ADR-005's two-zone Fargate target
   would need sticky routing by room or Redis fan-out first.

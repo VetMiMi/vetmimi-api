@@ -9,8 +9,8 @@ import (
 	"github.com/VetMiMi/vetmimi-api/internal/webtest"
 )
 
-// An editor submits; only a site administrator approves and publishes; a
-// channel posted by hand completes the post.
+// An editor writes; only a site administrator publishes; a channel posted by
+// hand completes the post.
 func TestHTTP_Workflow(t *testing.T) {
 	a := contentAPI(t)
 	editor := webtest.SignIn(t, "content_editor")
@@ -22,14 +22,10 @@ func TestHTTP_Workflow(t *testing.T) {
 			"facebook": {"enabled": true, "text": "New article."}}}`))
 	path := "/admin/posts/" + post["id"].(string)
 
-	webtest.JSON(t, http.StatusOK, a.Admin(http.MethodPost, path+"/submit", editor, `{"version": 1}`))
-	webtest.Refused(t, http.StatusForbidden, "forbidden", a.Admin(http.MethodPost, path+"/approve", editor, `{"version": 2}`))
-	approved := webtest.JSON(t, http.StatusOK, a.Admin(http.MethodPost, path+"/approve", admin, `{"version": 2}`))
-	require.Equal(t, "approved", approved["status"])
-	require.NotEmpty(t, approved["approvedBy"])
-
-	publishing := webtest.JSON(t, http.StatusOK, a.Admin(http.MethodPost, path+"/publish", admin, `{"version": 3}`))
+	webtest.Refused(t, http.StatusForbidden, "forbidden", a.Admin(http.MethodPost, path+"/publish", editor, `{"version": 1}`))
+	publishing := webtest.JSON(t, http.StatusOK, a.Admin(http.MethodPost, path+"/publish", admin, `{"version": 1}`))
 	require.Equal(t, "publishing", publishing["status"], "facebook is left to the worker")
+	require.NotEmpty(t, publishing["approvedBy"])
 
 	webtest.Refused(t, http.StatusBadRequest, "invalid_request",
 		a.Admin(http.MethodPost, path+"/channels/website/mark-posted", editor, `{}`))
