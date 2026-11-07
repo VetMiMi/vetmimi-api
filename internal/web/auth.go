@@ -55,8 +55,8 @@ func SignedIn(sessions *auth.Sessions) gin.HandlerFunc {
 func Role(roles ...auth.Role) gin.HandlerFunc {
 	return func(c *gin.Context) {
 		session, _ := auth.FromContext(c.Request.Context())
-		for _, r := range roles {
-			if auth.HasRole(session.User.Roles, r) {
+		for _, role := range roles {
+			if auth.HasRole(session.User.Roles, role) {
 				c.Next()
 				return
 			}

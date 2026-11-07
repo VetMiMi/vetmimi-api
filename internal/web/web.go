@@ -30,15 +30,14 @@ type Routes struct {
 	limiter *Limiter
 }
 
-// Admin is for a signed-in user holding one of roles. Taking the roles here means no admin route can forget them.
-func (r Routes) Admin(roles ...auth.Role) *gin.RouterGroup {
-	return r.admin.Group("", Role(roles...))
-}
+type contextKey int
 
-// Slow is Admin with a long deadline and a large body: uploads and the AI assistant.
-func (r Routes) Slow(roles ...auth.Role) *gin.RouterGroup {
-	return r.slow.Group("", Role(roles...))
-}
+const (
+	requestIDKey contextKey = iota
+	clientIPKey
+)
+
+var safeRequestID = regexp.MustCompile(`^[A-Za-z0-9._-]{1,64}$`)
 
 // NewRouter returns a router with the middleware every request gets.
 func NewRouter() *gin.Engine {
@@ -55,29 +54,32 @@ func NewRouter() *gin.Engine {
 
 func NewRoutes(r *gin.Engine, serviceKey string, sessions *auth.Sessions, limiter *Limiter) Routes {
 	signedIn := SignedIn(sessions)
+	public := r.Group("", Timeout(30*time.Second), MaxBody(64<<10), ServiceKey(serviceKey), limiter.Limit(perServiceKey))
+	admin := r.Group("", Timeout(30*time.Second), MaxBody(512<<10), signedIn, limiter.Limit(perSession))
+	slow := r.Group("", Timeout(2*time.Minute), MaxBody(21<<20), signedIn, limiter.Limit(perSession))
 	return Routes{
-		Public: r.Group("", Timeout(30*time.Second), MaxBody(64<<10),
-			ServiceKey(serviceKey), limiter.Limit(perServiceKey)),
-		admin: r.Group("", Timeout(30*time.Second), MaxBody(512<<10),
-			signedIn, limiter.Limit(perSession)),
-		slow: r.Group("", Timeout(2*time.Minute), MaxBody(21<<20),
-			signedIn, limiter.Limit(perSession)),
+		Public:  public,
 		Root:    r,
+		admin:   admin,
+		slow:    slow,
 		limiter: limiter,
 	}
+}
+
+// Admin is for a signed-in user holding one of roles. Taking the roles here means no admin route can forget them.
+func (r Routes) Admin(roles ...auth.Role) *gin.RouterGroup {
+	return r.admin.Group("", Role(roles...))
+}
+
+// Slow is Admin with a long deadline and a large body: uploads and the AI assistant.
+func (r Routes) Slow(roles ...auth.Role) *gin.RouterGroup {
+	return r.slow.Group("", Role(roles...))
 }
 
 // Limit counts each request to a route against rule, on top of its group's limit.
 func (r Routes) Limit(rule Rule) gin.HandlerFunc {
 	return r.limiter.Limit(rule)
 }
-
-type contextKey int
-
-const (
-	requestIDKey contextKey = iota
-	clientIPKey
-)
 
 func RequestID(ctx context.Context) string {
 	id, _ := ctx.Value(requestIDKey).(string)
@@ -90,19 +92,36 @@ func ClientIP(ctx context.Context) netip.Addr {
 	return ip
 }
 
-func setContext(c *gin.Context, key contextKey, value any) {
-	c.Request = c.Request.WithContext(context.WithValue(c.Request.Context(), key, value))
+// Timeout gives the handler a deadline; a database call past it fails and is answered 503.
+func Timeout(limit time.Duration) gin.HandlerFunc {
+	return func(c *gin.Context) {
+		ctx, cancel := context.WithTimeout(c.Request.Context(), limit)
+		defer cancel()
+		c.Request = c.Request.WithContext(ctx)
+		c.Next()
+	}
 }
 
-var safeRequestID = regexp.MustCompile(`^[A-Za-z0-9._-]{1,64}$`)
+// MaxBody makes reading more than limit bytes of the body fail, answered 413.
+func MaxBody(limit int64) gin.HandlerFunc {
+	return func(c *gin.Context) {
+		c.Request.Body = http.MaxBytesReader(c.Writer, c.Request.Body, limit)
+		c.Next()
+	}
+}
+
+func setContext(c *gin.Context, key contextKey, value any) {
+	ctx := context.WithValue(c.Request.Context(), key, value)
+	c.Request = c.Request.WithContext(ctx)
+}
 
 // requestID reuses the site's X-Request-Id, so both logs share one id, when it is safe to log.
 func requestID(c *gin.Context) {
 	id := c.GetHeader("X-Request-Id")
 	if !safeRequestID.MatchString(id) {
-		b := make([]byte, 16)
-		_, _ = rand.Read(b)
-		id = hex.EncodeToString(b)
+		random := make([]byte, 16)
+		_, _ = rand.Read(random) // crypto/rand.Read never fails
+		id = hex.EncodeToString(random)
 	}
 	c.Header("X-Request-Id", id)
 	setContext(c, requestIDKey, id)
@@ -111,15 +130,18 @@ func requestID(c *gin.Context) {
 }
 
 // clientAddr trusts only the last X-Forwarded-For hop: Caddy appends the one it saw.
-func clientAddr(r *http.Request) netip.Addr {
-	if lines := r.Header.Values("X-Forwarded-For"); len(lines) > 0 {
+func clientAddr(request *http.Request) netip.Addr {
+	lines := request.Header.Values("X-Forwarded-For")
+	if len(lines) > 0 {
 		hops := strings.Split(lines[len(lines)-1], ",")
-		if ip, err := netip.ParseAddr(strings.TrimSpace(hops[len(hops)-1])); err == nil {
+		ip, err := netip.ParseAddr(strings.TrimSpace(hops[len(hops)-1]))
+		if err == nil {
 			return ip.Unmap()
 		}
 	}
-	if ap, err := netip.ParseAddrPort(r.RemoteAddr); err == nil {
-		return ap.Addr().Unmap()
+	address, err := netip.ParseAddrPort(request.RemoteAddr)
+	if err == nil {
+		return address.Addr().Unmap()
 	}
 	return netip.Addr{}
 }
@@ -139,15 +161,17 @@ func logRequests(c *gin.Context) {
 
 func recoverPanics(c *gin.Context) {
 	defer func() {
-		p := recover()
-		if p == nil {
+		recovered := recover()
+		if recovered == nil {
 			return
 		}
-		if p == http.ErrAbortHandler {
-			panic(p)
+		if recovered == http.ErrAbortHandler {
+			panic(recovered)
 		}
 		slog.ErrorContext(c.Request.Context(), "panic",
-			"request_id", RequestID(c.Request.Context()), "panic", fmt.Sprint(p), "stack", string(debug.Stack()))
+			"request_id", RequestID(c.Request.Context()),
+			"panic", fmt.Sprint(recovered),
+			"stack", string(debug.Stack()))
 		if !c.Writer.Written() {
 			abort(c, apperr.New(apperr.InternalError, "Unexpected failure."))
 		}
@@ -157,29 +181,11 @@ func recoverPanics(c *gin.Context) {
 
 // securityHeaders: the API only answers JSON, so nothing it sends should be framed, sniffed or cached.
 func securityHeaders(c *gin.Context) {
-	h := c.Writer.Header()
-	h.Set("X-Content-Type-Options", "nosniff")
-	h.Set("Referrer-Policy", "no-referrer")
-	h.Set("X-Frame-Options", "DENY")
-	h.Set("Content-Security-Policy", "default-src 'none'; frame-ancestors 'none'")
-	h.Set("Cache-Control", "no-store")
+	header := c.Writer.Header()
+	header.Set("X-Content-Type-Options", "nosniff")
+	header.Set("Referrer-Policy", "no-referrer")
+	header.Set("X-Frame-Options", "DENY")
+	header.Set("Content-Security-Policy", "default-src 'none'; frame-ancestors 'none'")
+	header.Set("Cache-Control", "no-store")
 	c.Next()
-}
-
-// Timeout gives the handler a deadline; a database call past it fails and is answered 503.
-func Timeout(d time.Duration) gin.HandlerFunc {
-	return func(c *gin.Context) {
-		ctx, cancel := context.WithTimeout(c.Request.Context(), d)
-		defer cancel()
-		c.Request = c.Request.WithContext(ctx)
-		c.Next()
-	}
-}
-
-// MaxBody makes reading more than n bytes of the body fail, answered 413.
-func MaxBody(n int64) gin.HandlerFunc {
-	return func(c *gin.Context) {
-		c.Request.Body = http.MaxBytesReader(c.Writer, c.Request.Body, n)
-		c.Next()
-	}
 }

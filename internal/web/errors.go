@@ -13,21 +13,28 @@ import (
 	"github.com/VetMiMi/vetmimi-api/internal/apperr"
 )
 
+type fieldResponse struct {
+	Field   string `json:"field"`
+	Message string `json:"message"`
+}
+
 // Error answers err as a problem. Untyped errors get a fixed message: theirs may hold SQL or personal data.
 func Error(c *gin.Context, err error) {
-	var e *apperr.Error
+	var problem *apperr.Error
 	switch {
-	case errors.As(err, &e):
+	case errors.As(err, &problem):
 	case dependencyDown(err):
-		e = apperr.New(apperr.Unavailable, "A dependency is unreachable; try again shortly.")
+		problem = apperr.New(apperr.Unavailable, "A dependency is unreachable; try again shortly.")
 	default:
-		e = apperr.New(apperr.InternalError, "Unexpected failure.")
+		problem = apperr.New(apperr.InternalError, "Unexpected failure.")
 	}
-	if e.Code.Status() >= 500 {
+	if problem.Code.Status() >= 500 {
 		slog.ErrorContext(c.Request.Context(), "request failed",
-			"request_id", RequestID(c.Request.Context()), "code", e.Code, "err", err)
+			"request_id", RequestID(c.Request.Context()),
+			"code", problem.Code,
+			"err", err)
 	}
-	abort(c, e)
+	abort(c, problem)
 }
 
 func dependencyDown(err error) bool {
@@ -35,35 +42,31 @@ func dependencyDown(err error) bool {
 	return errors.Is(err, context.DeadlineExceeded) || errors.As(err, &connect)
 }
 
-type fieldJSON struct {
-	Field   string `json:"field"`
-	Message string `json:"message"`
-}
-
-// abort writes e as an RFC 9457 problem, with its extensions (such as alternatives) beside the standard members.
-func abort(c *gin.Context, e *apperr.Error) {
+// abort writes problem as an RFC 9457 problem, with its extensions (such as alternatives) beside the standard members.
+func abort(c *gin.Context, problem *apperr.Error) {
 	body := gin.H{}
-	for k, v := range e.Extensions {
-		body[k] = v
+	for key, value := range problem.Extensions {
+		body[key] = value
 	}
-	body["type"] = "urn:vetmimi:problem:" + string(e.Code)
-	body["title"] = e.Code.Title()
-	body["status"] = e.Code.Status()
-	body["code"] = e.Code
-	if e.Detail != "" {
-		body["detail"] = e.Detail
+	body["type"] = "urn:vetmimi:problem:" + string(problem.Code)
+	body["title"] = problem.Code.Title()
+	body["status"] = problem.Code.Status()
+	body["code"] = problem.Code
+	if problem.Detail != "" {
+		body["detail"] = problem.Detail
 	}
-	if len(e.Fields) > 0 {
-		fields := make([]fieldJSON, len(e.Fields))
-		for i, f := range e.Fields {
-			fields[i] = fieldJSON{f.Field, f.Message}
+	if len(problem.Fields) > 0 {
+		fields := make([]fieldResponse, len(problem.Fields))
+		for i, field := range problem.Fields {
+			fields[i] = fieldResponse{Field: field.Field, Message: field.Message}
 		}
 		body["errors"] = fields
 	}
-	if e.Code == apperr.RateLimited {
+	if problem.Code == apperr.RateLimited {
 		// Rounded up and never 0: a client that retries early is refused again.
-		c.Header("Retry-After", strconv.Itoa(max(1, int(math.Ceil(e.RetryAfter.Seconds())))))
+		seconds := max(1, int(math.Ceil(problem.RetryAfter.Seconds())))
+		c.Header("Retry-After", strconv.Itoa(seconds))
 	}
 	c.Header("Content-Type", "application/problem+json")
-	c.AbortWithStatusJSON(e.Code.Status(), body)
+	c.AbortWithStatusJSON(problem.Code.Status(), body)
 }
