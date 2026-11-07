@@ -159,6 +159,8 @@ func TestUploadRefusesWhatIsNotAnImage(t *testing.T) {
 	requireCode(t, apperr.UnsupportedMediaType, err)
 	_, err = media.Upload(ctx, pool, store, make([]byte, media.MaxUploadBytes+1), media.Description{}, pgtype.UUID{}, now)
 	requireCode(t, apperr.PayloadTooLarge, err)
+	_, err = media.Upload(ctx, pool, store, photo(t, 4001, 4000), media.Description{}, pgtype.UUID{}, now)
+	requireCode(t, apperr.PayloadTooLarge, err)
 	_, err = media.Upload(ctx, pool, nil, photo(t, 10, 10), media.Description{}, pgtype.UUID{}, now)
 	requireCode(t, apperr.Unavailable, err)
 	require.Empty(t, b.keys())
