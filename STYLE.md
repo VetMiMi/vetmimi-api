@@ -60,6 +60,9 @@ does not exist; never add an empty one.
 | task handler | named after the task, exported | `PublishChannel` |
 | task builder | `<Kind>Task(s)` | `PublishTasks(post)` |
 
+A method receiver names its type in one lower-case word: `hub *Hub`,
+`queue *Queue`, `limiter *Limiter`, `failure *ChannelError`.
+
 Variables use the whole word: `post`, `posts`, `version`, `publication`,
 `edit`, `filter`, `body`, `query`, `path`, `response`, `result`.
 
@@ -239,8 +242,9 @@ never `a, b = x, y` for unrelated values.
 left margin. No `else` after a `return`.
 
 **No `_ = err`.** Check every error. The only exceptions are `defer
-tx.Rollback(ctx)`, `defer res.Body.Close()`, and a value that cannot fail,
-which gets a comment saying so.
+tx.Rollback(ctx)`, closing something that is being thrown away
+(`defer res.Body.Close()`, `_ = conn.Close(...)` on a dropped socket), and a
+call that cannot fail, which gets a comment saying so.
 
 **Comments** only when the name cannot say it: one line, saying why. No
 narration, no references to ADRs or issues.

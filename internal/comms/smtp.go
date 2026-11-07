@@ -129,9 +129,11 @@ func buildMessage(from *mail.Address, to, messageID string, email Email, now tim
 	var message bytes.Buffer
 	header := func(name, value string) { fmt.Fprintf(&message, "%s: %s\r\n", name, value) }
 	header("From", from.String())
-	header("To", (&mail.Address{Address: to}).String())
+	recipient := mail.Address{Address: to}
+	header("To", recipient.String())
 	if email.ReplyTo != "" {
-		header("Reply-To", (&mail.Address{Address: email.ReplyTo}).String())
+		replyTo := mail.Address{Address: email.ReplyTo}
+		header("Reply-To", replyTo.String())
 	}
 	header("Subject", mime.QEncoding.Encode("utf-8", email.Subject))
 	header("Date", now.Format(time.RFC1123Z))
