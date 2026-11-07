@@ -21,8 +21,14 @@ wrong for one practitioner, pick the one that is right for her.
 
 ## Code style
 
-The goal: a new developer finds their way in an afternoon.
+The goal: a new developer finds their way in an afternoon, and every file of
+one kind looks the same apart from its business logic.
 
+- **Follow `STYLE.md` exactly**: file roles and the order inside each file,
+  the four-block handler, explicit `Begin`/`Commit` transactions, names, the
+  worker layout. `internal/content` is the reference package. When code and
+  `STYLE.md` disagree, fix the code; when a rule cannot fit, keep the code and
+  say why in the pull request.
 - One package per purpose, named for what it does. No `utils`, `common`,
   `helpers` or other grab-bags.
 - Files named for the feature they hold (`requests.go`, `reschedule.go`), not
@@ -48,11 +54,13 @@ The goal: a new developer finds their way in an afternoon.
 ## Layout
 
 ```
-cmd/api/              main: the four modes, route wiring, sign-in and health routes
+cmd/api/              main: the four modes and the wiring of every handler and task
 internal/
   web/                router, route groups, auth and role checks, rate limits, binding, errors
   webtest/            handler test helper: real router and middleware
   auth/               accounts, sign-in (password + TOTP), sessions, roles, lockout
+  signin/             sign-in, sign-out and current-user routes
+  health/             /healthz and /readyz
   booking/            services, availability, slots, appointments, their tasks
   video/              rooms, tickets, WebSocket signalling hub
   content/            publishing portal: posts, channel versions, workflow
