@@ -15,13 +15,6 @@ import (
 	"github.com/redis/go-redis/v9"
 )
 
-// The worker takes about six Critical tasks for every three Default and one Low.
-const (
-	Critical = "critical"
-	Default  = "default"
-	Low      = "low"
-)
-
 type Task struct {
 	Type string
 	// Payload is sent as JSON and carries ids only; the handler loads the row.
@@ -43,6 +36,13 @@ type Queue struct {
 	ns        string // queue-name prefix, set only by tests
 }
 
+// The worker takes about six Critical tasks for every three Default and one Low.
+const (
+	Critical = "critical"
+	Default  = "default"
+	Low      = "low"
+)
+
 func New(rdb *redis.Client, log *slog.Logger) *Queue {
 	return &Queue{
 		client:    asynq.NewClientFromRedisClient(rdb),
@@ -57,10 +57,10 @@ func (q *Queue) Enqueue(ctx context.Context, tasks ...Task) {
 	if q == nil {
 		return
 	}
-	for _, t := range tasks {
-		err := q.enqueue(ctx, t)
+	for _, task := range tasks {
+		err := q.enqueue(ctx, task)
 		if err != nil && !errors.Is(err, asynq.ErrTaskIDConflict) {
-			q.log.Error("enqueue_failed", "task", t.Type, "task_id", t.ID, "err", err)
+			q.log.Error("enqueue_failed", "task", task.Type, "task_id", task.ID, "err", err)
 		}
 	}
 }
@@ -78,30 +78,30 @@ func (q *Queue) Remove(tasks ...Task) {
 	if q == nil {
 		return
 	}
-	for _, t := range tasks {
-		err := q.inspector.DeleteTask(q.queueName(t), t.ID)
+	for _, task := range tasks {
+		err := q.inspector.DeleteTask(q.queueName(task), task.ID)
 		if err != nil && !errors.Is(err, asynq.ErrTaskNotFound) && !errors.Is(err, asynq.ErrQueueNotFound) {
-			q.log.Error("remove_failed", "task", t.Type, "task_id", t.ID, "err", err)
+			q.log.Error("remove_failed", "task", task.Type, "task_id", task.ID, "err", err)
 		}
 	}
 }
 
-func (q *Queue) enqueue(ctx context.Context, t Task) error {
-	payload, err := json.Marshal(t.Payload)
+func (q *Queue) enqueue(ctx context.Context, task Task) error {
+	payload, err := json.Marshal(task.Payload)
 	if err != nil {
 		return err
 	}
-	opts := []asynq.Option{asynq.Queue(q.queueName(t))}
-	if t.ID != "" {
-		opts = append(opts, asynq.TaskID(t.ID))
+	options := []asynq.Option{asynq.Queue(q.queueName(task))}
+	if task.ID != "" {
+		options = append(options, asynq.TaskID(task.ID))
 	}
-	if !t.ProcessAt.IsZero() {
-		opts = append(opts, asynq.ProcessAt(t.ProcessAt))
+	if !task.ProcessAt.IsZero() {
+		options = append(options, asynq.ProcessAt(task.ProcessAt))
 	}
-	_, err = q.client.EnqueueContext(ctx, asynq.NewTask(t.Type, payload), opts...)
+	_, err = q.client.EnqueueContext(ctx, asynq.NewTask(task.Type, payload), options...)
 	return err
 }
 
-func (q *Queue) queueName(t Task) string {
-	return q.ns + cmp.Or(t.Queue, Default)
+func (q *Queue) queueName(task Task) string {
+	return q.ns + cmp.Or(task.Queue, Default)
 }
