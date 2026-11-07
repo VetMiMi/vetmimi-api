@@ -16,45 +16,8 @@ import (
 	"github.com/VetMiMi/vetmimi-api/internal/web"
 )
 
-// settingsResponse leaves out the booking keys for a role that may not read them.
-type settingsResponse struct {
-	Timezone        string    `json:"timezone"`
-	RetentionMonths int       `json:"retentionMonths"`
-	ContactEmail    string    `json:"contactEmail"`
-	ResponseTime    Localized `json:"responseTime"`
-	UpdatedAt       time.Time `json:"updatedAt"`
-	*bookingSettings
-}
-
-type bookingSettings struct {
-	BookingMode                 string   `json:"bookingMode"`
-	PublicBookingEnabled        bool     `json:"publicBookingEnabled"`
-	PendingHoldHours            int      `json:"pendingHoldHours"`
-	ReminderHours               int      `json:"reminderHours"`
-	MinNoticeHours              int      `json:"minNoticeHours"`
-	MaxAdvanceDays              int      `json:"maxAdvanceDays"`
-	SlotStepMinutes             int      `json:"slotStepMinutes"`
-	CancellationNoticeHours     int      `json:"cancellationNoticeHours"`
-	LateCancellationFeePercent  int      `json:"lateCancellationFeePercent"`
-	LateCancellationFirstWaived bool     `json:"lateCancellationFirstWaived"`
-	NoShowFeePercent            int      `json:"noShowFeePercent"`
-	MeetingLinkMode             string   `json:"meetingLinkMode"`
-	PaymentMethods              []string `json:"paymentMethods"`
-	InvoiceTiming               string   `json:"invoiceTiming"`
-}
-
-func (h *Handler) getSettings(c *gin.Context) {
-	session, _ := auth.FromContext(c.Request.Context())
-	current, err := Load(c.Request.Context(), db.New(h.Pool))
-	if err != nil {
-		web.Error(c, err)
-		return
-	}
-	c.JSON(http.StatusOK, settingsView(current, session.User.Roles))
-}
-
-// patchInput checks the keys a patch sets; omitnil checks a value only when it is sent.
-type patchInput struct {
+// updateSettingsBody checks the keys a patch sets; omitnil checks a value only when it is sent.
+type updateSettingsBody struct {
 	Timezone                    *string    `json:"timezone"`
 	BookingMode                 *string    `json:"bookingMode" binding:"omitnil,oneof=request_approval instant"`
 	PublicBookingEnabled        *bool      `json:"publicBookingEnabled"`
@@ -75,11 +38,54 @@ type patchInput struct {
 	ResponseTime                *Localized `json:"responseTime"`
 }
 
+// settingsResponse leaves out the booking keys for a role that may not read them.
+type settingsResponse struct {
+	Timezone        string    `json:"timezone"`
+	RetentionMonths int       `json:"retentionMonths"`
+	ContactEmail    string    `json:"contactEmail"`
+	ResponseTime    Localized `json:"responseTime"`
+	UpdatedAt       time.Time `json:"updatedAt"`
+	*bookingSettingsResponse
+}
+
+type bookingSettingsResponse struct {
+	BookingMode                 string   `json:"bookingMode"`
+	PublicBookingEnabled        bool     `json:"publicBookingEnabled"`
+	PendingHoldHours            int      `json:"pendingHoldHours"`
+	ReminderHours               int      `json:"reminderHours"`
+	MinNoticeHours              int      `json:"minNoticeHours"`
+	MaxAdvanceDays              int      `json:"maxAdvanceDays"`
+	SlotStepMinutes             int      `json:"slotStepMinutes"`
+	CancellationNoticeHours     int      `json:"cancellationNoticeHours"`
+	LateCancellationFeePercent  int      `json:"lateCancellationFeePercent"`
+	LateCancellationFirstWaived bool     `json:"lateCancellationFirstWaived"`
+	NoShowFeePercent            int      `json:"noShowFeePercent"`
+	MeetingLinkMode             string   `json:"meetingLinkMode"`
+	PaymentMethods              []string `json:"paymentMethods"`
+	InvoiceTiming               string   `json:"invoiceTiming"`
+}
+
+func (h *Handler) getSettings(c *gin.Context) {
+	ctx := c.Request.Context()
+
+	session, _ := auth.FromContext(ctx)
+	current, err := Load(ctx, db.New(h.Pool))
+	if err != nil {
+		web.Error(c, err)
+		return
+	}
+
+	c.JSON(http.StatusOK, newSettingsResponse(current, session.User.Roles))
+}
+
 // updateSettings applies all of the patch or none of it.
 func (h *Handler) updateSettings(c *gin.Context) {
-	var in patchInput
+	var body updateSettingsBody
+	if !web.BindJSON(c, &body) {
+		return
+	}
 	var sent map[string]json.RawMessage
-	if !web.BindJSON(c, &in) || !web.BindJSON(c, &sent) {
+	if !web.BindJSON(c, &sent) {
 		return
 	}
 	patch, err := patchOf(sent)
@@ -88,6 +94,7 @@ func (h *Handler) updateSettings(c *gin.Context) {
 		return
 	}
 	ctx := c.Request.Context()
+
 	session, _ := auth.FromContext(ctx)
 	now := h.Now()
 	updated, err := Update(ctx, db.New(h.Pool), patch, session.User, now)
@@ -95,12 +102,48 @@ func (h *Handler) updateSettings(c *gin.Context) {
 		web.Error(c, err)
 		return
 	}
-	if h.Queue != nil {
-		h.Queue.Enqueue(ctx, RescheduleTasks(patch, now)...)
+
+	h.Queue.Enqueue(ctx, RescheduleTasks(patch, now)...)
+	slog.InfoContext(ctx, "settings_changed",
+		"request_id", web.RequestID(ctx),
+		"user_id", session.User.ID.String(),
+		"keys", slices.Sorted(maps.Keys(patch)),
+	)
+
+	c.JSON(http.StatusOK, newSettingsResponse(updated, session.User.Roles))
+}
+
+func newSettingsResponse(current Settings, roles []string) settingsResponse {
+	response := settingsResponse{
+		Timezone:        current.Timezone,
+		RetentionMonths: current.RetentionMonths,
+		ContactEmail:    current.ContactEmail,
+		ResponseTime:    current.ResponseTime,
+		UpdatedAt:       current.UpdatedAt(roles).UTC(),
 	}
-	slog.InfoContext(ctx, "settings_changed", "request_id", web.RequestID(ctx),
-		"user_id", session.User.ID.String(), "keys", slices.Sorted(maps.Keys(patch)))
-	c.JSON(http.StatusOK, settingsView(updated, session.User.Roles))
+	if !CanRead(roles, Booking) {
+		return response
+	}
+	response.bookingSettingsResponse = &bookingSettingsResponse{
+		BookingMode:                 current.BookingMode,
+		PublicBookingEnabled:        current.PublicBookingEnabled,
+		PendingHoldHours:            current.PendingHoldHours,
+		ReminderHours:               current.ReminderHours,
+		MinNoticeHours:              current.MinNoticeHours,
+		MaxAdvanceDays:              current.MaxAdvanceDays,
+		SlotStepMinutes:             current.SlotStepMinutes,
+		CancellationNoticeHours:     current.CancellationNoticeHours,
+		LateCancellationFeePercent:  current.LateCancellationFeePercent,
+		LateCancellationFirstWaived: current.LateCancellationFirstWaived,
+		NoShowFeePercent:            current.NoShowFeePercent,
+		MeetingLinkMode:             current.MeetingLinkMode,
+		PaymentMethods:              current.PaymentMethods,
+		InvoiceTiming:               current.InvoiceTiming,
+	}
+	if response.PaymentMethods == nil {
+		response.PaymentMethods = []string{}
+	}
+	return response
 }
 
 // patchOf keys each value sent by its table key. A null is refused: no setting can be cleared.
@@ -118,37 +161,4 @@ func patchOf(sent map[string]json.RawMessage) (Patch, error) {
 		return nil, apperr.Invalid("The request is not valid.", nulls...)
 	}
 	return patch, nil
-}
-
-func settingsView(s Settings, roles []string) settingsResponse {
-	v := settingsResponse{
-		Timezone:        s.Timezone,
-		RetentionMonths: s.RetentionMonths,
-		ContactEmail:    s.ContactEmail,
-		ResponseTime:    s.ResponseTime,
-		UpdatedAt:       s.UpdatedAt(roles).UTC(),
-	}
-	if !CanRead(roles, Booking) {
-		return v
-	}
-	v.bookingSettings = &bookingSettings{
-		BookingMode:                 s.BookingMode,
-		PublicBookingEnabled:        s.PublicBookingEnabled,
-		PendingHoldHours:            s.PendingHoldHours,
-		ReminderHours:               s.ReminderHours,
-		MinNoticeHours:              s.MinNoticeHours,
-		MaxAdvanceDays:              s.MaxAdvanceDays,
-		SlotStepMinutes:             s.SlotStepMinutes,
-		CancellationNoticeHours:     s.CancellationNoticeHours,
-		LateCancellationFeePercent:  s.LateCancellationFeePercent,
-		LateCancellationFirstWaived: s.LateCancellationFirstWaived,
-		NoShowFeePercent:            s.NoShowFeePercent,
-		MeetingLinkMode:             s.MeetingLinkMode,
-		PaymentMethods:              s.PaymentMethods,
-		InvoiceTiming:               s.InvoiceTiming,
-	}
-	if v.PaymentMethods == nil {
-		v.PaymentMethods = []string{}
-	}
-	return v
 }
