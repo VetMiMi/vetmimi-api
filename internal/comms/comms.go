@@ -19,13 +19,22 @@ import (
 	"github.com/VetMiMi/vetmimi-api/internal/settings"
 )
 
-const (
-	TaskDeliver             = "comms:deliver"
-	TaskSweep               = "comms:sweep"
-	TaskRescheduleReminders = settings.TaskRescheduleReminders
-)
-
 type Kind string
+
+type Audience string
+
+type Status string
+
+// Message is about an appointment or, with ContactEnquiryID set, an enquiry.
+type Message struct {
+	AppointmentID    pgtype.UUID
+	ContactEnquiryID pgtype.UUID
+	Kind             Kind
+	Recipient        string
+	Locale           string
+	ScheduledFor     time.Time // zero means now
+	Text             string    // someone's own words, sent as written
+}
 
 const (
 	RequestReceived                 Kind = "request_received"
@@ -50,21 +59,10 @@ var Kinds = []Kind{
 
 var Locales = []string{"en", "my"}
 
-type Audience string
-
 const (
 	Visitor      Audience = "visitor"
 	Practitioner Audience = "practitioner"
 )
-
-func (k Kind) Audience() Audience {
-	if strings.HasPrefix(string(k), "practitioner_") {
-		return Practitioner
-	}
-	return Visitor
-}
-
-type Status string
 
 const (
 	StatusQueued    Status = "queued"
@@ -74,6 +72,13 @@ const (
 )
 
 var Statuses = []Status{StatusQueued, StatusSent, StatusFailed, StatusCancelled}
+
+func (k Kind) Audience() Audience {
+	if strings.HasPrefix(string(k), "practitioner_") {
+		return Practitioner
+	}
+	return Visitor
+}
 
 func CanTransition(from, to Status) bool {
 	if from != StatusQueued {
@@ -86,35 +91,24 @@ func CanTransition(from, to Status) bool {
 	return false
 }
 
-// Message is about an appointment or, with ContactEnquiryID set, an enquiry.
-type Message struct {
-	AppointmentID    pgtype.UUID
-	ContactEnquiryID pgtype.UUID
-	Kind             Kind
-	Recipient        string
-	Locale           string
-	ScheduledFor     time.Time // zero means now
-	Text             string    // someone's own words, sent as written
-}
-
 // Queue returns the task to enqueue after the caller's transaction commits.
-func Queue(ctx context.Context, q db.Querier, m Message) (queue.Task, error) {
-	locale := m.Locale
-	if m.Kind.Audience() == Practitioner { // Daw Mi's emails are always in English
+func Queue(ctx context.Context, q db.Querier, message Message) (queue.Task, error) {
+	locale := message.Locale
+	if message.Kind.Audience() == Practitioner { // Daw Mi's emails are always in English
 		locale = "en"
 	}
 	row, err := q.InsertCommunication(ctx, db.InsertCommunicationParams{
-		AppointmentID:    m.AppointmentID,
-		ContactEnquiryID: m.ContactEnquiryID,
-		Kind:             string(m.Kind),
-		Audience:         string(m.Kind.Audience()),
-		Recipient:        pgtype.Text{String: strings.ToLower(m.Recipient), Valid: true},
+		AppointmentID:    message.AppointmentID,
+		ContactEnquiryID: message.ContactEnquiryID,
+		Kind:             string(message.Kind),
+		Audience:         string(message.Kind.Audience()),
+		Recipient:        pgtype.Text{String: strings.ToLower(message.Recipient), Valid: true},
 		Locale:           locale,
-		ScheduledFor:     sql.NullTime{Time: m.ScheduledFor, Valid: !m.ScheduledFor.IsZero()},
-		Message:          pgtype.Text{String: m.Text, Valid: m.Text != ""},
+		ScheduledFor:     sql.NullTime{Time: message.ScheduledFor, Valid: !message.ScheduledFor.IsZero()},
+		Message:          pgtype.Text{String: message.Text, Valid: message.Text != ""},
 	})
 	if err != nil {
-		return queue.Task{}, fmt.Errorf("comms: queue %s: %w", m.Kind, err)
+		return queue.Task{}, fmt.Errorf("comms: queue %s: %w", message.Kind, err)
 	}
 	return deliverTask(row.ID, Kind(row.Kind), row.ScheduledFor), nil
 }
@@ -131,12 +125,29 @@ func Cancel(ctx context.Context, q db.Querier, id pgtype.UUID, reason string) (b
 	return setStatus(ctx, q, row, StatusCancelled, reason)
 }
 
+// RescheduleReminderRows moves queued reminders to the current reminder_hours.
+func RescheduleReminderRows(ctx context.Context, q db.Querier) ([]queue.Task, error) {
+	current, err := settings.Load(ctx, q)
+	if err != nil {
+		return nil, err
+	}
+	rows, err := q.RescheduleQueuedReminders(ctx, int32(current.ReminderHours))
+	if err != nil {
+		return nil, err
+	}
+	tasks := make([]queue.Task, len(rows))
+	for i, row := range rows {
+		tasks[i] = deliverTask(row.ID, Reminder, row.ScheduledFor)
+	}
+	return tasks, nil
+}
+
 // setStatus reports false when the row is no longer queued.
 func setStatus(ctx context.Context, q db.Querier, row db.Communication, to Status, code string) (bool, error) {
 	if !CanTransition(Status(row.Status), to) {
 		return false, nil
 	}
-	n, err := q.SetCommunicationStatus(ctx, db.SetCommunicationStatusParams{
+	updated, err := q.SetCommunicationStatus(ctx, db.SetCommunicationStatusParams{
 		ID:                row.ID,
 		Status:            string(to),
 		Error:             pgtype.Text{String: code, Valid: code != ""},
@@ -144,7 +155,10 @@ func setStatus(ctx context.Context, q db.Querier, row db.Communication, to Statu
 		SentAt:            row.SentAt,
 		ProviderMessageID: row.ProviderMessageID,
 	})
-	return n > 0, err
+	if err != nil {
+		return false, err
+	}
+	return updated > 0, nil
 }
 
 // keepQueued records a failed attempt on a row that will be sent again.
@@ -156,22 +170,4 @@ func keepQueued(ctx context.Context, q db.Querier, row db.Communication, code st
 		Attempts: row.Attempts,
 	})
 	return err
-}
-
-type deliverPayload struct {
-	CommunicationID string `json:"communication_id"`
-}
-
-func deliverTask(id pgtype.UUID, kind Kind, at time.Time) queue.Task {
-	queueName := queue.Critical
-	if kind.Audience() == Practitioner {
-		queueName = queue.Default
-	}
-	return queue.Task{
-		Type:      TaskDeliver,
-		Payload:   deliverPayload{CommunicationID: id.String()},
-		ID:        "comms:" + id.String(),
-		ProcessAt: at,
-		Queue:     queueName,
-	}
 }

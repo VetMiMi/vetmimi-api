@@ -36,86 +36,98 @@ func (s *SMTP) send(ctx context.Context, from string, row db.Communication, emai
 	}
 	_, domain, _ := strings.Cut(sender.Address, "@")
 	messageID := fmt.Sprintf("<%s@%s>", row.ID.String(), domain)
-	msg, err := buildMessage(sender, row.Recipient.String, messageID, email, now)
+	message, err := buildMessage(sender, row.Recipient.String, messageID, email, now)
 	if err != nil {
 		return "", err
 	}
 
 	ctx, cancel := context.WithTimeout(ctx, sendTimeout)
 	defer cancel()
-	conn, err := (&net.Dialer{}).DialContext(ctx, "tcp", net.JoinHostPort(s.Host, strconv.Itoa(s.Port)))
+	var dialer net.Dialer
+	conn, err := dialer.DialContext(ctx, "tcp", net.JoinHostPort(s.Host, strconv.Itoa(s.Port)))
 	if err != nil {
 		return "", err
 	}
 	defer conn.Close()
 	deadline, _ := ctx.Deadline()
-	if err := conn.SetDeadline(deadline); err != nil {
-		return "", err
-	}
-
-	c, err := smtp.NewClient(conn, s.Host)
+	err = conn.SetDeadline(deadline)
 	if err != nil {
 		return "", err
 	}
-	defer c.Close()
-	if ok, _ := c.Extension("STARTTLS"); ok {
-		if err := c.StartTLS(&tls.Config{ServerName: s.Host}); err != nil {
+
+	client, err := smtp.NewClient(conn, s.Host)
+	if err != nil {
+		return "", err
+	}
+	defer client.Close()
+	hasTLS, _ := client.Extension("STARTTLS")
+	if hasTLS {
+		err = client.StartTLS(&tls.Config{ServerName: s.Host})
+		if err != nil {
 			return "", err
 		}
 	}
 	// PlainAuth refuses to send the password without TLS, except to localhost.
-	if err := c.Auth(smtp.PlainAuth("", s.Username, s.Password, s.Host)); err != nil {
-		return "", err
-	}
-	if err := c.Mail(sender.Address); err != nil {
-		return "", err
-	}
-	if err := c.Rcpt(row.Recipient.String); err != nil {
-		return "", err
-	}
-	w, err := c.Data()
+	err = client.Auth(smtp.PlainAuth("", s.Username, s.Password, s.Host))
 	if err != nil {
 		return "", err
 	}
-	if _, err := w.Write(msg); err != nil {
+	err = client.Mail(sender.Address)
+	if err != nil {
 		return "", err
 	}
-	if err := w.Close(); err != nil {
+	err = client.Rcpt(row.Recipient.String)
+	if err != nil {
+		return "", err
+	}
+	writer, err := client.Data()
+	if err != nil {
+		return "", err
+	}
+	_, err = writer.Write(message)
+	if err != nil {
+		return "", err
+	}
+	err = writer.Close()
+	if err != nil {
 		return "", err
 	}
 	// The server has accepted the message; a failed QUIT must not retry it.
-	_ = c.Quit()
+	_ = client.Quit()
 	return messageID, nil
 }
 
 func buildMessage(from *mail.Address, to, messageID string, email Email, now time.Time) ([]byte, error) {
 	var body bytes.Buffer
 	parts := multipart.NewWriter(&body)
-	for _, p := range []struct{ contentType, content string }{
+	for _, part := range []struct{ contentType, content string }{
 		{"text/plain", email.Text},
 		{"text/html", email.HTML},
 	} {
-		w, err := parts.CreatePart(textproto.MIMEHeader{
-			"Content-Type":              {p.contentType + "; charset=utf-8"},
+		writer, err := parts.CreatePart(textproto.MIMEHeader{
+			"Content-Type":              {part.contentType + "; charset=utf-8"},
 			"Content-Transfer-Encoding": {"quoted-printable"},
 		})
 		if err != nil {
 			return nil, err
 		}
-		qp := quotedprintable.NewWriter(w)
-		if _, err := qp.Write([]byte(p.content)); err != nil {
+		encoder := quotedprintable.NewWriter(writer)
+		_, err = encoder.Write([]byte(part.content))
+		if err != nil {
 			return nil, err
 		}
-		if err := qp.Close(); err != nil {
+		err = encoder.Close()
+		if err != nil {
 			return nil, err
 		}
 	}
-	if err := parts.Close(); err != nil {
+	err := parts.Close()
+	if err != nil {
 		return nil, err
 	}
 
-	var msg bytes.Buffer
-	header := func(name, value string) { fmt.Fprintf(&msg, "%s: %s\r\n", name, value) }
+	var message bytes.Buffer
+	header := func(name, value string) { fmt.Fprintf(&message, "%s: %s\r\n", name, value) }
 	header("From", from.String())
 	header("To", (&mail.Address{Address: to}).String())
 	if email.ReplyTo != "" {
@@ -126,7 +138,7 @@ func buildMessage(from *mail.Address, to, messageID string, email Email, now tim
 	header("Message-ID", messageID)
 	header("MIME-Version", "1.0")
 	header("Content-Type", "multipart/alternative; boundary="+parts.Boundary())
-	msg.WriteString("\r\n")
-	msg.Write(body.Bytes())
-	return msg.Bytes(), nil
+	message.WriteString("\r\n")
+	message.Write(body.Bytes())
+	return message.Bytes(), nil
 }

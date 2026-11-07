@@ -5,23 +5,23 @@ import (
 	"database/sql"
 	"encoding/json"
 	"errors"
-	"expvar"
-	"fmt"
-	"log/slog"
 	"time"
 
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgtype"
-	"github.com/jackc/pgx/v5/pgxpool"
-	"github.com/resend/resend-go/v2"
 
-	"github.com/VetMiMi/vetmimi-api/internal/clock"
 	"github.com/VetMiMi/vetmimi-api/internal/db"
-	"github.com/VetMiMi/vetmimi-api/internal/queue"
 	"github.com/VetMiMi/vetmimi-api/internal/settings"
 	"github.com/VetMiMi/vetmimi-api/internal/tokens"
 	"github.com/VetMiMi/vetmimi-api/internal/video"
 )
+
+// attempt is what one delivery did to its row; an empty status means it did nothing.
+type attempt struct {
+	row    db.Communication
+	status Status
+	code   string // the skip reason or the error code
+}
 
 const maxAttempts = 5
 
@@ -31,102 +31,124 @@ const (
 	SkipSuperseded     = "superseded"
 )
 
-var emailsFailed = expvar.NewInt("emails_failed")
-
-type Tasks struct {
-	Pool          *pgxpool.Pool
-	Queue         *queue.Queue
-	SMTP          *SMTP          // set when EMAIL_PROVIDER is smtp
-	Resend        *resend.Client // nil in development: sends are only logged
-	From          string
-	SiteURL       string
-	SigningSecret []byte
-	Log           *slog.Logger
-	Now           clock.Now
-}
-
-func (t *Tasks) Register(w *queue.Worker) {
-	w.Handle(TaskDeliver, t.Deliver)
-	w.Handle(TaskSweep, t.Sweep)
-	w.Handle(TaskRescheduleReminders, t.RescheduleReminders)
-	w.Every("@every 5m", TaskSweep)
-}
-
-// Deliver returns an error only when asynq should retry.
-func (t *Tasks) Deliver(ctx context.Context, payload []byte) error {
-	id, err := parseDeliverPayload(payload)
-	if err != nil {
-		return err
-	}
-
+// deliver sends a due, queued row once and records the outcome on it.
+func (t *Tasks) deliver(ctx context.Context, id pgtype.UUID) (attempt, error) {
 	tx, err := t.Pool.Begin(ctx)
 	if err != nil {
-		return err
+		return attempt{}, err
 	}
-	defer func() { _ = tx.Rollback(ctx) }()
+	defer tx.Rollback(ctx)
 	q := db.New(tx)
 
 	// The row stays locked until commit, so a second worker skips it.
 	row, err := q.LockCommunication(ctx, id)
 	if errors.Is(err, pgx.ErrNoRows) {
-		return nil
+		return attempt{}, nil
 	}
 	if err != nil {
-		return err
+		return attempt{}, err
 	}
 	now := t.Now()
 	// A reminder moved later still has a task at its old time; the newer task sends it.
 	if Status(row.Status) != StatusQueued || row.ScheduledFor.After(now) {
-		return nil
+		return attempt{}, nil
+	}
+	current, err := settings.Load(ctx, q)
+	if err != nil {
+		return attempt{}, err
+	}
+	result, err := t.sendOrSkip(ctx, q, row, current, now)
+	if err != nil {
+		return attempt{}, err
+	}
+	err = recordAttempt(ctx, q, result)
+	if err != nil {
+		return attempt{}, err
 	}
 
-	s, err := settings.Load(ctx, q)
+	err = tx.Commit(ctx)
 	if err != nil {
-		return err
+		return attempt{}, err
 	}
-	skip, err := skipReason(ctx, q, row, s, now)
-	if err != nil {
-		return err
-	}
-	if skip != "" {
-		return t.recordSkipped(ctx, tx, row, skip)
-	}
-
-	email, err := t.compose(ctx, q, row, s)
-	if err != nil {
-		return err
-	}
-	return t.sendAndRecord(ctx, tx, row, email, now)
+	return result, nil
 }
 
-func parseDeliverPayload(payload []byte) (pgtype.UUID, error) {
-	var p deliverPayload
-	var id pgtype.UUID
-	if err := json.Unmarshal(payload, &p); err != nil {
-		return id, fmt.Errorf("comms: deliver payload: %w", err)
+// sendOrSkip sends the row, unless it is a reminder that must not go out.
+func (t *Tasks) sendOrSkip(ctx context.Context, q *db.Queries, row db.Communication, current settings.Settings,
+	now time.Time) (attempt, error) {
+	skip, err := skipReason(ctx, q, row, current, now)
+	if err != nil {
+		return attempt{}, err
 	}
-	if err := id.Scan(p.CommunicationID); err != nil {
-		return id, fmt.Errorf("comms: deliver payload: %w", err)
+	if skip != "" {
+		result := attempt{
+			row:    row,
+			status: StatusCancelled,
+			code:   skip,
+		}
+		return result, nil
 	}
-	return id, nil
+
+	email, err := t.compose(ctx, q, row, current)
+	if err != nil {
+		return attempt{}, err
+	}
+	providerID, sendErr := t.send(ctx, row, email, now)
+	row.Attempts++
+	if sendErr == nil {
+		row.SentAt = sql.NullTime{Time: now, Valid: true}
+		row.ProviderMessageID = pgtype.Text{String: providerID, Valid: true}
+		return attempt{row: row, status: StatusSent}, nil
+	}
+	result := attempt{
+		row:    row,
+		status: StatusFailed,
+		code:   errorCode(sendErr),
+	}
+	if row.Attempts < maxAttempts {
+		result.status = StatusQueued
+	}
+	return result, nil
+}
+
+// recordAttempt writes the attempt to its locked, queued row, so setStatus cannot refuse it.
+func recordAttempt(ctx context.Context, q *db.Queries, result attempt) error {
+	if result.status == StatusQueued {
+		return keepQueued(ctx, q, result.row, result.code)
+	}
+	_, err := setStatus(ctx, q, result.row, result.status, result.code)
+	return err
 }
 
 // skipReason returns why row must not be sent, or "". Only reminders are skipped.
-func skipReason(ctx context.Context, q *db.Queries, row db.Communication, s settings.Settings,
+func skipReason(ctx context.Context, q *db.Queries, row db.Communication, current settings.Settings,
 	now time.Time) (string, error) {
 	if Kind(row.Kind) != Reminder {
 		return "", nil
 	}
-	appt, err := q.GetAppointmentForMessage(ctx, row.AppointmentID)
+	appointment, err := q.GetAppointmentForMessage(ctx, row.AppointmentID)
 	if err != nil {
 		return "", err
 	}
-	skip := reminderSkip(appt, s.ReminderHours, row.ScheduledFor, now)
+	skip := reminderSkip(appointment, current.ReminderHours, row.ScheduledFor, now)
 	// An admin's resend goes out at once, not at the reminder offset.
 	if skip == SkipSuperseded && row.ResendOf.Valid {
 		return "", nil
 	}
 	return skip, nil
+}
+
+// reminderSkip returns "" when the reminder may be sent.
+func reminderSkip(appointment db.GetAppointmentForMessageRow, reminderHours int, scheduledFor, now time.Time) string {
+	switch {
+	case appointment.Status != "confirmed":
+		return SkipNotConfirmed
+	case !appointment.StartsAt.After(now):
+		return SkipAlreadyStarted
+	case !appointment.StartsAt.Add(-time.Duration(reminderHours) * time.Hour).Equal(scheduledFor):
+		return SkipSuperseded
+	}
+	return ""
 }
 
 func (t *Tasks) send(ctx context.Context, row db.Communication, email Email, now time.Time) (string, error) {
@@ -141,75 +163,13 @@ func (t *Tasks) send(ctx context.Context, row db.Communication, email Email, now
 	}
 }
 
-func (t *Tasks) sendAndRecord(ctx context.Context, tx pgx.Tx, row db.Communication, email Email, now time.Time) error {
-	providerID, err := t.send(ctx, row, email, now)
-	row.Attempts++
-	switch {
-	case err == nil:
-		return t.recordSent(ctx, tx, row, providerID, now)
-	case row.Attempts < maxAttempts:
-		return t.recordRetry(ctx, tx, row, errorCode(err))
-	default:
-		return t.recordFailed(ctx, tx, row, errorCode(err))
-	}
-}
-
-func (t *Tasks) recordSkipped(ctx context.Context, tx pgx.Tx, row db.Communication, skip string) error {
-	if err := finish(ctx, tx, row, StatusCancelled, skip); err != nil {
-		return err
-	}
-	t.Log.InfoContext(ctx, "communication skipped", "kind", row.Kind,
-		"communication_id", row.ID.String(), "skip", skip)
-	return nil
-}
-
-func (t *Tasks) recordSent(ctx context.Context, tx pgx.Tx, row db.Communication, providerID string, now time.Time) error {
-	row.SentAt = sql.NullTime{Time: now, Valid: true}
-	row.ProviderMessageID = pgtype.Text{String: providerID, Valid: true}
-	if err := finish(ctx, tx, row, StatusSent, ""); err != nil {
-		return err
-	}
-	t.Log.InfoContext(ctx, "email sent", "kind", row.Kind, "communication_id", row.ID.String())
-	return nil
-}
-
-// recordRetry returns an error so asynq runs the task again.
-func (t *Tasks) recordRetry(ctx context.Context, tx pgx.Tx, row db.Communication, code string) error {
-	if err := keepQueued(ctx, db.New(tx), row, code); err != nil {
-		return err
-	}
-	if err := tx.Commit(ctx); err != nil {
-		return err
-	}
-	return fmt.Errorf("comms: send failed: %s", code)
-}
-
-func (t *Tasks) recordFailed(ctx context.Context, tx pgx.Tx, row db.Communication, code string) error {
-	if err := finish(ctx, tx, row, StatusFailed, code); err != nil {
-		return err
-	}
-	emailsFailed.Add(1)
-	t.Log.ErrorContext(ctx, "email failed", "kind", row.Kind, "communication_id", row.ID.String(),
-		"attempts", row.Attempts, "error_code", code)
-	return nil
-}
-
-// finish moves the locked, queued row to its final status and commits; the
-// lock means setStatus cannot refuse it.
-func finish(ctx context.Context, tx pgx.Tx, row db.Communication, to Status, code string) error {
-	if _, err := setStatus(ctx, db.New(tx), row, to, code); err != nil {
-		return err
-	}
-	return tx.Commit(ctx)
-}
-
-func (t *Tasks) compose(ctx context.Context, q *db.Queries, row db.Communication, s settings.Settings) (Email, error) {
+func (t *Tasks) compose(ctx context.Context, q *db.Queries, row db.Communication, current settings.Settings) (Email, error) {
 	var data RenderData
 	var err error
 	if row.ContactEnquiryID.Valid {
 		data, err = t.enquiryData(ctx, q, row.ContactEnquiryID)
 	} else {
-		data, err = t.appointmentData(ctx, q, row, s)
+		data, err = t.appointmentData(ctx, q, row, current)
 	}
 	if err != nil {
 		return Email{}, err
@@ -218,25 +178,26 @@ func (t *Tasks) compose(ctx context.Context, q *db.Queries, row db.Communication
 	if err != nil {
 		return Email{}, err
 	}
-	email.ReplyTo = s.ContactEmail
+	email.ReplyTo = current.ContactEmail
 	return email, nil
 }
 
-func (t *Tasks) appointmentData(ctx context.Context, q *db.Queries, row db.Communication, s settings.Settings) (RenderData, error) {
-	appt, err := q.GetAppointmentForMessage(ctx, row.AppointmentID)
+func (t *Tasks) appointmentData(ctx context.Context, q *db.Queries, row db.Communication,
+	current settings.Settings) (RenderData, error) {
+	appointment, err := q.GetAppointmentForMessage(ctx, row.AppointmentID)
 	if err != nil {
 		return RenderData{}, err
 	}
 	kind := Kind(row.Kind)
 	var previous time.Time
 	if kind == Rescheduled {
-		r, err := q.PreviousRangeOf(ctx, row.AppointmentID)
+		previousRange, err := q.PreviousRangeOf(ctx, row.AppointmentID)
 		if err != nil && !errors.Is(err, pgx.ErrNoRows) {
 			return RenderData{}, err
 		}
-		previous = r.Lower.Time
+		previous = previousRange.Lower.Time
 	}
-	data, err := DataFor(appt, s, t.SiteURL, row.Locale, previous)
+	data, err := DataFor(appointment, current, t.SiteURL, row.Locale, previous)
 	if err != nil {
 		return RenderData{}, err
 	}
@@ -245,31 +206,20 @@ func (t *Tasks) appointmentData(ctx context.Context, q *db.Queries, row db.Commu
 		data.ClientMessage = row.Message.String
 	} else {
 		data.MessageToVisitor = row.Message.String
-		token := tokens.Management(t.SigningSecret, appt.ManagementTokenSeed)
+		token := tokens.Management(t.SigningSecret, appointment.ManagementTokenSeed)
 		data.ManageURL = sitePath(t.SiteURL, row.Locale, "/manage/"+token)
-		if data.JoinURL, err = t.joinURL(ctx, q, appt.ID, row.Locale); err != nil {
+		data.JoinURL, err = t.joinURL(ctx, q, appointment.ID, row.Locale)
+		if err != nil {
 			return RenderData{}, err
 		}
 	}
 	if kind == PractitionerRescheduleRequested {
-		if data.PreferredTimes, err = preferredTimes(ctx, q, appt, row.Locale); err != nil {
+		data.PreferredTimes, err = preferredTimes(ctx, q, appointment, row.Locale)
+		if err != nil {
 			return RenderData{}, err
 		}
 	}
 	return data, nil
-}
-
-// reminderSkip returns "" when the reminder may be sent.
-func reminderSkip(appt db.GetAppointmentForMessageRow, reminderHours int, scheduledFor, now time.Time) string {
-	switch {
-	case appt.Status != "confirmed":
-		return SkipNotConfirmed
-	case !appt.StartsAt.After(now):
-		return SkipAlreadyStarted
-	case !appt.StartsAt.Add(-time.Duration(reminderHours) * time.Hour).Equal(scheduledFor):
-		return SkipSuperseded
-	}
-	return ""
 }
 
 func (t *Tasks) joinURL(ctx context.Context, q *db.Queries, appointmentID pgtype.UUID, locale string) (string, error) {
@@ -284,8 +234,9 @@ func (t *Tasks) joinURL(ctx context.Context, q *db.Queries, appointmentID pgtype
 	return sitePath(t.SiteURL, locale, "/session/"+token), nil
 }
 
-func preferredTimes(ctx context.Context, q *db.Queries, appt db.GetAppointmentForMessageRow, locale string) ([]string, error) {
-	raw, err := q.LatestRescheduleRequest(ctx, appt.ID)
+func preferredTimes(ctx context.Context, q *db.Queries, appointment db.GetAppointmentForMessageRow,
+	locale string) ([]string, error) {
+	raw, err := q.LatestRescheduleRequest(ctx, appointment.ID)
 	if errors.Is(err, pgx.ErrNoRows) {
 		return nil, nil
 	}
@@ -295,16 +246,17 @@ func preferredTimes(ctx context.Context, q *db.Queries, appt db.GetAppointmentFo
 	var detail struct {
 		Preferred []time.Time `json:"preferred"`
 	}
-	if err := json.Unmarshal(raw, &detail); err != nil {
-		return nil, err
-	}
-	loc, err := time.LoadLocation(appt.Timezone)
+	err = json.Unmarshal(raw, &detail)
 	if err != nil {
 		return nil, err
 	}
-	out := make([]string, len(detail.Preferred))
-	for i, p := range detail.Preferred {
-		out[i] = FormatTime(p, loc, locale)
+	location, err := time.LoadLocation(appointment.Timezone)
+	if err != nil {
+		return nil, err
 	}
-	return out, nil
+	times := make([]string, len(detail.Preferred))
+	for i, preferred := range detail.Preferred {
+		times[i] = FormatTime(preferred, location, locale)
+	}
+	return times, nil
 }

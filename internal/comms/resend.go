@@ -21,33 +21,35 @@ func NewResend(apiKey, baseURL string) (*resend.Client, error) {
 	if apiKey == "" {
 		return nil, nil
 	}
-	c := resend.NewClient(apiKey)
+	client := resend.NewClient(apiKey)
 	if baseURL != "" {
-		u, err := url.Parse(baseURL)
+		base, err := url.Parse(baseURL)
 		if err != nil {
 			return nil, err
 		}
-		c.BaseURL = u
+		client.BaseURL = base
 	}
-	return c, nil
+	return client, nil
 }
 
 // The row id is the idempotency key, so a retry never sends twice.
 func (t *Tasks) sendResend(ctx context.Context, row db.Communication, email Email) (string, error) {
 	ctx, cancel := context.WithTimeout(ctx, sendTimeout)
 	defer cancel()
-	res, err := t.Resend.Emails.SendWithOptions(ctx, &resend.SendEmailRequest{
+	request := &resend.SendEmailRequest{
 		From:    t.From,
 		To:      []string{row.Recipient.String},
 		ReplyTo: email.ReplyTo,
 		Subject: email.Subject,
 		Text:    email.Text,
 		Html:    email.HTML,
-	}, &resend.SendEmailOptions{IdempotencyKey: row.ID.String()})
+	}
+	options := &resend.SendEmailOptions{IdempotencyKey: row.ID.String()}
+	sent, err := t.Resend.Emails.SendWithOptions(ctx, request, options)
 	if err != nil {
 		return "", err
 	}
-	return res.Id, nil
+	return sent.Id, nil
 }
 
 // errorCode replaces the provider's error text, which may quote the recipient.
