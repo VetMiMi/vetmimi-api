@@ -3,8 +3,6 @@ package video
 import (
 	"time"
 
-	"github.com/gin-gonic/gin"
-	"github.com/jackc/pgx/v5/pgtype"
 	"github.com/jackc/pgx/v5/pgxpool"
 
 	"github.com/VetMiMi/vetmimi-api/internal/auth"
@@ -30,21 +28,9 @@ func (h *Handler) Routes(r web.Routes) {
 	r.Public.POST("/public/sessions/:token/ticket", r.Limit(sessionLimit), h.createClientTicket)
 
 	admin := r.Admin(auth.BookingAdmin)
-	admin.POST("/admin/appointments/:appointmentId/video-session", h.startSession)
+	admin.POST("/admin/appointments/:appointmentId/video-session", h.createPractitionerTicket)
 	admin.POST("/admin/appointments/:appointmentId/video-session/end", h.endSession)
 
 	// The socket stays open for a whole session, so it skips the groups' deadline and body cap.
 	r.Root.GET("/video/rooms/:roomId/ws", h.checkRoomRequest, r.Limit(roomLimit), h.connectRoom)
-}
-
-// byRoom counts the parsed id, so the same room written differently is still one room.
-func byRoom(c *gin.Context) string {
-	id, _ := roomIDOf(c)
-	return id.String()
-}
-
-func roomIDOf(c *gin.Context) (pgtype.UUID, error) {
-	var id pgtype.UUID
-	err := id.Scan(c.Param("roomId"))
-	return id, err
 }

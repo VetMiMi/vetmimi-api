@@ -29,18 +29,18 @@ type peerState struct {
 
 // messageType returns the type of a frame that fits a message shape exactly, or "".
 func messageType(frame []byte) string {
-	var m message
-	dec := json.NewDecoder(bytes.NewReader(frame))
-	dec.DisallowUnknownFields()
-	if dec.Decode(&m) != nil || dec.More() {
+	var parsed message
+	decoder := json.NewDecoder(bytes.NewReader(frame))
+	decoder.DisallowUnknownFields()
+	if decoder.Decode(&parsed) != nil || decoder.More() {
 		return ""
 	}
-	noPayload := m.SDP == nil && m.Candidate == nil
+	noPayload := parsed.SDP == nil && parsed.Candidate == nil
 	switch {
-	case (m.Type == "join" || m.Type == "leave") && noPayload,
-		(m.Type == "offer" || m.Type == "answer") && m.SDP != nil && m.Candidate == nil,
-		m.Type == "ice" && m.SDP == nil && m.Candidate != nil && m.Candidate.Candidate != nil:
-		return m.Type
+	case (parsed.Type == "join" || parsed.Type == "leave") && noPayload,
+		(parsed.Type == "offer" || parsed.Type == "answer") && parsed.SDP != nil && parsed.Candidate == nil,
+		parsed.Type == "ice" && parsed.SDP == nil && parsed.Candidate != nil && parsed.Candidate.Candidate != nil:
+		return parsed.Type
 	}
 	return ""
 }
