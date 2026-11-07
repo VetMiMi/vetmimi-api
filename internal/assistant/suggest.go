@@ -84,7 +84,7 @@ var rules = map[string]string{
 		"out nothing.\n",
 }
 
-// Suggest asks Claude for the versions r names, from p's website version
+// Suggest asks Gemini for the versions r names, from p's website version
 // only: the prompt carries that text and the channel rules, nothing else.
 func (c *Client) Suggest(ctx context.Context, p content.Post, r Request) (Suggestions, error) {
 	if !c.Enabled() {
@@ -108,7 +108,8 @@ func (c *Client) Suggest(ctx context.Context, p content.Post, r Request) (Sugges
 
 // sourceArticle picks the text to work from: the website version in the
 // requested language, else in the other one. A translation always works
-// from the other language, and needs a longer answer.
+// from the other language, and needs a longer answer. Gemini's thinking
+// counts against the limit, so it is generous.
 func sourceArticle(p content.Post, r Request) (article, int, error) {
 	other := "my"
 	if r.Language == "my" {
@@ -123,14 +124,14 @@ func sourceArticle(p content.Post, r Request) (article, int, error) {
 			"Write the website version first: the assistant works from its text.")
 	}
 	if !slices.Contains(r.Channels, "website") {
-		return source, 4096, nil
+		return source, 16384, nil
 	}
 	original := website(p, other)
 	if !original.hasText() && original.Title == "" {
 		return article{}, 0, apperr.New(apperr.ActionNotAllowed,
 			"There is no "+languages[other]+" website text to translate.")
 	}
-	return original, 8192, nil
+	return original, 32768, nil
 }
 
 func prompt(source article, r Request) string {

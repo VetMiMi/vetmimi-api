@@ -60,7 +60,7 @@ internal/
   comms/              email rows, templates, delivery through Resend, enquiries
   meta/               Facebook Page and Instagram connection and posting
   linkedin/           LinkedIn connection and posting
-  assistant/          AI suggestions through the Anthropic API
+  assistant/          AI suggestions through the Gemini API
   db/                 sqlc output (generated) and queries/*.sql
   config/             environment variables, read and checked once
   postgres/           pgx pool and goose migrations

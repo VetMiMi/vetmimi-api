@@ -75,8 +75,8 @@ type Config struct {
 	LinkedInAPIVersion   string
 
 	// Empty when the portal's AI assistant is off.
-	AnthropicAPIKey string
-	AnthropicModel  string
+	GeminiAPIKey string
+	GeminiModel  string
 
 	// Empty when the metrics listener is off.
 	MetricsAddr string
@@ -135,8 +135,8 @@ func Load(getenv func(string) string) (Config, error) {
 		LinkedInClientSecret: l.optional("LINKEDIN_CLIENT_SECRET"),
 		LinkedInAPIVersion:   l.withDefault("LINKEDIN_API_VERSION", "202609"),
 
-		AnthropicAPIKey: l.optional("ANTHROPIC_API_KEY"),
-		AnthropicModel:  l.withDefault("ANTHROPIC_MODEL", "claude-haiku-4-5-20251001"),
+		GeminiAPIKey: l.optional("GEMINI_API_KEY"),
+		GeminiModel:  l.withDefault("GEMINI_MODEL", "gemini-flash-latest"),
 
 		MetricsAddr: l.optional("METRICS_ADDR"),
 	}

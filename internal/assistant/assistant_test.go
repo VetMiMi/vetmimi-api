@@ -21,42 +21,55 @@ import (
 
 var ctx = context.Background()
 
-// fakeClaude answers every Messages API call the same way and keeps the last request.
-type fakeClaude struct {
-	status     int
-	answer     string
-	stopReason string
-	calls      int
-	header     http.Header
-	body       map[string]any
+// fakeGemini answers every generateContent call the same way and keeps the last request.
+type fakeGemini struct {
+	status       int
+	answer       string
+	finishReason string
+	calls        int
+	path         string
+	header       http.Header
+	body         map[string]any
 }
 
-func (f *fakeClaude) ServeHTTP(w http.ResponseWriter, r *http.Request) {
+func (f *fakeGemini) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	f.calls++
+	f.path = r.URL.Path
 	f.header = r.Header.Clone()
 	raw, _ := io.ReadAll(r.Body)
 	_ = json.Unmarshal(raw, &f.body)
 	if f.status != http.StatusOK {
 		w.WriteHeader(f.status)
-		_, _ = w.Write([]byte(`{"type": "error", "error": {"type": "overloaded_error", "message": "Overloaded"}}`))
+		_, _ = w.Write([]byte(`{"error": {"code": 503, "message": "Overloaded", "status": "UNAVAILABLE"}}`))
 		return
 	}
 	out, _ := json.Marshal(map[string]any{
-		"content":     []map[string]string{{"type": "text", "text": f.answer}},
-		"stop_reason": f.stopReason,
-		"usage":       map[string]int{"input_tokens": 10, "output_tokens": 20},
+		"candidates": []map[string]any{{
+			"content":      map[string]any{"role": "model", "parts": []map[string]string{{"text": f.answer}}},
+			"finishReason": f.finishReason,
+		}},
+		"usageMetadata": map[string]int{"promptTokenCount": 10, "candidatesTokenCount": 20},
 	})
 	_, _ = w.Write(out)
 }
 
-func newClient(t *testing.T, answer string) (*assistant.Client, *fakeClaude, *bytes.Buffer) {
+func newClient(t *testing.T, answer string) (*assistant.Client, *fakeGemini, *bytes.Buffer) {
 	t.Helper()
-	f := &fakeClaude{status: http.StatusOK, answer: answer, stopReason: "end_turn"}
+	f := &fakeGemini{status: http.StatusOK, answer: answer, finishReason: "STOP"}
 	srv := httptest.NewServer(f)
 	t.Cleanup(srv.Close)
 	logs := &bytes.Buffer{}
-	return &assistant.Client{APIKey: "sk-test", Model: "claude-haiku-4-5-20251001", URL: srv.URL,
+	return &assistant.Client{APIKey: "test-key", Model: "gemini-flash-latest", URL: srv.URL,
 		Log: slog.New(slog.NewJSONHandler(logs, nil))}, f, logs
+}
+
+// sent is the text of one part of the request body, e.g. the system instruction.
+func sent(body map[string]any, key string) string {
+	c := body[key]
+	if list, ok := c.([]any); ok {
+		c = list[0]
+	}
+	return c.(map[string]any)["parts"].([]any)[0].(map[string]any)["text"].(string)
 }
 
 // post has a website version in English, and in Burmese when my is set.
@@ -87,18 +100,17 @@ func TestSuggest(t *testing.T) {
 		LinkedIn:  &assistant.Text{Text: "Reflecting on calm in practice."},
 	}, got)
 
-	require.Equal(t, "sk-test", f.header.Get("x-api-key"))
-	require.Equal(t, "2023-06-01", f.header.Get("anthropic-version"))
+	require.Equal(t, "/v1beta/models/gemini-flash-latest:generateContent", f.path)
+	require.Equal(t, "test-key", f.header.Get("x-goog-api-key"))
 	require.Equal(t, "application/json", f.header.Get("content-type"))
-	require.Equal(t, "claude-haiku-4-5-20251001", f.body["model"])
-	require.Contains(t, f.body["system"], "Never invent facts")
-	prompt := f.body["messages"].([]any)[0].(map[string]any)["content"].(string)
+	require.Contains(t, sent(f.body, "systemInstruction"), "Never invent facts")
+	prompt := sent(f.body, "contents")
 	require.Contains(t, prompt, article)
 	require.Contains(t, prompt, `"instagram"`)
 	require.NotContains(t, prompt, `"website"`)
 	require.NotContains(t, logs.String(), article)
 	require.NotContains(t, logs.String(), "slowing down")
-	require.NotContains(t, logs.String(), "sk-test")
+	require.NotContains(t, logs.String(), "test-key")
 }
 
 // A translation goes from the other language; without text there, nothing is asked.
@@ -107,7 +119,7 @@ func TestTranslateWebsite(t *testing.T) {
 	got, err := c.Suggest(ctx, post(article, ""), assistant.Request{Channels: []string{"website"}, Language: "my"})
 	require.NoError(t, err)
 	require.Equal(t, &assistant.Website{Title: "ငြိမ်သက်မှု", Body: "ပန်းချီ"}, got.Website)
-	prompt := f.body["messages"].([]any)[0].(map[string]any)["content"].(string)
+	prompt := sent(f.body, "contents")
 	require.Contains(t, prompt, article)
 	require.Contains(t, prompt, "Burmese")
 
@@ -152,13 +164,17 @@ func TestUnusableAnswers(t *testing.T) {
 	}
 
 	c, f, _ := newClient(t, `{"linkedin": {"text": "Hi"}}`)
-	f.stopReason = "max_tokens"
+	f.finishReason = "MAX_TOKENS"
 	_, err := c.Suggest(ctx, post(article, ""), r)
 	requireCode(t, apperr.AIFailed, err)
 
 	f.status = http.StatusServiceUnavailable
 	_, err = c.Suggest(ctx, post(article, ""), r)
 	requireCode(t, apperr.AIFailed, err)
+
+	f.status = http.StatusTooManyRequests
+	_, err = c.Suggest(ctx, post(article, ""), r)
+	requireCode(t, apperr.AIQuota, err)
 
 	ig := assistant.Request{Channels: []string{"instagram"}, Language: "en"}
 	c, _, _ = newClient(t, `{"instagram": {"caption": "`+strings.Repeat("a", 2190)+`", "hashtags": ["#one", "#two"]}}`)

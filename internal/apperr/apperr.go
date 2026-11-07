@@ -32,6 +32,7 @@ const (
 	RateLimited              Code = "rate_limited"
 	InternalError            Code = "internal_error"
 	AIFailed                 Code = "ai_failed"
+	AIQuota                  Code = "ai_quota"
 	Unavailable              Code = "unavailable"
 	FeatureUnavailable       Code = "feature_unavailable"
 )
@@ -65,6 +66,7 @@ var kinds = map[Code]kind{
 	RateLimited:              {429, "Too many requests"},
 	InternalError:            {500, "Internal error"},
 	AIFailed:                 {502, "AI assistant failed"},
+	AIQuota:                  {429, "AI allowance used up"},
 	Unavailable:              {503, "Service unavailable"},
 	FeatureUnavailable:       {503, "Feature unavailable"},
 }

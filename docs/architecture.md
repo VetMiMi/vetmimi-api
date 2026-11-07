@@ -67,7 +67,7 @@ outside APIs.
 | `media` | Uploads, type sniffing, web-sized derivatives, object storage, usage checks. |
 | `meta` | The Facebook Page connection (Facebook Login, the sealed Page token, the linked Instagram account) and the Graph API calls that post the facebook and instagram channels (docs/meta-setup.md). |
 | `linkedin` | The LinkedIn profile connection (OpenID Connect sign-in, the sealed member token and its expiry) and the Posts and Images API calls that post the linkedin channel (docs/linkedin-setup.md). |
-| `assistant` | The portal's AI helper: suggests Facebook, Instagram and LinkedIn versions, and translates the website version, from the post's own text through the Anthropic Messages API; saves nothing. |
+| `assistant` | The portal's AI helper: suggests Facebook, Instagram and LinkedIn versions, and translates the website version, from the post's own text through the Gemini API; saves nothing. |
 | `comms` | Communication records, templates (`comms/templates/<kind>.<locale>.tmpl`), delivery through Resend or SMTP, the sweeper, contact enquiries. |
 | `db` | sqlc output (generated, committed) and `db/queries/*.sql`. |
 
@@ -142,8 +142,9 @@ never shows `detail` to visitors. Renaming a code is a breaking change.
 | `rate_limited` | 429 | Too many requests for this route group; `Retry-After` is set. |
 | `internal_error` | 500 | Unexpected failure. Logged with the request id; nothing was half-saved. |
 | `ai_failed` | 502 | The AI assistant could not be reached or gave no usable answer; nothing was saved. Try again. |
+| `ai_quota` | 429 | The AI provider's free allowance is used up for now; nothing was saved. Try again later. |
 | `unavailable` | 503 | PostgreSQL or Redis unreachable. |
-| `feature_unavailable` | 503 | The feature is switched off on the server, e.g. the AI assistant without `ANTHROPIC_API_KEY`. |
+| `feature_unavailable` | 503 | The feature is switched off on the server, e.g. the AI assistant without `GEMINI_API_KEY`. |
 
 ## Authentication and roles
 
@@ -434,8 +435,8 @@ values for secrets.
 | `META_GRAPH_VERSION` | Graph API version the connector calls (default `v26.0`). |
 | `LINKEDIN_CLIENT_ID`, `LINKEDIN_CLIENT_SECRET` | The LinkedIn app that publishes to Daw Mi's profile (docs/linkedin-setup.md); set together. Empty: LinkedIn is posted by hand. |
 | `LINKEDIN_API_VERSION` | `LinkedIn-Version` header, `YYYYMM` (default `202609`); LinkedIn supports each version for at least a year. |
-| `ANTHROPIC_API_KEY` | The portal's AI assistant (`POST /admin/posts/{id}/suggestions`). Empty: the assistant answers `503 feature_unavailable`. |
-| `ANTHROPIC_MODEL` | Model the assistant asks (default `claude-haiku-4-5-20251001`). |
+| `GEMINI_API_KEY` | The portal's AI assistant (`POST /admin/posts/{id}/suggestions`). Empty: the assistant answers `503 feature_unavailable`. |
+| `GEMINI_MODEL` | Model the assistant asks (default `gemini-flash-latest`, Google's alias for its current Flash model). |
 | `METRICS_ADDR` | Optional `host:port`, checked at start-up. Reserved for serving the `expvar` counters; nothing listens on it yet. |
 
 ## Observability
