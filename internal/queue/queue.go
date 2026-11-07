@@ -53,7 +53,11 @@ func New(rdb *redis.Client, log *slog.Logger) *Queue {
 
 // Enqueue adds tasks and only logs a failure: the request has already
 // succeeded, and the sweepers rebuild a lost task from PostgreSQL.
+// A nil Queue, as in tests, drops the tasks.
 func (q *Queue) Enqueue(ctx context.Context, tasks ...Task) {
+	if q == nil {
+		return
+	}
 	for _, t := range tasks {
 		err := q.enqueue(ctx, t)
 		if err != nil && !errors.Is(err, asynq.ErrTaskIDConflict) {

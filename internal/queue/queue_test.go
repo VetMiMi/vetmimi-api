@@ -127,6 +127,11 @@ func TestEnqueueFailureIsLoggedNotReturned(t *testing.T) {
 	require.NotContains(t, logs.String(), "payload-marker")
 }
 
+func TestNilQueueDropsTasks(t *testing.T) {
+	var q *Queue
+	require.NotPanics(t, func() { q.Enqueue(context.Background(), Task{Type: "test:dropped"}) })
+}
+
 func (tw *testWorker) queueInfo(t *testing.T, queue string) *asynq.QueueInfo {
 	t.Helper()
 	info, err := asynq.NewInspectorFromRedisClient(tw.rdb).GetQueueInfo(tw.ns + queue)
