@@ -205,7 +205,10 @@ func putAll(ctx context.Context, store *Store, id pgtype.UUID, image encoded) er
 			return err
 		}
 	}
-	return nil
+	if image.instagram == nil {
+		return nil
+	}
+	return store.put(ctx, instagramKey(id), image.instagram)
 }
 
 func optionalText(value string) pgtype.Text {

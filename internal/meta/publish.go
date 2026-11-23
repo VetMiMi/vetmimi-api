@@ -44,7 +44,7 @@ func (connector *Connector) PublishFacebook(ctx context.Context, version db.Post
 	if err != nil {
 		return content.Posted{}, err
 	}
-	images, err := connector.imageURLs(ctx, version.ImageIds)
+	images, err := connector.imageURLs(ctx, version.ImageIds, "facebook")
 	if err != nil {
 		return content.Posted{}, err
 	}
@@ -87,7 +87,7 @@ func (connector *Connector) PublishInstagram(ctx context.Context, version db.Pos
 	if page.InstagramID == "" {
 		return content.Posted{}, content.ErrNotConnected
 	}
-	images, err := connector.imageURLs(ctx, version.ImageIds)
+	images, err := connector.imageURLs(ctx, version.ImageIds, "instagram")
 	if err != nil {
 		return content.Posted{}, err
 	}
@@ -136,8 +136,9 @@ func (connector *Connector) connectedPage(ctx context.Context) (pageAccess, erro
 	}, nil
 }
 
-// imageURLs are the public addresses of each image's largest web size.
-func (connector *Connector) imageURLs(ctx context.Context, ids []pgtype.UUID) ([]string, error) {
+// imageURLs are the public addresses of each image's largest web size, or
+// for Instagram of the copy shaped to fit it.
+func (connector *Connector) imageURLs(ctx context.Context, ids []pgtype.UUID, channel string) ([]string, error) {
 	urls := make([]string, len(ids))
 	for i, id := range ids {
 		image, err := db.New(connector.Pool).GetMedia(ctx, id)
@@ -148,6 +149,9 @@ func (connector *Connector) imageURLs(ctx context.Context, ids []pgtype.UUID) ([
 			return nil, err
 		}
 		urls[i] = media.Sizes(connector.MediaPublicURL, image.ID, image.Widths)[0].URL
+		if channel == "instagram" {
+			urls[i] = media.InstagramURL(connector.MediaPublicURL, image)
+		}
 	}
 	return urls, nil
 }

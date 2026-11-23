@@ -24,6 +24,8 @@ type encoded struct {
 	original []byte
 	sizes    map[int32][]byte
 	widths   []int32 // largest first
+	// instagram is the copy padded to a shape Instagram takes; nil when it takes the image as it is.
+	instagram []byte
 }
 
 const (
@@ -38,6 +40,12 @@ const (
 
 // webWidths are the web sizes made from each image, never wider than it.
 var webWidths = []int{1600, 800, 400}
+
+// instagramWidth is Instagram's own full width; a 4:5 copy is at most 1080×1350.
+const instagramWidth = 1080
+
+// paper is the site's paper colour, the margin around a padded Instagram copy.
+var paper = color.NRGBA{R: 0xf8, G: 0xf1, B: 0xe8, A: 0xff}
 
 // decoding allows one image in memory at a time: a 16-megapixel photo
 // turned upright takes about 90 MB.
@@ -87,6 +95,12 @@ func encode(ctx context.Context, data []byte) (encoded, error) {
 			return encoded{}, err
 		}
 	}
+	if !fitsInstagram(result.width, result.height) {
+		result.instagram, err = jpegBytes(padForInstagram(decoded), webQuality)
+		if err != nil {
+			return encoded{}, err
+		}
+	}
 	return result, nil
 }
 
@@ -113,6 +127,27 @@ func widthsFor(imageWidth int) []int32 {
 		}
 	}
 	return widths
+}
+
+// fitsInstagram reports whether Instagram takes this shape: from 4:5 tall to 1.91:1 wide.
+func fitsInstagram(width, height int) bool {
+	return 5*width >= 4*height && 100*width <= 191*height
+}
+
+// padForInstagram centres img on paper in the nearest shape Instagram takes,
+// so no part of a painting is cut off.
+func padForInstagram(img image.Image) image.Image {
+	width, height := img.Bounds().Dx(), img.Bounds().Dy()
+	var canvasWidth, canvasHeight int
+	if 5*width < 4*height {
+		canvasHeight = min(height, instagramWidth*5/4)
+		canvasWidth = (4*canvasHeight + 4) / 5 // rounded up, so never taller than 4:5
+	} else {
+		canvasWidth = min(width, instagramWidth)
+		canvasHeight = (100*canvasWidth + 190) / 191 // rounded up, so never wider than 1.91:1
+	}
+	fitted := imaging.Fit(img, canvasWidth, canvasHeight, imaging.Lanczos)
+	return imaging.PasteCenter(imaging.New(canvasWidth, canvasHeight, paper), fitted)
 }
 
 // onWhite flattens transparency onto white; JPEG cannot hold it and would turn it black.

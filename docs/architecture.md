@@ -24,7 +24,7 @@ from database constraints and small transactions, not from clever Go.
 | **PostgreSQL 17** | Every durable fact: settings, users, sessions, services, availability, appointments, communications, posts, media metadata. Enforces "no overlapping appointments" with an exclusion constraint (ADR-004). |
 | **Redis 7 + asynq** | Task queues (`critical`, `default`, `low`) and rate-limit counters. Losing Redis loses only queued tasks; sweepers rebuild them from PostgreSQL (ADR-006). |
 | **Resend** or **SMTP** | Transactional email, chosen by `EMAIL_PROVIDER`. Called only by the worker. |
-| **S3-compatible bucket** | Media originals (private prefix `originals/`) and web sizes (public prefix `public/`), served from `MEDIA_PUBLIC_URL`. The API writes them during the upload request. |
+| **S3-compatible bucket** | Media originals (private prefix `originals/`) and web sizes (public prefix `public/`), served from `MEDIA_PUBLIC_URL`, plus `instagram.jpg`, a copy padded to 4:5 or 1.91:1, for an image Instagram would refuse. The API writes them during the upload request. |
 | **coturn** | TURN relay on the live host for video sessions; the API mints time-limited credentials with the shared `TURN_SECRET` (ADR-007). |
 | **Next.js site** (`vetmimi-next`) | The browser's only HTTP origin (ADR-002). Its server components and route handlers call this API server-side with `X-Service-Key` (public routes) or `Authorization: Bearer` (admin routes). The API has no CORS. |
 | **WebSocket exception** | `GET /video/rooms/{roomId}/ws?ticket=…` is the one route a browser calls directly, with a five-minute room ticket that Next obtained server-side (ADR-007). |

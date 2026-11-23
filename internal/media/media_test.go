@@ -113,7 +113,8 @@ func requireCode(t *testing.T, code apperr.Code, err error) {
 }
 
 // An upload keeps a re-encoded original privately and three web sizes
-// publicly, none of them carrying the photo's location.
+// publicly, none of them carrying the photo's location. At 2:1 it is too
+// wide for Instagram, so a padded copy is kept too.
 func TestUploadStoresOriginalAndWebSizesWithoutMetadata(t *testing.T) {
 	store, b := newStore(t)
 	data := photo(t, 2000, 1000)
@@ -128,7 +129,7 @@ func TestUploadStoresOriginalAndWebSizesWithoutMetadata(t *testing.T) {
 
 	id := m.ID.String()
 	require.ElementsMatch(t, []string{"originals/" + id + ".jpg", "public/" + id + "/1600.jpg",
-		"public/" + id + "/800.jpg", "public/" + id + "/400.jpg"}, b.keys())
+		"public/" + id + "/800.jpg", "public/" + id + "/400.jpg", "public/" + id + "/instagram.jpg"}, b.keys())
 	for key, w := range map[string]int{"originals/" + id + ".jpg": 2000, "public/" + id + "/800.jpg": 800} {
 		require.Equal(t, w, width(t, b.objects[key]))
 	}
@@ -139,6 +140,44 @@ func TestUploadStoresOriginalAndWebSizesWithoutMetadata(t *testing.T) {
 	require.Equal(t, []media.Size{{Width: 1600, URL: "https://media.example/" + id + "/1600.jpg"},
 		{Width: 800, URL: "https://media.example/" + id + "/800.jpg"}, {Width: 400, URL: "https://media.example/" + id + "/400.jpg"}},
 		media.Sizes("https://media.example/", m.ID, m.Widths))
+}
+
+func size(t *testing.T, b []byte) (int, int) {
+	t.Helper()
+	cfg, err := jpeg.DecodeConfig(bytes.NewReader(b))
+	require.NoError(t, err)
+	return cfg.Width, cfg.Height
+}
+
+// Instagram gets a painting too tall or too wide for it on a 4:5 or 1.91:1
+// canvas, nothing cut off; a shape it takes is given as it is.
+func TestInstagramCopy(t *testing.T) {
+	store, b := newStore(t)
+	pool := pgtest.Pool(t)
+	for _, shape := range []struct{ w, h, igW, igH int }{
+		{1000, 2000, 1080, 1350},
+		{600, 900, 720, 900},
+		{2000, 500, 1080, 566},
+	} {
+		m, err := media.Upload(ctx, pool, store, photo(t, shape.w, shape.h), media.Description{}, pgtype.UUID{}, now)
+		require.NoError(t, err)
+		key := "public/" + m.ID.String() + "/instagram.jpg"
+		w, h := size(t, b.objects[key])
+		require.Equal(t, []int{shape.igW, shape.igH}, []int{w, h})
+		require.Equal(t, "https://media.example/"+m.ID.String()+"/instagram.jpg", media.InstagramURL("https://media.example/", m))
+
+		img, err := jpeg.Decode(bytes.NewReader(b.objects[key]))
+		require.NoError(t, err)
+		r, g, bl, _ := img.At(0, 0).RGBA()
+		require.InDelta(t, 0xf8, r>>8, 3, "the margin is paper")
+		require.InDelta(t, 0xf1, g>>8, 3)
+		require.InDelta(t, 0xe8, bl>>8, 3)
+	}
+
+	m, err := media.Upload(ctx, pool, store, photo(t, 800, 1000), media.Description{}, pgtype.UUID{}, now)
+	require.NoError(t, err)
+	require.NotContains(t, b.keys(), "public/"+m.ID.String()+"/instagram.jpg")
+	require.Equal(t, "https://media.example/"+m.ID.String()+"/800.jpg", media.InstagramURL("https://media.example/", m))
 }
 
 // A small image is never enlarged; transparency becomes white.

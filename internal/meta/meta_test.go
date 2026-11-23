@@ -258,8 +258,13 @@ func connected(t *testing.T) (*meta.Connector, *graph) {
 
 func newMedia(t *testing.T) pgtype.UUID {
 	t.Helper()
-	m, err := db.New(pgtest.Pool(t)).CreateMedia(ctx, db.CreateMediaParams{Width: 1600, Height: 1200,
-		Widths: []int32{1600, 800, 400}, ByteSize: 1000, Now: now})
+	return mediaSized(t, 1600, 1200)
+}
+
+func mediaSized(t *testing.T, width, height int32) pgtype.UUID {
+	t.Helper()
+	m, err := db.New(pgtest.Pool(t)).CreateMedia(ctx, db.CreateMediaParams{Width: width, Height: height,
+		Widths: []int32{min(width, 1600)}, ByteSize: 1000, Now: now})
 	require.NoError(t, err)
 	return m.ID
 }
@@ -298,7 +303,8 @@ func TestPublishToFacebook(t *testing.T) {
 	require.JSONEq(t, `{"media_fbid": "photo-2"}`, feed.Get("attached_media[1]"))
 }
 
-// A carousel is polled until Instagram has processed it, then published.
+// A carousel is polled until Instagram has processed it, then published. A
+// painting too tall for Instagram is given as its padded copy.
 func TestPublishToInstagram(t *testing.T) {
 	c, g := connected(t)
 	g.on("POST ig-1/media", http.StatusOK, `{"id": "child-1"}`, `{"id": "child-2"}`, `{"id": "carousel-1"}`)
@@ -306,12 +312,14 @@ func TestPublishToInstagram(t *testing.T) {
 	g.on("POST ig-1/media_publish", http.StatusOK, `{"id": "ig-media-1"}`)
 	g.on("GET ig-media-1", http.StatusOK, `{"permalink": "https://www.instagram.com/p/abc/"}`)
 
-	images := []pgtype.UUID{newMedia(t), newMedia(t)}
+	images := []pgtype.UUID{newMedia(t), mediaSized(t, 1000, 1500)}
 	posted, err := c.PublishInstagram(ctx, db.PostVersion{Text: text("Colour #arttherapy"), ImageIds: images})
 	require.NoError(t, err)
 	require.Equal(t, content.Posted{ExternalID: "ig-media-1", Permalink: "https://www.instagram.com/p/abc/"}, posted)
 	containers := g.find("ig-1/media")
 	require.Equal(t, "true", containers[0].Params.Get("is_carousel_item"))
+	require.Equal(t, "https://media.vetmimi.example/"+images[0].String()+"/1600.jpg", containers[0].Params.Get("image_url"))
+	require.Equal(t, "https://media.vetmimi.example/"+images[1].String()+"/instagram.jpg", containers[1].Params.Get("image_url"))
 	require.Equal(t, "CAROUSEL", containers[2].Params.Get("media_type"))
 	require.Equal(t, "child-1,child-2", containers[2].Params.Get("children"))
 	require.Equal(t, "Colour #arttherapy", containers[2].Params.Get("caption"))
