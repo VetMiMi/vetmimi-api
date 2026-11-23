@@ -14,6 +14,7 @@ import (
 	"github.com/jackc/pgx/v5/pgtype"
 
 	"github.com/VetMiMi/vetmimi-api/internal/config"
+	"github.com/VetMiMi/vetmimi-api/internal/db"
 )
 
 // Store is the S3-compatible bucket: originals under the private originals/
@@ -66,6 +67,15 @@ func Sizes(publicURL string, id pgtype.UUID, widths []int32) []Size {
 	return sizes
 }
 
+// InstagramURL is the image Instagram is given: the largest web size, or the
+// padded copy when Instagram would refuse the item's shape.
+func InstagramURL(publicURL string, item db.Media) string {
+	if fitsInstagram(int(item.Width), int(item.Height)) {
+		return Sizes(publicURL, item.ID, item.Widths)[0].URL
+	}
+	return strings.TrimSuffix(publicURL, "/") + "/" + instagramPath(item.ID)
+}
+
 // put stores a JPEG. A key's content never changes, so browsers may cache it for a year.
 func (store *Store) put(ctx context.Context, key string, body []byte) error {
 	_, err := store.client.PutObject(ctx, &s3.PutObjectInput{
@@ -101,14 +111,23 @@ func publicKey(id pgtype.UUID, width int32) string {
 	return "public/" + webPath(id, width)
 }
 
+func instagramKey(id pgtype.UUID) string {
+	return "public/" + instagramPath(id)
+}
+
+func instagramPath(id pgtype.UUID) string {
+	return id.String() + "/instagram.jpg"
+}
+
 // webPath is where a web size lives, relative to the public/ prefix.
 func webPath(id pgtype.UUID, width int32) string {
 	return id.String() + "/" + strconv.Itoa(int(width)) + ".jpg"
 }
 
-// keys are every object an item has.
+// keys are every object an item may have; the Instagram copy exists only for
+// some shapes, and deleting a missing key succeeds.
 func keys(id pgtype.UUID, widths []int32) []string {
-	objectKeys := []string{originalKey(id)}
+	objectKeys := []string{originalKey(id), instagramKey(id)}
 	for _, width := range widths {
 		objectKeys = append(objectKeys, publicKey(id, width))
 	}
