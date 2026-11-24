@@ -72,6 +72,9 @@ type Querier interface {
 	// ended is left as it is, so of two racing ends exactly one writes.
 	EndVideoRoom(ctx context.Context, arg EndVideoRoomParams) (VideoRoom, error)
 	ExistingMedia(ctx context.Context, ids []pgtype.UUID) ([]pgtype.UUID, error)
+	// ExportAppointments reads the appointments starting in [@starts_from,
+	// @starts_before) for the admin CSV export. It leaves out the admin note.
+	ExportAppointments(ctx context.Context, arg ExportAppointmentsParams) ([]ExportAppointmentsRow, error)
 	// FailStuckPostPublications fails channels whose attempt started before
 	// @before and never finished: the worker died mid-call, so the post may or
 	// may not be on the platform, and only Daw Mi can tell.

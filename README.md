@@ -128,6 +128,7 @@ import each other, and working around that needs interfaces nobody else uses.
 - **Public booking requests** are safe to retry, because each one carries an idempotency key. If the slot was taken in the meantime, the API offers up to 5 alternative times within the next 14 days.
 - **A pending request holds its slot** for 48 hours by default, until Daw Mi confirms or declines it.
 - Admins can confirm, decline, reschedule, cancel, complete, mark a no-show, add notes and create appointments manually. Every change is checked against a status table and protected against two admins editing at once.
+- **A CSV export** of up to a year of appointments, for backup. It opens in Excel with Burmese names intact and never includes the private admin note.
 - **Clients manage their own appointment from a private link:** view it, cancel it, or ask to reschedule.
 - **Contact enquiries**, plus a daily purge of old records (after 24 months by default).
 
