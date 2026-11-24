@@ -9,7 +9,6 @@ import (
 	"github.com/VetMiMi/vetmimi-api/internal/web"
 )
 
-// confirmBody accepts meetingLink, which has no domain support yet, and ignores it.
 type confirmBody struct {
 	Version     int32  `json:"version" binding:"required,min=1"`
 	MeetingLink string `json:"meetingLink"`
@@ -42,6 +41,11 @@ type setNoteBody struct {
 	Note    *string `json:"note" binding:"required,max=2000"`
 }
 
+type setMeetingLinkBody struct {
+	Version     int32  `json:"version" binding:"required,min=1"`
+	MeetingLink string `json:"meetingLink" binding:"required"`
+}
+
 func (h *Handler) confirmAppointment(c *gin.Context) {
 	appointmentID, ok := web.PathUUID(c, "appointmentId")
 	if !ok {
@@ -59,7 +63,7 @@ func (h *Handler) confirmAppointment(c *gin.Context) {
 		Actor:   currentUserID(c),
 		Notify:  true,
 	}
-	changed, err := Confirm(ctx, h.Pool, h.Secret, change, h.Now())
+	changed, err := Confirm(ctx, h.Pool, h.Secret, change, body.MeetingLink, h.Now())
 	if err != nil {
 		web.Error(c, err)
 		return
@@ -236,5 +240,31 @@ func (h *Handler) setAppointmentNote(c *gin.Context) {
 	}
 
 	logAppointment(ctx, "appointment_note_set", appointmentID)
+	h.writeDetail(c, http.StatusOK, appointmentID)
+}
+
+func (h *Handler) setAppointmentMeetingLink(c *gin.Context) {
+	appointmentID, ok := web.PathUUID(c, "appointmentId")
+	if !ok {
+		return
+	}
+	var body setMeetingLinkBody
+	if !web.BindJSON(c, &body) {
+		return
+	}
+	ctx := c.Request.Context()
+
+	change := Change{
+		ID:      appointmentID,
+		Version: body.Version,
+		Actor:   currentUserID(c),
+	}
+	err := SetMeetingLink(ctx, h.Pool, change, body.MeetingLink, h.Now())
+	if err != nil {
+		web.Error(c, err)
+		return
+	}
+
+	logAppointment(ctx, "appointment_meeting_link_set", appointmentID)
 	h.writeDetail(c, http.StatusOK, appointmentID)
 }

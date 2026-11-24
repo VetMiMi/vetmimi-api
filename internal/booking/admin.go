@@ -109,11 +109,18 @@ func GetAppointment(ctx context.Context, q db.Querier, id pgtype.UUID, now time.
 	if err != nil {
 		return Detail{}, err
 	}
+	current, err := settings.Load(ctx, q)
+	if err != nil {
+		return Detail{}, err
+	}
 	detail := Detail{
 		Appointment:    appointment,
 		Events:         events,
 		Communications: communications,
 		AllowedActions: AllowedActions(Status(appointment.Status), appointment.StartsAt, now),
+	}
+	if canSetMeetingLink(current.MeetingLinkMode, Status(appointment.Status), appointment.Format, appointment.StartsAt, now) {
+		detail.AllowedActions = append(detail.AllowedActions, "set_meeting_link")
 	}
 	room, ok, err := video.RoomOf(ctx, q, id)
 	if err != nil {

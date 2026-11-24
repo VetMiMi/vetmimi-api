@@ -224,6 +224,7 @@ type Querier interface {
 	// SavePost writes every field a change may touch; the caller holds the lock.
 	SavePost(ctx context.Context, arg SavePostParams) (Post, error)
 	SavePostVersion(ctx context.Context, arg SavePostVersionParams) error
+	SetAppointmentMeetingLink(ctx context.Context, arg SetAppointmentMeetingLinkParams) (Appointment, error)
 	SetAppointmentNote(ctx context.Context, arg SetAppointmentNoteParams) (Appointment, error)
 	// SetAppointmentStatus is the one write of a status change; the caller has
 	// checked it with booking.CanTransition. Only a pending or expired request

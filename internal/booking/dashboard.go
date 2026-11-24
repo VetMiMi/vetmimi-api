@@ -66,7 +66,7 @@ func Dashboard(ctx context.Context, q db.Querier, now time.Time) (DashboardData,
 	if err != nil {
 		return DashboardData{}, err
 	}
-	waiting, err := attention(ctx, q, now)
+	waiting, err := attention(ctx, q, current, now)
 	if err != nil {
 		return DashboardData{}, err
 	}
@@ -118,8 +118,13 @@ func activeIn(ctx context.Context, q db.Querier, period Period, limit int32) ([]
 	return q.ListAppointments(ctx, params)
 }
 
-func attention(ctx context.Context, q db.Querier, now time.Time) ([]AttentionItem, error) {
-	rows, err := q.ListAttention(ctx, db.ListAttentionParams{Now: now, HoldHorizon: now.Add(holdWarning)})
+func attention(ctx context.Context, q db.Querier, current settings.Settings, now time.Time) ([]AttentionItem, error) {
+	params := db.ListAttentionParams{
+		Now:         now,
+		HoldHorizon: now.Add(holdWarning),
+		ManualLinks: current.MeetingLinkMode == manualLink,
+	}
+	rows, err := q.ListAttention(ctx, params)
 	if err != nil {
 		return nil, err
 	}
@@ -146,6 +151,8 @@ func attentionDetail(row db.ListAttentionRow, now time.Time) string {
 		return "Email failed: " + strings.ReplaceAll(row.CommunicationKind, "_", " ")
 	case "reschedule_requested":
 		return "Visitor asked to reschedule"
+	case "meeting_link_missing":
+		return "No meeting link yet"
 	case "completion_due":
 		return "Mark as completed or no-show"
 	case "block_conflict":

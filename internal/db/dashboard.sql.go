@@ -86,11 +86,16 @@ WITH items AS (
                 WHERE e.appointment_id = a.id AND (e.kind = 'rescheduled' OR e.to_status IS NOT NULL)
             ), 0))
     UNION ALL
-    SELECT 5, 'completion_due', a.id, a.starts_at, ''
+    SELECT 5, 'meeting_link_missing', a.id, a.starts_at, ''
     FROM appointments a
-    WHERE a.status = 'confirmed' AND a.ends_at < $2::timestamptz
+    WHERE $2::bool AND a.status = 'confirmed' AND a.format = 'online'
+      AND a.meeting_link IS NULL AND a.starts_at > $3::timestamptz
     UNION ALL
-    SELECT 6, 'block_conflict', a.id, a.starts_at, ''
+    SELECT 6, 'completion_due', a.id, a.starts_at, ''
+    FROM appointments a
+    WHERE a.status = 'confirmed' AND a.ends_at < $3::timestamptz
+    UNION ALL
+    SELECT 7, 'block_conflict', a.id, a.starts_at, ''
     FROM appointments a
     WHERE a.status IN ('pending', 'confirmed')
       AND EXISTS (SELECT 1 FROM availability_blocks b WHERE b.period && a.busy_range)
@@ -104,6 +109,7 @@ ORDER BY i.rank, i.sort_at, a.id
 
 type ListAttentionParams struct {
 	HoldHorizon time.Time
+	ManualLinks bool
 	Now         time.Time
 }
 
@@ -119,7 +125,7 @@ type ListAttentionRow struct {
 // ListAttention returns every attention item in dashboard order; rank orders the kinds and the Go side
 // writes each item's detail. A failed message counts until a later message of its kind is sent.
 func (q *Queries) ListAttention(ctx context.Context, arg ListAttentionParams) ([]ListAttentionRow, error) {
-	rows, err := q.db.Query(ctx, listAttention, arg.HoldHorizon, arg.Now)
+	rows, err := q.db.Query(ctx, listAttention, arg.HoldHorizon, arg.ManualLinks, arg.Now)
 	if err != nil {
 		return nil, err
 	}
