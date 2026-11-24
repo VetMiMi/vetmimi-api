@@ -3,6 +3,7 @@ package booking
 import (
 	"context"
 	"errors"
+	"fmt"
 	"slices"
 	"time"
 
@@ -114,7 +115,7 @@ func FreeSlots(input SlotInput) []SlotDay {
 
 func serviceSlots(ctx context.Context, q db.Querier, service db.Service, current settings.Settings,
 	first, last, now time.Time) (Availability, error) {
-	err := checkSlotRange(first, last)
+	err := checkDateRange(first, last, maxSlotDays)
 	if err != nil {
 		return Availability{}, err
 	}
@@ -135,12 +136,13 @@ func serviceSlots(ctx context.Context, q db.Querier, service db.Service, current
 	return availability, nil
 }
 
-func checkSlotRange(first, last time.Time) error {
+func checkDateRange(first, last time.Time, maxDays int) error {
 	if last.Before(first) {
 		return apperr.Invalid("to is before from.", apperr.FieldError{Field: "to", Message: "must not be before from"})
 	}
-	if last.After(first.AddDate(0, 0, maxSlotDays)) {
-		return apperr.Invalid("The range is too long.", apperr.FieldError{Field: "to", Message: "must be at most 62 days after from"})
+	if last.After(first.AddDate(0, 0, maxDays)) {
+		message := fmt.Sprintf("must be at most %d days after from", maxDays)
+		return apperr.Invalid("The range is too long.", apperr.FieldError{Field: "to", Message: message})
 	}
 	return nil
 }

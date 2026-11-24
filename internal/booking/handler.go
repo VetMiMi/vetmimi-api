@@ -75,6 +75,7 @@ func (h *Handler) Routes(r web.Routes) {
 
 	admin.GET("/admin/dashboard", h.dashboard)
 	admin.GET("/admin/appointments", h.listAppointments)
+	admin.GET("/admin/appointments/export", h.exportAppointments)
 	admin.POST("/admin/appointments", h.createManualAppointment)
 	admin.GET("/admin/appointments/:appointmentId", h.getAppointment)
 	admin.POST("/admin/appointments/:appointmentId/confirm", h.confirmAppointment)
