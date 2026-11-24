@@ -30,89 +30,47 @@ func clearRules(t *testing.T) {
 	t.Cleanup(empty)
 }
 
+// createRule adds one weekly period to the table; the admin saves whole weeks through ReplaceRules.
 func createRule(t *testing.T, weekday int16, start, end string) (db.AvailabilityRule, error) {
 	t.Helper()
-	return booking.CreateRule(context.Background(), pgtest.Pool(t), booking.Rule{Weekday: weekday, Start: start, End: end})
-}
-
-func TestCreateRule_TouchingPeriodsSave(t *testing.T) {
-	clearRules(t)
-	_, err := createRule(t, tuesday, "14:00", "17:00")
-	require.NoError(t, err)
-	_, err = createRule(t, tuesday, "10:00", "13:00")
-	require.NoError(t, err)
-	_, err = createRule(t, tuesday, "13:00", "14:00")
-	require.NoError(t, err, "periods may touch")
-
-	rules, err := booking.ListRules(context.Background(), db.New(pgtest.Pool(t)))
-	require.NoError(t, err)
-	var got []string
-	for _, r := range rules {
-		got = append(got, booking.Clock(r.StartTime)+"-"+booking.Clock(r.EndTime))
+	params := db.CreateAvailabilityRuleParams{
+		Weekday:   weekday,
+		StartTime: wallClock(t, start),
+		EndTime:   wallClock(t, end),
 	}
-	require.Equal(t, []string{"10:00-13:00", "13:00-14:00", "14:00-17:00"}, got)
+	return db.New(pgtest.Pool(t)).CreateAvailabilityRule(context.Background(), params)
 }
 
-func TestCreateRule_OverlapRefused(t *testing.T) {
-	clearRules(t)
-	_, err := createRule(t, tuesday, "10:00", "13:00")
+func wallClock(t *testing.T, hhmm string) pgtype.Time {
+	t.Helper()
+	at, err := time.Parse("15:04", hhmm)
 	require.NoError(t, err)
-	_, err = createRule(t, tuesday, "12:30", "15:00")
-	requireCode(t, apperr.OverlappingPeriod, err)
-	_, err = createRule(t, tuesday+1, "12:30", "15:00")
-	require.NoError(t, err, "another weekday is free")
+	minutes := int64(at.Hour()*60 + at.Minute())
+	return pgtype.Time{Microseconds: minutes * time.Minute.Microseconds(), Valid: true}
 }
 
-func TestCreateRule_EndMustFollowStart(t *testing.T) {
-	clearRules(t)
-	_, err := createRule(t, tuesday, "13:00", "13:00")
-	e := requireCode(t, apperr.ActionNotAllowed, err)
-	require.Equal(t, "/endTime", e.Fields[0].Field)
-}
-
-func TestUpdateRule(t *testing.T) {
-	clearRules(t)
-	r, err := createRule(t, tuesday, "10:00", "13:00")
-	require.NoError(t, err)
-	moved, err := booking.UpdateRule(context.Background(), pgtest.Pool(t), r.ID,
-		booking.Rule{Weekday: sunday, Start: "09:30", End: "11:00"}, time.Now())
-	require.NoError(t, err)
-	require.Equal(t, int16(sunday), moved.Weekday)
-	require.Equal(t, "09:30", booking.Clock(moved.StartTime))
-
-	require.NoError(t, booking.DeleteRule(context.Background(), pgtest.Pool(t), r.ID))
-	requireCode(t, apperr.NotFound, booking.DeleteRule(context.Background(), pgtest.Pool(t), r.ID))
-	_, err = booking.UpdateRule(context.Background(), pgtest.Pool(t), r.ID,
-		booking.Rule{Weekday: sunday, Start: "09:30", End: "11:00"}, time.Now())
-	requireCode(t, apperr.NotFound, err)
-}
-
-// The exclusion constraint decides between two overlapping periods saved at
-// once, not a check in Go.
-func TestCreateRule_ConcurrentOverlap(t *testing.T) {
+// Two weeks saved at once never mix: the schedule lock makes the second wait, then replace the first.
+func TestReplaceRules_ConcurrentWeeksNeverMix(t *testing.T) {
+	weeks := [2][]booking.Rule{
+		{{Weekday: tuesday, Start: "10:00", End: "13:00"}},
+		{{Weekday: tuesday, Start: "12:00", End: "15:00"}},
+	}
 	for range 20 {
 		clearRules(t)
 		errs := make([]error, 2)
-		periods := [2][2]string{{"10:00", "13:00"}, {"12:00", "15:00"}}
 		var wg sync.WaitGroup
 		start := make(chan struct{})
 		for i := range errs {
 			wg.Go(func() {
 				<-start
-				_, errs[i] = booking.CreateRule(context.Background(), pgtest.Pool(t),
-					booking.Rule{Weekday: tuesday, Start: periods[i][0], End: periods[i][1]})
+				_, errs[i] = booking.ReplaceRules(context.Background(), pgtest.Pool(t), weeks[i])
 			})
 		}
 		close(start)
 		wg.Wait()
-		failed := 0
-		for _, err := range errs {
-			if err != nil {
-				requireCode(t, apperr.OverlappingPeriod, err)
-				failed++
-			}
-		}
-		require.Equal(t, 1, failed)
+		require.NoError(t, errs[0])
+		require.NoError(t, errs[1])
+		require.Contains(t, [][]string{{"2 10:00-13:00"}, {"2 12:00-15:00"}}, weekOf(t))
 	}
 }
 
