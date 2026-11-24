@@ -61,7 +61,8 @@ jobs:
       - name: Test the alert script in the monitor's image, under its memory limit
         run: >-
           docker run --rm --memory 32m -v "$PWD/deploy/monitor:/monitor:ro" alpine:3
-          sh -c 'apk add --no-cache bash curl jq > /dev/null && /monitor/alert_test.sh'
+          sh -c 'sed -i /community/d /etc/apk/repositories && apk add --no-cache bash curl jq > /dev/null
+          && /monitor/alert_test.sh && echo "Peak memory: $(cat /sys/fs/cgroup/memory.peak) bytes"'
       - name: Check the compose guards and coturn hardening
         run: deploy/test-compose.sh
       - name: Validate the Caddyfile

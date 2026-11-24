@@ -163,7 +163,8 @@ services:
     image: alpine:3
     restart: unless-stopped
     init: true
-    command: [sh, -c, "apk add --no-cache bash curl jq > /dev/null && while sleep 300; do /monitor/alert.sh; done"]
+    # Main alone holds all three packages; apk cannot also load community within 32 MB.
+    command: [sh, -c, "sed -i /community/d /etc/apk/repositories && apk add --no-cache bash curl jq > /dev/null && while sleep 300; do /monitor/alert.sh; done"]
     env_file: api.env
     environment:
       ALERT_EMAIL: ${ALERT_EMAIL:-}
