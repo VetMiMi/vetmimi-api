@@ -192,7 +192,7 @@ prefix of the email.
 | `PATCH /admin/settings` | no | `booking` keys | all keys |
 | `/admin/services`, `/admin/availability/*` | no | yes | yes |
 | `/admin/appointments/*` (video session start and end, resend and mark as communicated included), `/admin/dashboard` | no | yes | yes |
-| `/admin/contact-enquiries` | no | yes | yes |
+| `/admin/contact-enquiries`, `/admin/communications` | no | yes | yes |
 | `/admin/posts`: list, get, create, patch, delete, submit, mark a channel posted | yes | no | yes |
 | `/admin/posts/{id}`: request-changes, approve, schedule, unschedule, publish, archive | no | no | yes |
 | `/admin/posts/{id}/suggestions`, `GET /admin/ai/status` | yes | no | yes |

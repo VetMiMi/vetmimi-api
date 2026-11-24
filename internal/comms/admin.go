@@ -13,8 +13,21 @@ import (
 
 	"github.com/VetMiMi/vetmimi-api/internal/apperr"
 	"github.com/VetMiMi/vetmimi-api/internal/db"
+	"github.com/VetMiMi/vetmimi-api/internal/listing"
 	"github.com/VetMiMi/vetmimi-api/internal/queue"
 )
+
+type CommunicationFilter struct {
+	Status Status
+	Search string // part of an appointment reference
+	Cursor string
+	Limit  int
+}
+
+type CommunicationPage struct {
+	Items      []db.ListCommunicationsRow
+	NextCursor string
+}
 
 var (
 	errMessageNotFound     = apperr.New(apperr.NotFound, "This appointment has no message with this id.")
@@ -22,6 +35,41 @@ var (
 	errNotResendable       = apperr.New(apperr.ActionNotAllowed, "Only an email that was sent or failed can be sent again.")
 	errReminderNotDue      = apperr.New(apperr.ActionNotAllowed, "A reminder can be sent again only before a confirmed appointment.")
 )
+
+// ListCommunications pages through the appointments' emails, latest due first.
+func ListCommunications(ctx context.Context, q db.Querier, filter CommunicationFilter) (CommunicationPage, error) {
+	limit := filter.Limit
+	if limit <= 0 {
+		limit = 50
+	}
+	params := db.ListCommunicationsParams{
+		Status:  pgtype.Text{String: string(filter.Status), Valid: filter.Status != ""},
+		Search:  listing.LikePattern(filter.Search),
+		MaxRows: int32(limit) + 1,
+	}
+	if filter.Cursor != "" {
+		afterAt, afterID, err := listing.DecodeCursor(filter.Cursor)
+		if err != nil {
+			return CommunicationPage{}, err
+		}
+		params.AfterAt = afterAt
+		params.AfterID = afterID
+	}
+
+	rows, err := q.ListCommunications(ctx, params)
+	if err != nil {
+		return CommunicationPage{}, err
+	}
+	if len(rows) <= limit {
+		return CommunicationPage{Items: rows}, nil
+	}
+	last := rows[limit-1]
+	page := CommunicationPage{
+		Items:      rows[:limit],
+		NextCursor: listing.EncodeCursor(last.ScheduledFor, last.ID),
+	}
+	return page, nil
+}
 
 // Resend queues a copy of a sent or failed email and leaves the original as it
 // was. A visitor's copy goes to their current address, in case it was corrected.
