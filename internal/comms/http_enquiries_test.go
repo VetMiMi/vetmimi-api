@@ -16,13 +16,13 @@ const enquiryBody = `{"name": "Thandar", "email": "Thandar@Example.com", "enquir
 	"service": "workshops-programs", "subject": "Team workshop", "message": "Hello there", "locale": "en",
 	"privacyAcknowledged": true}`
 
-func enquiryAPI(t *testing.T) *webtest.API {
+func commsAPI(t *testing.T) *webtest.API {
 	h := &comms.Handler{Pool: pgtest.Pool(t), Now: webtest.Clock}
 	return webtest.New(t, h.Routes)
 }
 
 func TestHTTP_ContactEnquiry(t *testing.T) {
-	a := enquiryAPI(t)
+	a := commsAPI(t)
 	const key = "8a0e7c1d-2b3f-4e5a-9c6d-7e8f9a0b1c2d"
 	receipt := webtest.JSON(t, http.StatusCreated, a.Public(http.MethodPost, "/public/contact-enquiries", enquiryBody,
 		"Idempotency-Key", key))
@@ -57,7 +57,7 @@ func TestHTTP_ContactEnquiry(t *testing.T) {
 }
 
 func TestHTTP_ContactEnquiryRefusals(t *testing.T) {
-	a := enquiryAPI(t)
+	a := commsAPI(t)
 	p := webtest.Refused(t, http.StatusBadRequest, "invalid_request", a.Public(http.MethodPost, "/public/contact-enquiries",
 		strings.Replace(enquiryBody, "Thandar@Example.com", "nope", 1)))
 	require.Equal(t, []any{map[string]any{"field": "/email", "message": "must be a valid email"}}, p["errors"])

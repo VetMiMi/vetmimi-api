@@ -31,4 +31,5 @@ func (h *Handler) Routes(r web.Routes) {
 	admin.GET("/admin/contact-enquiries", h.listEnquiries)
 	admin.GET("/admin/contact-enquiries/:enquiryId", h.getEnquiry)
 	admin.POST("/admin/contact-enquiries/:enquiryId/mark-handled", h.markEnquiryHandled)
+	admin.GET("/admin/communications", h.listCommunications)
 }

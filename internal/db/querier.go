@@ -142,6 +142,11 @@ type Querier interface {
 	// @except_id, when set, is an appointment being moved, whose own time is free
 	// to it.
 	ListBusyPeriods(ctx context.Context, arg ListBusyPeriodsParams) ([]pgtype.Range[pgtype.Timestamptz], error)
+	// ListCommunications is every email about an appointment, latest due first,
+	// with the appointment's reference and visitor; records of Daw Mi telling the
+	// visitor herself stay on the appointment. The page continues after
+	// (@after_at, @after_id).
+	ListCommunications(ctx context.Context, arg ListCommunicationsParams) ([]ListCommunicationsRow, error)
 	// ListContactEnquiries is newest first; the page continues after
 	// (@after_at, @after_id).
 	ListContactEnquiries(ctx context.Context, arg ListContactEnquiriesParams) ([]ListContactEnquiriesRow, error)
