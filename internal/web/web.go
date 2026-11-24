@@ -3,9 +3,11 @@
 package web
 
 import (
+	"cmp"
 	"context"
 	"crypto/rand"
 	"encoding/hex"
+	"expvar"
 	"fmt"
 	"log/slog"
 	"net/http"
@@ -38,6 +40,9 @@ const (
 )
 
 var safeRequestID = regexp.MustCompile(`^[A-Za-z0-9._-]{1,64}$`)
+
+// Keyed by route pattern and status class, such as "/healthz 2xx".
+var httpRequests = expvar.NewMap("http_requests")
 
 // NewRouter returns a router with the middleware every request gets.
 func NewRouter() *gin.Engine {
@@ -146,15 +151,17 @@ func clientAddr(request *http.Request) netip.Addr {
 	return netip.Addr{}
 }
 
-// logRequests logs the route pattern, never the path: links carry tokens in their paths.
+// logRequests logs and counts the route pattern, never the path: links carry tokens in their paths.
 func logRequests(c *gin.Context) {
 	start := time.Now()
 	c.Next()
+	status := c.Writer.Status()
+	httpRequests.Add(fmt.Sprintf("%s %dxx", cmp.Or(c.FullPath(), "unmatched"), status/100), 1)
 	slog.InfoContext(c.Request.Context(), "request",
 		"request_id", RequestID(c.Request.Context()),
 		"method", c.Request.Method,
 		"route", c.FullPath(),
-		"status", c.Writer.Status(),
+		"status", status,
 		"duration_ms", time.Since(start).Milliseconds(),
 		"bytes", max(c.Writer.Size(), 0))
 }

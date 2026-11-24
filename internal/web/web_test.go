@@ -3,6 +3,7 @@ package web_test
 import (
 	"encoding/json"
 	"errors"
+	"expvar"
 	"net/http"
 	"net/http/httptest"
 	"strings"
@@ -37,6 +38,14 @@ func problem(t *testing.T, res *httptest.ResponseRecorder, status int, code stri
 	require.Equal(t, code, p["code"])
 	require.Equal(t, "urn:vetmimi:problem:"+code, p["type"])
 	return p
+}
+
+func requests(key string) int64 {
+	count := expvar.Get("http_requests").(*expvar.Map).Get(key)
+	if count == nil {
+		return 0
+	}
+	return count.(*expvar.Int).Value()
 }
 
 type input struct {
@@ -132,6 +141,22 @@ func TestErrorHidesUntypedErrors(t *testing.T) {
 
 	problem(t, send(r, http.MethodGet, "/panic", ""), http.StatusInternalServerError, "internal_error")
 	problem(t, send(r, http.MethodGet, "/nowhere", ""), http.StatusNotFound, "not_found")
+}
+
+func TestRequestsAreCountedByRoute(t *testing.T) {
+	r := web.NewRouter()
+	r.GET("/healthz", func(c *gin.Context) { c.Status(http.StatusOK) })
+	before := requests("/healthz 2xx")
+
+	send(r, http.MethodGet, "/healthz", "")
+	send(r, http.MethodGet, "/healthz", "")
+
+	require.Equal(t, before+2, requests("/healthz 2xx"))
+}
+
+// Importing expvar registers /debug/vars on http.DefaultServeMux, which the router must never serve.
+func TestDebugVarsNotOnPublicRouter(t *testing.T) {
+	problem(t, send(web.NewRouter(), http.MethodGet, "/debug/vars", ""), http.StatusNotFound, "not_found")
 }
 
 func TestServiceKey(t *testing.T) {

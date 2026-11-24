@@ -21,6 +21,11 @@ import (
 	"github.com/VetMiMi/vetmimi-api/internal/postgres"
 )
 
+// redisLogger sends go-redis's own messages through slog, so they are JSON like every other line.
+type redisLogger struct {
+	log *slog.Logger
+}
+
 func main() {
 	mode := flag.String("mode", "api", "api, worker, create-user or healthcheck")
 	var user userFlags
@@ -38,6 +43,7 @@ func main() {
 	}
 	log := newLogger(cfg.LogLevel)
 	slog.SetDefault(log)
+	redis.SetLogger(redisLogger{log: log})
 
 	ctx, stop := signal.NotifyContext(context.Background(), syscall.SIGINT, syscall.SIGTERM)
 	err = run(ctx, log, cfg, *mode, user)
@@ -72,6 +78,13 @@ func run(ctx context.Context, log *slog.Logger, cfg config.Config, mode string, 
 		return err
 	}
 	defer rdb.Close()
+	if cfg.MetricsAddr != "" {
+		metrics, err := serveMetrics(log, cfg.MetricsAddr)
+		if err != nil {
+			return err
+		}
+		defer metrics.Close()
+	}
 	if mode == "worker" {
 		return runWorker(ctx, log, cfg, pool, rdb)
 	}
@@ -90,5 +103,11 @@ func openRedis(url string) (*redis.Client, error) {
 	if err != nil {
 		return nil, errors.New("open redis: the connection URL is invalid")
 	}
+	// Reads then end at the caller's deadline too: a Redis that never answers would otherwise hold a call for seconds.
+	options.ContextTimeoutEnabled = true
 	return redis.NewClient(options), nil
+}
+
+func (logger redisLogger) Printf(ctx context.Context, format string, v ...any) {
+	logger.log.WarnContext(ctx, fmt.Sprintf(format, v...))
 }

@@ -3,6 +3,7 @@ package video
 import (
 	"context"
 	"encoding/json"
+	"expvar"
 	"log/slog"
 	"sync"
 	"time"
@@ -50,6 +51,9 @@ const (
 	checkEvery = 30 * time.Second // how soon sockets close after the worker ends a room
 )
 
+// The signalling sockets Serve holds open right now.
+var websocketConnections = expvar.NewInt("websocket_connections")
+
 func NewHub(pool *pgxpool.Pool, log *slog.Logger, now clock.Now) *Hub {
 	return &Hub{
 		pool:       pool,
@@ -77,6 +81,8 @@ func (hub *Hub) Serve(ctx context.Context, conn *websocket.Conn, roomID pgtype.U
 		_ = conn.Close(CloseRestarting, "server restarting")
 		return
 	}
+	websocketConnections.Add(1)
+	defer websocketConnections.Add(-1)
 	if replaced != nil {
 		log.InfoContext(ctx, "video_replaced")
 		replaced.closeInBackground(CloseReplaced, "replaced by a newer connection for the same role")
