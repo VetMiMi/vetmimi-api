@@ -439,20 +439,26 @@ values for secrets.
 | `LINKEDIN_API_VERSION` | `LinkedIn-Version` header, `YYYYMM` (default `202609`); LinkedIn supports each version for at least a year. |
 | `GEMINI_API_KEY` | The portal's AI assistant (`POST /admin/posts/{id}/suggestions`). Empty: the assistant answers `503 feature_unavailable`. |
 | `GEMINI_MODEL` | Model the assistant asks (default `gemini-flash-latest`, Google's alias for its current Flash model). |
-| `METRICS_ADDR` | Optional `host:port`, checked at start-up. Reserved for serving the `expvar` counters; nothing listens on it yet. |
+| `METRICS_ADDR` | Optional `host:port` where the api and the worker each serve their `expvar` counters at `/debug/vars`; never exposed by Caddy. Empty: no listener. An address already in use stops start-up. |
 
 ## Observability
 
 - **Logs**: slog JSON to stdout with `request_id` (HTTP) or `task` and
-  `task_id` (worker). Domain logs name ids, never people. The request id is
-  echoed in `X-Request-Id`, so an administrator's report can be traced.
+  `task_id` (worker); go-redis's own lines go through slog too. Domain logs
+  name ids, never people. The request id is echoed in `X-Request-Id`, so an
+  administrator's report can be traced.
 - **`/healthz`** (liveness): returns `200 {"status":"ok"}` if the process can
   serve; it touches no dependency. The deploy rollback (ADR-005) polls it.
 - **`/readyz`** (readiness): pings PostgreSQL and Redis (one second each);
   `200` when both answer, else `503` with per-check status.
-- **Counters** are registered with stdlib `expvar`: appointments created, slot
-  conflicts, appointments and enquiries purged, emails failed. Nothing serves
-  them yet: `METRICS_ADDR` is read and checked but no listener uses it.
+- **Counters** are stdlib `expvar` values. The api and the worker each serve
+  their own at `GET /debug/vars` on `METRICS_ADDR`, never on the public router:
+  `http_requests` (by route pattern and status class, such as `/healthz 2xx`),
+  `rate_limit_rejections` (by rule), `tasks_processed` and `tasks_failed` (by
+  task type; a failed task counts in both), `appointments_created` and
+  `slot_conflicts` (by `website`, `manual` or `reschedule`), `emails_sent`,
+  `emails_failed`, `websocket_connections` (open now), `appointments_deleted`
+  and `enquiries_deleted`. They count from zero each time the process starts.
 
 ## Security
 

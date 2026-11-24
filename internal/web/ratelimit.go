@@ -2,6 +2,7 @@ package web
 
 import (
 	"errors"
+	"expvar"
 	"log/slog"
 	"time"
 
@@ -42,6 +43,9 @@ var (
 )
 
 var errNoCounter = errors.New("no rate limit counter")
+
+// Keyed by the name of the rule that answered 429.
+var rateLimitRejections = expvar.NewMap("rate_limit_rejections")
 
 func ByVisitorIP(c *gin.Context) string {
 	return ClientIP(c.Request.Context()).String()
@@ -88,6 +92,7 @@ func (limiter *Limiter) Limit(rule Rule) gin.HandlerFunc {
 			return
 		}
 		if !allowed {
+			rateLimitRejections.Add(rule.Name, 1)
 			abort(c, apperr.RateLimit(wait))
 			return
 		}

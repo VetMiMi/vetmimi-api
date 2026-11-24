@@ -113,17 +113,19 @@ func TestRemoveDeletesAWaitingTask(t *testing.T) {
 	require.Empty(t, tw.logs.entries("remove_failed"))
 }
 
-func TestEnqueueFailureIsLoggedNotReturned(t *testing.T) {
+func TestEnqueueFailureIsQuickAndOnlyLogged(t *testing.T) {
 	logs := &logBuffer{}
 	q := New(redistest.Stopped(t), slog.New(slog.NewJSONHandler(logs, nil)))
 
+	start := time.Now()
 	q.Enqueue(context.Background(), Task{Type: "test:lost", ID: "comms:7", Payload: map[string]string{"id": "payload-marker"}})
+	require.Less(t, time.Since(start), 500*time.Millisecond, "a stopped Redis holds up the request")
 
 	entries := logs.entries("enqueue_failed")
 	require.Len(t, entries, 1)
 	require.Equal(t, "test:lost", entries[0]["task"])
 	require.Equal(t, "comms:7", entries[0]["task_id"])
-	require.Contains(t, entries[0]["err"], "connection refused")
+	require.Contains(t, entries[0]["err"], "context deadline exceeded")
 	require.NotContains(t, logs.String(), "payload-marker")
 }
 

@@ -43,6 +43,10 @@ const (
 	Low      = "low"
 )
 
+// enqueueTimeout bounds one enqueue: go-redis retries a refused connection for
+// about 1.7 seconds, which a stopped Redis would add to every booking.
+const enqueueTimeout = 300 * time.Millisecond
+
 func New(rdb *redis.Client, log *slog.Logger) *Queue {
 	return &Queue{
 		client:    asynq.NewClientFromRedisClient(rdb),
@@ -98,6 +102,8 @@ func (queue *Queue) enqueue(ctx context.Context, task Task) error {
 	if !task.ProcessAt.IsZero() {
 		options = append(options, asynq.ProcessAt(task.ProcessAt))
 	}
+	ctx, cancel := context.WithTimeout(ctx, enqueueTimeout)
+	defer cancel()
 	_, err = queue.client.EnqueueContext(ctx, asynq.NewTask(task.Type, payload), options...)
 	return err
 }

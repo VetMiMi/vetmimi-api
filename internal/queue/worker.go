@@ -2,6 +2,7 @@ package queue
 
 import (
 	"context"
+	"expvar"
 	"fmt"
 	"log/slog"
 	"os"
@@ -44,6 +45,12 @@ const (
 	// Docker kills a container ten seconds after SIGTERM. A task still running
 	// after seven goes back to its queue and runs again on the next start.
 	workerShutdownTimeout = 7 * time.Second
+)
+
+// Keyed by task type. A failed task counts in both.
+var (
+	tasksProcessed = expvar.NewMap("tasks_processed")
+	tasksFailed    = expvar.NewMap("tasks_failed")
 )
 
 func NewWorker(rdb *redis.Client, log *slog.Logger) *Worker {
@@ -142,15 +149,17 @@ func (w *Worker) warnIfRedisMayEvict(ctx context.Context) {
 	}
 }
 
-// logTask writes one line per task. The payload is never logged, in case a
-// mistaken one carries personal data.
+// logTask writes one line per task and counts it. The payload is never
+// logged, in case a mistaken one carries personal data.
 func (w *Worker) logTask(next asynq.Handler) asynq.Handler {
 	return asynq.HandlerFunc(func(ctx context.Context, task *asynq.Task) error {
 		start := time.Now()
 		err := next.ProcessTask(ctx, task)
 		id, _ := asynq.GetTaskID(ctx)
 		attributes := []any{"task", task.Type(), "task_id", id, "duration_ms", time.Since(start).Milliseconds()}
+		tasksProcessed.Add(task.Type(), 1)
 		if err != nil {
+			tasksFailed.Add(task.Type(), 1)
 			w.log.Error("task processed", append(attributes, "outcome", "failed", "err", err)...)
 			return err
 		}

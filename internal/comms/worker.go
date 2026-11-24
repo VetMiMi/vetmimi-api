@@ -29,7 +29,10 @@ const (
 	sweepLimit = 500
 )
 
-var emailsFailed = expvar.NewInt("emails_failed")
+var (
+	emailsSent   = expvar.NewInt("emails_sent")
+	emailsFailed = expvar.NewInt("emails_failed")
+)
 
 type deliverPayload struct {
 	CommunicationID string `json:"communication_id"`
@@ -76,6 +79,7 @@ func (t *Tasks) Deliver(ctx context.Context, payload []byte) error {
 			"skip", result.code,
 		)
 	case StatusSent:
+		emailsSent.Add(1)
 		t.Log.InfoContext(ctx, "email sent", "kind", row.Kind, "communication_id", row.ID.String())
 	case StatusFailed:
 		emailsFailed.Add(1)
