@@ -1,0 +1,40 @@
+name: Uptime
+
+# Every 10 minutes, from outside: the site, the API and their certificates. A
+# failing check opens the issue "Outage: <check>", which GitHub emails to the
+# owner; the next success closes it (deploy/README.md, "Monitoring").
+
+on:
+  schedule:
+    - cron: '*/10 * * * *'
+  workflow_dispatch:
+
+permissions:
+  issues: write
+  contents: read
+
+# Two runs at once could open the same issue twice.
+concurrency:
+  group: uptime
+
+jobs:
+  check:
+    name: Check the site and the API
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v5
+      - name: Check the pages and the certificates
+        env:
+          SITE_URL: ${{ vars.SITE_URL || 'https://vetmimi.duckdns.org' }}
+          API_URL: ${{ vars.API_URL || 'https://api.vetmimi.duckdns.org' }}
+        run: |
+          set -o pipefail
+          scripts/uptime-check.sh | tee "$RUNNER_TEMP/checks.txt"
+      - name: Open, update or close the outage issues
+        if: ${{ !cancelled() }}
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+          PROJECT_TOKEN: ${{ secrets.PROJECT_TOKEN }}
+        run: scripts/uptime-issues.sh < "$RUNNER_TEMP/checks.txt"

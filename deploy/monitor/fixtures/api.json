@@ -1,0 +1,16 @@
+{
+  "cmdline": ["/api"],
+  "http_requests": {
+    "/healthz 2xx": 1440,
+    "/public/appointments 2xx": 12,
+    "/public/appointments 4xx": 3,
+    "/public/appointments 5xx": 1,
+    "/public/manage/:token 2xx": 4,
+    "unmatched 4xx": 27
+  },
+  "rate_limit_rejections": {
+    "service-key": 2
+  },
+  "tasks_failed": {},
+  "emails_failed": 0
+}

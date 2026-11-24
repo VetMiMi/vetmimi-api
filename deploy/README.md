@@ -20,7 +20,8 @@ to the command as arguments.
 | `bootstrap.sh` | Prepares a fresh Ubuntu host; safe to re-run |
 | `deploy.sh` | `deploy.sh <api\|web> <sha>`: releases one image, rolls back if unhealthy |
 | `backup.sh` | The nightly `pg_dump` to the backups bucket |
-| `compose/docker-compose.yml` | `api`, `worker`, `web`, `postgres`, `redis`, `caddy`, `coturn` |
+| `compose/docker-compose.yml` | `api`, `worker`, `web`, `postgres`, `redis`, `caddy`, `coturn`, `monitor` |
+| `monitor/alert.sh` | The `monitor` service's check every 5 minutes: rising error counters and the backup's age, emailed to `ALERT_EMAIL` |
 | `compose/caddy/Caddyfile` | `SITE_DOMAIN` → `web:3000`, `API_DOMAIN` → `api:8080` |
 | `compose/coturn/turnserver.conf` | coturn, hardened; holds no secret |
 | `Dockerfile` | The API image, built only by CI |
@@ -35,7 +36,8 @@ On the host the repository is cloned to `/srv/vetmimi`, owned by `deploy`:
 | `/srv/vetmimi/backups/` | The newest seven nightly dumps |
 
 Memory limits for the 2 GB instance, as starting values: PostgreSQL 448 MB,
-web 384 MB, api 192 MB, worker 192 MB, Redis 96 MB, Caddy 96 MB, coturn 96 MB.
+web 384 MB, api 192 MB, worker 192 MB, Redis 96 MB, Caddy 96 MB, coturn 96 MB,
+monitor 32 MB.
 Check `docker stats` after a week of real use and adjust.
 
 ## 1. Apply the budget
@@ -128,7 +130,8 @@ nano .env api.env
 
 In `.env`: `ECR_REGISTRY` from the output `ecr_registry`; `SITE_DOMAIN` and
 `API_DOMAIN` from `site_domain` and `api_domain`; `TURN_EXTERNAL_IP` from
-`public_ip`; `BACKUP_BUCKET` from `backups_bucket`; and `openssl rand -hex 32` for `POSTGRES_PASSWORD`,
+`public_ip`; `BACKUP_BUCKET` from `backups_bucket`; `ALERT_EMAIL`, your own
+address for the monitor's alerts; and `openssl rand -hex 32` for `POSTGRES_PASSWORD`,
 `SERVICE_KEY`, `SITE_REVALIDATE_SECRET` and `TURN_SECRET`.
 
 In `api.env`: `SIGNING_SECRET` (`openssl rand -hex 32`), `TOTP_ENCRYPTION_KEY`
@@ -139,8 +142,8 @@ In `api.env`: `SIGNING_SECRET` (`openssl rand -hex 32`), `TOTP_ENCRYPTION_KEY`
 Gemini values. Leave `MEDIA_S3_ACCESS_KEY` and `MEDIA_S3_SECRET_KEY` empty:
 the instance role grants the bucket. The compose file sets `ENV`, `PORT`,
 `DATABASE_URL`, `REDIS_URL`, `PUBLIC_API_URL`, `SITE_URL`, `SERVICE_KEY`,
-`SITE_REVALIDATE_SECRET`, `TURN_HOST` and `TURN_SECRET` itself, from `.env`;
-whatever `api.env` says for them is ignored.
+`SITE_REVALIDATE_SECRET`, `TURN_HOST`, `TURN_SECRET` and `METRICS_ADDR`
+itself; whatever `api.env` says for them is ignored.
 
 ## 5. Connect GitHub to the host
 
@@ -218,6 +221,8 @@ starts `api` and `worker` and waits for them to report healthy, reloads Caddy
 answers, it restores the previous tag in `.env.tags`, starts that release
 again and exits 1, which fails the workflow. With no previous release it stops
 the new one instead. `web` is the same against `https://$SITE_DOMAIN/api/health`.
+After a healthy release of either, it also brings the `monitor` service up to
+date; a monitor that fails to start never fails the release.
 
 To roll back by hand, release an earlier sha:
 
@@ -311,6 +316,64 @@ when it clears (`terraform/live/alarms.tf`):
 Memory and disk come from the CloudWatch agent (`bootstrap.sh`, namespace
 `VetMiMi`). They show insufficient data until bootstrap has run, and again if
 the agent stops: `systemctl status amazon-cloudwatch-agent`.
+
+## Monitoring
+
+Two more watchers beside the alarms, neither a paid service.
+
+### Uptime, from outside
+
+`.github/workflows/uptime.yml` runs `scripts/uptime-check.sh` on GitHub every
+10 minutes. It loads `/` and `/my` on the site and `/healthz` and `/readyz` on
+the API, each with a 10-second timeout and two retries, and fails a
+certificate with less than 14 days left. A failing check opens the issue
+`Outage: <check>` with its status and the UTC time, comments on it at each run
+that still fails, and closes it with "Recovered at <time>" on the next success.
+The repository variables `SITE_URL` and `API_URL` override the duckdns
+addresses. With a `PROJECT_TOKEN` secret (a token that may edit project 1) the
+issue also goes on the board as Launch, High, XS; without one, the run logs
+that those fields need setting by hand.
+
+- GitHub starts scheduled runs late, often by several minutes.
+- In a public repository GitHub pauses the schedule after 60 days without a
+  commit; turn it back on under Actions, Uptime.
+- An outage reaches you only as a GitHub notification: watch this repository
+  (all activity, or at least issues) and have GitHub email you about it.
+- A free external monitor, such as UptimeRobot, is optional. It also covers
+  the hours when GitHub itself is late or down.
+
+### Alerts, from the host
+
+The `monitor` service runs `monitor/alert.sh` every 5 minutes. It reads the
+counters that the api and the worker each serve on port 9090 (`METRICS_ADDR`,
+never published and never proxied by Caddy), compares them with its last run,
+and checks the newest dump in `/srv/vetmimi/backups`. An alert names the check
+and a count, never a person, an address or a path. It goes to the monitor's
+log and, through the API's own mail settings in `api.env`, to `ALERT_EMAIL`
+in `.env`, at most once an hour per check. With `ALERT_EMAIL` empty, or when
+the email fails, it is only in the log.
+
+`ALERT_EMAIL` is your address, never Daw Mi's. With `EMAIL_PROVIDER=smtp` the
+alerts leave from that mail account, so they also show in its Sent folder.
+
+`deploy.sh` brings the monitor up after every healthy release, but the release
+that adds it still runs the previous `deploy.sh`. Start it by hand that first
+time, and after changing `ALERT_EMAIL`. As `deploy`, in
+`/srv/vetmimi/deploy/compose`:
+
+```sh
+alias dc='docker compose --env-file .env --env-file .env.tags'
+dc up -d monitor
+dc logs --since 1h monitor
+```
+
+| Alert | Fires when | Look first at |
+|---|---|---|
+| `5xx` | 5 or more server errors since the last run | `dc logs --since 1h api \| grep '"status":5'`; `route` says where |
+| `tasks_failed` | 3 or more failed background tasks | `dc logs --since 1h worker \| grep '"outcome":"failed"'`; `task` and `err` say which and why |
+| `emails_failed` | An email gave up after its retries | Daw Mi's "Attention required" list, then `dc logs --since 1h worker \| grep '"email failed"'` for its `error_code` |
+| `backup` | The newest dump is over 26 hours old, or there is none | `journalctl -t vetmimi-backup`, then `ls -l /srv/vetmimi/backups` |
+| `metrics` | A counter or a `/debug/vars` cannot be read; sent once until they return | `dc ps`: are `api` and `worker` up, on a release that serves the counters? |
 
 ## A video session will not connect
 

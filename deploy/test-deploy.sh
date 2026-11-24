@@ -83,6 +83,7 @@ logged "$compose pull --quiet api worker [API_TAG=$second ]" || fail "did not pu
 logged "$compose up -d --wait --wait-timeout 120 api worker [API_TAG=$second ]" || fail "did not start api and worker"
 logged "$compose exec -T caddy caddy reload --config /etc/caddy/Caddyfile [API_TAG=$second ]" || fail "did not reload caddy"
 logged "image prune -f [API_TAG=$second ]" || fail "did not prune old images"
+logged "$compose up -d --no-deps monitor [API_TAG=$second ]" || fail "did not start the monitor"
 grep -qxF "https://api.test/healthz" "$work/curl.log" || fail "did not poll the api health url"
 
 reset_logs
