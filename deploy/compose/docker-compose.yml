@@ -1,6 +1,6 @@
 # The live host (ADR-010): the API, its worker, the website, PostgreSQL,
-# Redis, Caddy and coturn on one 2 GB EC2 instance. Run from this directory
-# with both env files, as deploy.sh does:
+# Redis, Caddy, coturn and a monitor on one 2 GB EC2 instance. Run from this
+# directory with both env files, as deploy.sh does:
 #   docker compose --env-file .env --env-file .env.tags <command>
 # .env holds the host's values (.env.example), api.env the API's own
 # (the repository's .env.example), and .env.tags the image tags deploy.sh
@@ -25,6 +25,8 @@ x-app-environment: &app-environment
   SITE_REVALIDATE_SECRET: ${SITE_REVALIDATE_SECRET:?set in .env}
   TURN_HOST: ${API_DOMAIN}:3478
   TURN_SECRET: ${TURN_SECRET:?set in .env}
+  # Each process serves its counters at /debug/vars here, for the monitor only.
+  METRICS_ADDR: ":9090"
   # Leaves headroom under the container limit so the Go runtime collects
   # garbage before the kernel kills it.
   GOMEMLIMIT: 160MiB
@@ -155,8 +157,26 @@ services:
     mem_limit: 96m
     logging: *logging
 
+  # Every 5 minutes, emails ALERT_EMAIL about rising errors or an old backup
+  # (deploy/README.md, "Monitoring"). Nothing depends on it.
+  monitor:
+    image: alpine:3
+    restart: unless-stopped
+    init: true
+    command: [sh, -c, "apk add --no-cache bash curl jq > /dev/null && while sleep 300; do /monitor/alert.sh; done"]
+    env_file: api.env
+    environment:
+      ALERT_EMAIL: ${ALERT_EMAIL:-}
+    volumes:
+      - ../monitor:/monitor:ro
+      - ../../backups:/backups:ro
+      - monitor:/state
+    mem_limit: 32m
+    logging: *logging
+
 volumes:
   postgres:
   redis:
   caddy_data:
   caddy_config:
+  monitor:

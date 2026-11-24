@@ -1,0 +1,13 @@
+{
+  "cmdline": ["/api", "--mode", "worker"],
+  "http_requests": {},
+  "tasks_processed": {
+    "comms:deliver": 40,
+    "booking:expire-hold": 3
+  },
+  "tasks_failed": {
+    "comms:deliver": 2
+  },
+  "emails_sent": 38,
+  "emails_failed": 1
+}

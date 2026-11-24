@@ -53,9 +53,15 @@ jobs:
           terraform_version: 1.16.4
           terraform_wrapper: false
       - name: Lint the shell scripts
-        run: shellcheck deploy/*.sh
+        run: shellcheck deploy/*.sh deploy/monitor/*.sh scripts/uptime-*.sh
       - name: Test deploy.sh with fake docker and curl
         run: deploy/test-deploy.sh
+      - name: Test the uptime check with fake curl, openssl and gh
+        run: scripts/uptime-check_test.sh
+      - name: Test the alert script in the monitor's image, under its memory limit
+        run: >-
+          docker run --rm --memory 32m -v "$PWD/deploy/monitor:/monitor:ro" alpine:3
+          sh -c 'apk add --no-cache bash curl jq > /dev/null && /monitor/alert_test.sh'
       - name: Check the compose guards and coturn hardening
         run: deploy/test-compose.sh
       - name: Validate the Caddyfile

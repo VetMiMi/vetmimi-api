@@ -93,6 +93,8 @@ main() {
 
   set_tag "$var" "$sha"
   if start "${services[@]}" && healthy "$url"; then
+    # After the health check and never fatal, so the monitor cannot hold a release back.
+    compose up -d --no-deps monitor || echo "deploy: the monitor did not start" >&2
     docker image prune -f > /dev/null
     echo "deploy: $service $sha is live"
     return 0

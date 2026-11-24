@@ -73,7 +73,7 @@ It is designed for its real scale: one practitioner, tens of appointments a mont
 | `internal/pgtest/`, `internal/redistest/` | A test database per test binary, and Redis for tests |
 | `migrations/` | goose SQL migrations, embedded in the binary |
 | `deploy/` | Dockerfile, Compose, Caddy, coturn and Terraform for the live host |
-| `scripts/` | `gate.sh`, the machine-wide lock |
+| `scripts/` | `gate.sh`, the machine-wide lock; `uptime-check.sh`, the uptime check GitHub runs every 10 minutes |
 | `docs/` | Architecture, data model, social setup guides, ADRs |
 
 Each feature folder holds its routes, handlers and rules together: `handler.go` lists every route with its role and rate limit, `http_*.go` holds the handlers with their request and response structs, and the other files hold the rules. [`STYLE.md`](STYLE.md) shows the pattern.
@@ -264,7 +264,7 @@ What the tests promise:
 - **About 380 tests in 86 files.** Integration tests run against **real PostgreSQL**, with no mocks: each test binary gets its own migrated database, which is dropped afterwards. If the test databases aren't configured, the run fails rather than skipping.
 - **Every external API is tested against a fake HTTP server:** Resend, Meta, LinkedIn and Gemini.
 - **Each behaviour gets a success test and a failure test**, and anything touching scheduling gets a concurrency test.
-- **CI** (`.github/workflows/ci.yml`) also runs the deployment checks (shellcheck, the deploy and compose tests, `caddy validate`, an image build, `terraform validate`) and the Conventional Commits check.
+- **CI** (`.github/workflows/ci.yml`) also runs the deployment checks (shellcheck, the deploy, compose, uptime and alert tests, `caddy validate`, an image build, `terraform validate`) and the Conventional Commits check.
 
 ## Deployment
 
@@ -273,6 +273,7 @@ The runbook is [`deploy/README.md`](deploy/README.md); the decisions are [ADR-01
 - **Live host:** one AWS EC2 `t4g.small` in Sydney (`deploy/terraform/live`), running Docker Compose with the API and worker (one image), the website, PostgreSQL 17, Redis 7, Caddy and coturn.
 - **Releases:** after CI passes on `main`, `release.yml` builds an arm64 image, pushes it to ECR through GitHub's OIDC role and deploys over SSH. A release that fails its health check within a minute is rolled back.
 - **Backups and alarms:** a nightly `pg_dump` to a private S3 bucket, kept 30 days; CloudWatch emails the owner on failed status checks, high CPU, memory or disk.
+- **Monitoring:** every 10 minutes GitHub checks the site, the API and their certificates and opens an `Outage:` issue for a failure. On the host, a monitor emails the owner when server errors, failed tasks or failed emails rise, or the backup is late.
 - **Fargate target:** the same images on ECS Fargate across two Availability Zones, behind CloudFront and an Application Load Balancer, with RDS PostgreSQL Multi-AZ and ElastiCache Redis (`deploy/terraform/demo`). It is applied for one evidence session and destroyed the same day, because it costs about US$5 a day against the live host's few dollars a month.
 
 ### Deployment evidence
