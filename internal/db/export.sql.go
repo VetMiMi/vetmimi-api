@@ -43,8 +43,7 @@ type ExportAppointmentsRow struct {
 	UpdatedAt        time.Time
 }
 
-// ExportAppointments reads the appointments starting in [@starts_from,
-// @starts_before) for the admin CSV export. It leaves out the admin note.
+// ExportAppointments leaves out the admin note: it is private to Daw Mi.
 func (q *Queries) ExportAppointments(ctx context.Context, arg ExportAppointmentsParams) ([]ExportAppointmentsRow, error) {
 	rows, err := q.db.Query(ctx, exportAppointments, arg.StartsFrom, arg.StartsBefore)
 	if err != nil {

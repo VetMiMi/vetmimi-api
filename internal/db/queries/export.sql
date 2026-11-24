@@ -1,5 +1,4 @@
--- ExportAppointments reads the appointments starting in [@starts_from,
--- @starts_before) for the admin CSV export. It leaves out the admin note.
+-- ExportAppointments leaves out the admin note: it is private to Daw Mi.
 -- name: ExportAppointments :many
 SELECT a.reference, a.status, (s.name->>'en')::text AS service_name, a.starts_at, a.duration_minutes,
        a.format, a.visitor_name, a.visitor_email, a.visitor_phone, a.visitor_note, a.late_cancellation,
