@@ -59,10 +59,7 @@ func (h *Handler) Routes(r web.Routes) {
 	admin.POST("/admin/services/:serviceId/resume", h.resumeService)
 
 	admin.GET("/admin/availability/rules", h.listRules)
-	admin.POST("/admin/availability/rules", h.createRule)
 	admin.PUT("/admin/availability/rules", h.replaceWeeklyHours)
-	admin.PUT("/admin/availability/rules/:ruleId", h.updateRule)
-	admin.DELETE("/admin/availability/rules/:ruleId", h.deleteRule)
 	admin.GET("/admin/availability/overrides", h.listOverrides)
 	admin.POST("/admin/availability/overrides", h.createOverride)
 	admin.PUT("/admin/availability/overrides/:overrideId", h.updateOverride)

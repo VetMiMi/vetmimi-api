@@ -2,11 +2,9 @@ package booking
 
 import (
 	"context"
-	"errors"
 	"fmt"
 	"time"
 
-	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgtype"
 	"github.com/jackc/pgx/v5/pgxpool"
 
@@ -23,111 +21,8 @@ type Rule struct {
 
 const defaultWindowDays = 62
 
-var errRuleNotFound = apperr.New(apperr.NotFound, "No availability period has this id.")
-
 func ListRules(ctx context.Context, q db.Querier) ([]db.AvailabilityRule, error) {
 	return q.ListAvailabilityRules(ctx)
-}
-
-func CreateRule(ctx context.Context, pool *pgxpool.Pool, rule Rule) (db.AvailabilityRule, error) {
-	start, end, err := rule.times()
-	if err != nil {
-		return db.AvailabilityRule{}, err
-	}
-
-	tx, err := pool.Begin(ctx)
-	if err != nil {
-		return db.AvailabilityRule{}, err
-	}
-	defer tx.Rollback(ctx)
-	q := db.New(tx)
-
-	err = q.LockSchedule(ctx)
-	if err != nil {
-		return db.AvailabilityRule{}, err
-	}
-	params := db.CreateAvailabilityRuleParams{
-		Weekday:   rule.Weekday,
-		StartTime: start,
-		EndTime:   end,
-	}
-	row, err := q.CreateAvailabilityRule(ctx, params)
-	if err != nil {
-		return db.AvailabilityRule{}, refusal(err)
-	}
-
-	err = tx.Commit(ctx)
-	if err != nil {
-		return db.AvailabilityRule{}, err
-	}
-	return row, nil
-}
-
-func UpdateRule(ctx context.Context, pool *pgxpool.Pool, id pgtype.UUID, rule Rule,
-	now time.Time) (db.AvailabilityRule, error) {
-	start, end, err := rule.times()
-	if err != nil {
-		return db.AvailabilityRule{}, err
-	}
-
-	tx, err := pool.Begin(ctx)
-	if err != nil {
-		return db.AvailabilityRule{}, err
-	}
-	defer tx.Rollback(ctx)
-	q := db.New(tx)
-
-	err = q.LockSchedule(ctx)
-	if err != nil {
-		return db.AvailabilityRule{}, err
-	}
-	params := db.UpdateAvailabilityRuleParams{
-		ID:        id,
-		Weekday:   rule.Weekday,
-		StartTime: start,
-		EndTime:   end,
-		Now:       now,
-	}
-	row, err := q.UpdateAvailabilityRule(ctx, params)
-	if errors.Is(err, pgx.ErrNoRows) {
-		return db.AvailabilityRule{}, errRuleNotFound
-	}
-	if err != nil {
-		return db.AvailabilityRule{}, refusal(err)
-	}
-
-	err = tx.Commit(ctx)
-	if err != nil {
-		return db.AvailabilityRule{}, err
-	}
-	return row, nil
-}
-
-func DeleteRule(ctx context.Context, pool *pgxpool.Pool, id pgtype.UUID) error {
-	tx, err := pool.Begin(ctx)
-	if err != nil {
-		return err
-	}
-	defer tx.Rollback(ctx)
-	q := db.New(tx)
-
-	err = q.LockSchedule(ctx)
-	if err != nil {
-		return err
-	}
-	deleted, err := q.DeleteAvailabilityRule(ctx, id)
-	if err != nil {
-		return err
-	}
-
-	err = tx.Commit(ctx)
-	if err != nil {
-		return err
-	}
-	if deleted == 0 {
-		return errRuleNotFound
-	}
-	return nil
 }
 
 // ReplaceRules saves the whole week or nothing; an empty list closes every day.

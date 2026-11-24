@@ -7,7 +7,6 @@ package db
 
 import (
 	"context"
-	"time"
 
 	"github.com/jackc/pgx/v5/pgtype"
 )
@@ -47,18 +46,6 @@ func (q *Queries) DeleteAllAvailabilityRules(ctx context.Context) error {
 	return err
 }
 
-const deleteAvailabilityRule = `-- name: DeleteAvailabilityRule :execrows
-DELETE FROM availability_rules WHERE id = $1
-`
-
-func (q *Queries) DeleteAvailabilityRule(ctx context.Context, id pgtype.UUID) (int64, error) {
-	result, err := q.db.Exec(ctx, deleteAvailabilityRule, id)
-	if err != nil {
-		return 0, err
-	}
-	return result.RowsAffected(), nil
-}
-
 const listAvailabilityRules = `-- name: ListAvailabilityRules :many
 SELECT id, weekday, start_time, end_time, created_at, updated_at FROM availability_rules ORDER BY weekday, start_time
 `
@@ -88,39 +75,4 @@ func (q *Queries) ListAvailabilityRules(ctx context.Context) ([]AvailabilityRule
 		return nil, err
 	}
 	return items, nil
-}
-
-const updateAvailabilityRule = `-- name: UpdateAvailabilityRule :one
-UPDATE availability_rules
-SET weekday = $1, start_time = $2, end_time = $3, updated_at = $4
-WHERE id = $5
-RETURNING id, weekday, start_time, end_time, created_at, updated_at
-`
-
-type UpdateAvailabilityRuleParams struct {
-	Weekday   int16
-	StartTime pgtype.Time
-	EndTime   pgtype.Time
-	Now       time.Time
-	ID        pgtype.UUID
-}
-
-func (q *Queries) UpdateAvailabilityRule(ctx context.Context, arg UpdateAvailabilityRuleParams) (AvailabilityRule, error) {
-	row := q.db.QueryRow(ctx, updateAvailabilityRule,
-		arg.Weekday,
-		arg.StartTime,
-		arg.EndTime,
-		arg.Now,
-		arg.ID,
-	)
-	var i AvailabilityRule
-	err := row.Scan(
-		&i.ID,
-		&i.Weekday,
-		&i.StartTime,
-		&i.EndTime,
-		&i.CreatedAt,
-		&i.UpdatedAt,
-	)
-	return i, err
 }

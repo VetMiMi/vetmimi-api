@@ -14,51 +14,6 @@ import (
 
 const rulesURL = "/admin/availability/rules"
 
-func TestHTTP_AvailabilityRules(t *testing.T) {
-	clearRules(t)
-	a := bookingAPI(t)
-	token := webtest.SignIn(t, "booking_admin")
-
-	afternoon := webtest.JSON(t, http.StatusCreated, a.Admin(http.MethodPost, rulesURL, token,
-		`{"weekday": 2, "startTime": "14:00", "endTime": "17:00"}`))
-	require.Equal(t, []string{"endTime", "id", "startTime", "weekday"}, keys(afternoon))
-	webtest.JSON(t, http.StatusCreated, a.Admin(http.MethodPost, rulesURL, token,
-		`{"weekday": 2, "startTime": "10:00", "endTime": "13:00"}`))
-
-	list := webtest.JSON(t, http.StatusOK, a.Admin(http.MethodGet, rulesURL, token, ""))
-	require.Equal(t, "Australia/Sydney", list["timezone"])
-	items := list["items"].([]any)
-	require.Len(t, items, 2)
-	require.Equal(t, "10:00", items[0].(map[string]any)["startTime"])
-
-	webtest.Refused(t, http.StatusConflict, "overlapping_period", a.Admin(http.MethodPost, rulesURL, token,
-		`{"weekday": 2, "startTime": "12:30", "endTime": "15:00"}`))
-	p := webtest.Refused(t, http.StatusUnprocessableEntity, "action_not_allowed", a.Admin(http.MethodPost, rulesURL, token,
-		`{"weekday": 3, "startTime": "15:00", "endTime": "09:00"}`))
-	require.Equal(t, []any{map[string]any{"field": "/endTime", "message": "must be later than startTime"}}, p["errors"])
-	p = webtest.Refused(t, http.StatusBadRequest, "invalid_request", a.Admin(http.MethodPost, rulesURL, token,
-		`{"weekday": 8, "startTime": "9:00", "endTime": "10:00"}`))
-	require.Equal(t, []any{
-		map[string]any{"field": "/weekday", "message": "must be at most 7"},
-		map[string]any{"field": "/startTime", "message": "must be a time as HH:MM"},
-	}, p["errors"])
-	p = webtest.Refused(t, http.StatusBadRequest, "invalid_request", a.Admin(http.MethodPost, rulesURL, token,
-		`{"weekday": 0, "startTime": "09:00", "endTime": "10:00"}`))
-	require.Equal(t, []any{map[string]any{"field": "/weekday", "message": "must be at least 1"}}, p["errors"])
-
-	path := rulesURL + "/" + afternoon["id"].(string)
-	moved := webtest.JSON(t, http.StatusOK, a.Admin(http.MethodPut, path, token,
-		`{"weekday": 4, "startTime": "13:00", "endTime": "16:30"}`))
-	require.Equal(t, map[string]any{"id": afternoon["id"], "weekday": float64(4), "startTime": "13:00", "endTime": "16:30"}, moved)
-	res := a.Admin(http.MethodDelete, path, token, "")
-	require.Equal(t, http.StatusNoContent, res.Code)
-	require.Empty(t, res.Body.String())
-	webtest.Refused(t, http.StatusNotFound, "not_found", a.Admin(http.MethodDelete, path, token, ""))
-	webtest.Refused(t, http.StatusNotFound, "not_found", a.Admin(http.MethodPut, path, token,
-		`{"weekday": 4, "startTime": "13:00", "endTime": "16:30"}`))
-	webtest.Refused(t, http.StatusBadRequest, "invalid_request", a.Admin(http.MethodDelete, rulesURL+"/nope", token, ""))
-}
-
 func TestHTTP_ReplaceWeeklyHours(t *testing.T) {
 	clearRules(t)
 	a := bookingAPI(t)
@@ -69,6 +24,7 @@ func TestHTTP_ReplaceWeeklyHours(t *testing.T) {
 	require.Equal(t, "Australia/Sydney", week["timezone"])
 	items := week["items"].([]any)
 	require.Len(t, items, 2)
+	require.Equal(t, []string{"endTime", "id", "startTime", "weekday"}, keys(items[0].(map[string]any)))
 	require.Equal(t, float64(1), items[0].(map[string]any)["weekday"])
 	require.Equal(t, week, webtest.JSON(t, http.StatusOK, a.Admin(http.MethodGet, rulesURL, token, "")))
 
@@ -218,8 +174,7 @@ func TestHTTP_AvailabilityNeedsBookingAdmin(t *testing.T) {
 	editor := webtest.SignIn(t, "content_editor")
 	id := "8f14e45f-ceea-4e8a-9b1c-3c1d2a6b7e10"
 	for _, call := range [][2]string{
-		{http.MethodGet, rulesURL}, {http.MethodPost, rulesURL}, {http.MethodPut, rulesURL},
-		{http.MethodPut, rulesURL + "/" + id}, {http.MethodDelete, rulesURL + "/" + id},
+		{http.MethodGet, rulesURL}, {http.MethodPut, rulesURL},
 		{http.MethodGet, "/admin/availability/overrides"}, {http.MethodPost, "/admin/availability/overrides"},
 		{http.MethodPut, "/admin/availability/overrides/" + id}, {http.MethodDelete, "/admin/availability/overrides/" + id},
 		{http.MethodGet, "/admin/availability/blocks"}, {http.MethodPost, "/admin/availability/blocks"},

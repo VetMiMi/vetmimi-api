@@ -67,23 +67,6 @@ func (h *Handler) listRules(c *gin.Context) {
 	c.JSON(http.StatusOK, newRuleListResponse(timezone, rules))
 }
 
-func (h *Handler) createRule(c *gin.Context) {
-	var body ruleBody
-	if !web.BindJSON(c, &body) {
-		return
-	}
-	ctx := c.Request.Context()
-
-	rule, err := CreateRule(ctx, h.Pool, newRule(body))
-	if err != nil {
-		web.Error(c, err)
-		return
-	}
-
-	logAvailability(ctx, "availability_rule_created", rule.ID)
-	c.JSON(http.StatusCreated, newRuleResponse(rule))
-}
-
 func (h *Handler) replaceWeeklyHours(c *gin.Context) {
 	var body replaceWeeklyHoursBody
 	if !web.BindJSON(c, &body) {
@@ -108,44 +91,6 @@ func (h *Handler) replaceWeeklyHours(c *gin.Context) {
 
 	slog.InfoContext(ctx, "weekly_hours_replaced", "request_id", web.RequestID(ctx), "periods", len(saved))
 	c.JSON(http.StatusOK, newRuleListResponse(timezone, saved))
-}
-
-func (h *Handler) updateRule(c *gin.Context) {
-	ruleID, ok := web.PathUUID(c, "ruleId")
-	if !ok {
-		return
-	}
-	var body ruleBody
-	if !web.BindJSON(c, &body) {
-		return
-	}
-	ctx := c.Request.Context()
-
-	rule, err := UpdateRule(ctx, h.Pool, ruleID, newRule(body), h.Now())
-	if err != nil {
-		web.Error(c, err)
-		return
-	}
-
-	logAvailability(ctx, "availability_rule_updated", rule.ID)
-	c.JSON(http.StatusOK, newRuleResponse(rule))
-}
-
-func (h *Handler) deleteRule(c *gin.Context) {
-	ruleID, ok := web.PathUUID(c, "ruleId")
-	if !ok {
-		return
-	}
-	ctx := c.Request.Context()
-
-	err := DeleteRule(ctx, h.Pool, ruleID)
-	if err != nil {
-		web.Error(c, err)
-		return
-	}
-
-	logAvailability(ctx, "availability_rule_deleted", ruleID)
-	c.Status(http.StatusNoContent)
 }
 
 // previewAvailability shows the slots the public sees, even while public booking is paused.

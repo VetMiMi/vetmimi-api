@@ -46,7 +46,6 @@ type Querier interface {
 	DeleteArticle(ctx context.Context, postID pgtype.UUID) error
 	DeleteAvailabilityBlock(ctx context.Context, id pgtype.UUID) (int64, error)
 	DeleteAvailabilityOverride(ctx context.Context, id pgtype.UUID) (int64, error)
-	DeleteAvailabilityRule(ctx context.Context, id pgtype.UUID) (int64, error)
 	DeleteConnection(ctx context.Context, platform string) error
 	// DeleteExpiredIdempotencyKeys deletes up to @max_rows keys created before
 	// @before, so one run never holds a long lock.
@@ -240,7 +239,6 @@ type Querier interface {
 	TouchSession(ctx context.Context, arg TouchSessionParams) error
 	UpdateAvailabilityBlock(ctx context.Context, arg UpdateAvailabilityBlockParams) (AvailabilityBlock, error)
 	UpdateAvailabilityOverride(ctx context.Context, arg UpdateAvailabilityOverrideParams) (AvailabilityOverride, error)
-	UpdateAvailabilityRule(ctx context.Context, arg UpdateAvailabilityRuleParams) (AvailabilityRule, error)
 	// UpdateMedia changes the description as of @version; no row back means the
 	// item is gone or changed since it was read.
 	UpdateMedia(ctx context.Context, arg UpdateMediaParams) (Media, error)
