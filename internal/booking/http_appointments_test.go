@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"net/http"
+	"net/http/httptest"
 	"testing"
 
 	"github.com/stretchr/testify/require"
@@ -79,4 +80,54 @@ func TestHTTP_CreateManualAppointment(t *testing.T) {
 	p := webtest.Refused(t, http.StatusBadRequest, "invalid_request",
 		a.Send(http.MethodPost, "/admin/appointments", `{"serviceId": "nope"}`, "Authorization", "Bearer "+token, "Idempotency-Key", key))
 	require.Contains(t, p["errors"], map[string]any{"field": "/serviceId", "message": "must be a valid uuid"})
+}
+
+func TestHTTP_MeetingLink(t *testing.T) {
+	setSetting(t, "meeting_link_mode", `"manual_link"`)
+	appt, _ := booked(t, booking.Pending)
+	a := bookingAPI(t)
+	token := webtest.SignIn(t, "booking_admin")
+	path := "/admin/appointments/" + appt.ID.String()
+
+	got := webtest.JSON(t, http.StatusOK, a.Admin(http.MethodGet, path, token, ""))
+	require.Contains(t, got["allowedActions"], "set_meeting_link")
+
+	body := fmt.Sprintf(`{"version": %d, "meetingLink": "https://meet.example/first"}`, appt.Version)
+	confirmed := webtest.JSON(t, http.StatusOK, a.Admin(http.MethodPost, path+"/confirm", token, body))
+	require.Equal(t, "https://meet.example/first", confirmed["meetingLink"])
+	events := confirmed["events"].([]any)
+	last := events[len(events)-1].(map[string]any)
+	require.Equal(t, "meeting_link_set", last["kind"])
+	require.Equal(t, map[string]any{}, last["detail"], "the history never holds the link")
+
+	version := int(confirmed["version"].(float64))
+	body = fmt.Sprintf(`{"version": %d, "meetingLink": " https://meet.example/second "}`, version)
+	replaced := webtest.JSON(t, http.StatusOK, a.Admin(http.MethodPut, path+"/meeting-link", token, body))
+	require.Equal(t, "https://meet.example/second", replaced["meetingLink"])
+	require.Equal(t, float64(version+1), replaced["version"])
+	require.Equal(t, []string{"booking_confirmed:queued:", "reminder:queued:"}, commStatuses(t, appt.ID),
+		"a changed link sends no email")
+	require.NotContains(t, a.Logs.String(), "meet.example")
+}
+
+func TestHTTP_MeetingLinkRefused(t *testing.T) {
+	pending, _ := booked(t, booking.Pending)
+	a := bookingAPI(t)
+	token := webtest.SignIn(t, "booking_admin")
+	body := fmt.Sprintf(`{"version": %d, "meetingLink": "https://meet.example/abc"}`, pending.Version)
+	webtest.Refused(t, http.StatusUnprocessableEntity, "action_not_allowed",
+		a.Admin(http.MethodPost, "/admin/appointments/"+pending.ID.String()+"/confirm", token, body))
+	require.Equal(t, "pending", getAppointment(t, pending.ID).Status, "vetmimi_room mode refuses the link and the confirm")
+
+	confirmed, _ := booked(t, booking.Confirmed)
+	path := "/admin/appointments/" + confirmed.ID.String() + "/meeting-link"
+	put := func(version int32, link string) *httptest.ResponseRecorder {
+		return a.Admin(http.MethodPut, path, token, fmt.Sprintf(`{"version": %d, "meetingLink": %q}`, version, link))
+	}
+	webtest.Refused(t, http.StatusUnprocessableEntity, "action_not_allowed", put(confirmed.Version, "https://meet.example/abc"))
+
+	setSetting(t, "meeting_link_mode", `"manual_link"`)
+	p := webtest.Refused(t, http.StatusBadRequest, "invalid_request", put(confirmed.Version, "http://meet.example/abc"))
+	require.Equal(t, "/meetingLink", p["errors"].([]any)[0].(map[string]any)["field"])
+	webtest.Refused(t, http.StatusConflict, "stale_version", put(confirmed.Version+1, "https://meet.example/abc"))
 }

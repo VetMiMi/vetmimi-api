@@ -25,7 +25,7 @@ func roomOf(t *testing.T, id pgtype.UUID) (db.VideoRoom, bool) {
 
 func confirm(t *testing.T, appt db.Appointment, now time.Time) booking.Changed {
 	t.Helper()
-	changed, err := booking.Confirm(context.Background(), pgtest.Pool(t), testSecret, changeOf(t, appt), now)
+	changed, err := booking.Confirm(context.Background(), pgtest.Pool(t), testSecret, changeOf(t, appt), "", now)
 	require.NoError(t, err)
 	return changed
 }
@@ -72,7 +72,7 @@ func TestConfirm_TwiceAtOnceMakesOneRoom(t *testing.T) {
 	errs := make(chan error, 2)
 	for range 2 {
 		go func() {
-			_, err := booking.Confirm(context.Background(), pgtest.Pool(t), testSecret, changeOf(t, appt), now)
+			_, err := booking.Confirm(context.Background(), pgtest.Pool(t), testSecret, changeOf(t, appt), "", now)
 			errs <- err
 		}()
 	}

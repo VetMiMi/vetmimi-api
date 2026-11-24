@@ -262,8 +262,12 @@ content. Daw Mi holds all three roles.
    take its time between the two states.
 5. If the format is `online` and `meeting_link_mode = vetmimi_room`, a
    `video_rooms` row is inserted with a join-token seed and hash, `opens_at` =
-   start − 15 minutes, `closes_at` = end + 60 minutes. `manual_link` mode is not
-   served yet: confirm accepts `meetingLink` and ignores it.
+   start − 15 minutes, `closes_at` = end + 60 minutes. In `manual_link` mode
+   no room is made; an optional `meetingLink` on confirm is stored in the same
+   transaction with a `meeting_link_set` event. `PUT
+   /admin/appointments/{id}/meeting-link` sets or replaces it later without
+   sending an email; the emails read the link when they are sent. In
+   `vetmimi_room` mode a `meetingLink` is refused with `422 action_not_allowed`.
 6. Events row `confirmed`; communications `booking_confirmed` (visitor) and
    `reminder` (visitor, `scheduled_for` = start − `reminder_hours`, only if that
    is still in the future).

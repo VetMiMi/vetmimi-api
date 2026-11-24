@@ -154,3 +154,25 @@ func TestDashboard_RescheduleRequestClearedByReschedule(t *testing.T) {
 
 	require.Empty(t, f.dashboard().Attention)
 }
+
+func TestDashboard_MeetingLinkMissing(t *testing.T) {
+	f := newDashboardFixture(t)
+	ctx := context.Background()
+	_, err := f.tx.Exec(ctx, `UPDATE settings SET value = '"manual_link"' WHERE key = 'meeting_link_mode'`)
+	require.NoError(t, err)
+	appt := f.add("noLink", booking.Confirmed, april(9, 15, 0))
+
+	attention := f.dashboard().Attention
+	require.Len(t, attention, 1)
+	require.Equal(t, "meeting_link_missing", attention[0].Kind)
+	require.Equal(t, appt.ID, attention[0].AppointmentID)
+
+	params := db.SetAppointmentMeetingLinkParams{
+		ID:          appt.ID,
+		MeetingLink: "https://meet.example/abc",
+		Now:         dashboardNow,
+	}
+	_, err = f.q.SetAppointmentMeetingLink(ctx, params)
+	require.NoError(t, err)
+	require.Empty(t, f.dashboard().Attention)
+}

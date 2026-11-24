@@ -39,11 +39,16 @@ WITH items AS (
                 WHERE e.appointment_id = a.id AND (e.kind = 'rescheduled' OR e.to_status IS NOT NULL)
             ), 0))
     UNION ALL
-    SELECT 5, 'completion_due', a.id, a.starts_at, ''
+    SELECT 5, 'meeting_link_missing', a.id, a.starts_at, ''
+    FROM appointments a
+    WHERE @manual_links::bool AND a.status = 'confirmed' AND a.format = 'online'
+      AND a.meeting_link IS NULL AND a.starts_at > @now::timestamptz
+    UNION ALL
+    SELECT 6, 'completion_due', a.id, a.starts_at, ''
     FROM appointments a
     WHERE a.status = 'confirmed' AND a.ends_at < @now::timestamptz
     UNION ALL
-    SELECT 6, 'block_conflict', a.id, a.starts_at, ''
+    SELECT 7, 'block_conflict', a.id, a.starts_at, ''
     FROM appointments a
     WHERE a.status IN ('pending', 'confirmed')
       AND EXISTS (SELECT 1 FROM availability_blocks b WHERE b.period && a.busy_range)

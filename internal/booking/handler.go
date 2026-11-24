@@ -84,6 +84,7 @@ func (h *Handler) Routes(r web.Routes) {
 	admin.POST("/admin/appointments/:appointmentId/complete", h.completeAppointment)
 	admin.POST("/admin/appointments/:appointmentId/no-show", h.markNoShow)
 	admin.PUT("/admin/appointments/:appointmentId/note", h.setAppointmentNote)
+	admin.PUT("/admin/appointments/:appointmentId/meeting-link", h.setAppointmentMeetingLink)
 	admin.POST("/admin/appointments/:appointmentId/communications/:communicationId/resend", h.resendCommunication)
 	admin.POST("/admin/appointments/:appointmentId/mark-communicated", h.markCommunicated)
 }

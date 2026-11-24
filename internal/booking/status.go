@@ -67,7 +67,16 @@ func Terminal(status Status) bool {
 }
 
 // Confirm keeps the row inside appointments_no_overlap, so its time is never free in between.
-func Confirm(ctx context.Context, pool *pgxpool.Pool, secret []byte, change Change, now time.Time) (Changed, error) {
+func Confirm(ctx context.Context, pool *pgxpool.Pool, secret []byte, change Change, meetingLink string,
+	now time.Time) (Changed, error) {
+	var err error
+	if meetingLink != "" {
+		meetingLink, err = checkMeetingLink(meetingLink)
+		if err != nil {
+			return Changed{}, err
+		}
+	}
+
 	tx, err := pool.Begin(ctx)
 	if err != nil {
 		return Changed{}, err
@@ -93,6 +102,12 @@ func Confirm(ctx context.Context, pool *pgxpool.Pool, secret []byte, change Chan
 	appointment, err = setStatus(ctx, q, appointment, Confirmed, "confirmed", change, EventDetail{}, now)
 	if err != nil {
 		return Changed{}, err
+	}
+	if meetingLink != "" {
+		appointment, err = setMeetingLink(ctx, q, appointment, meetingLink, current.MeetingLinkMode, change.Actor, now)
+		if err != nil {
+			return Changed{}, err
+		}
 	}
 	tasks, err := afterConfirm(ctx, q, secret, appointment, current, now, true)
 	if err != nil {
